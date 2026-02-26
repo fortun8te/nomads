@@ -1,0 +1,144 @@
+{
+  "campaign": {
+    "id": "campaign-skincare-001",
+    "brand": "Upfront",
+    "targetAudience": "Emma, The Conscious Skeptic (32-38, Senior PM, Northern Europe)",
+    "marketingGoal": "Drive trial conversions among skeptical clean beauty seekers, establish category authority",
+    "status": "active",
+    "currentCycle": 1
+  },
+  "brandData": {
+    "name": "Upfront",
+    "website": "www.upfront.nl",
+    "socials": "instagram.com/upfront.skincare | tiktok.com/@upfrontskincare | youtube.com/@upfrontbeauty",
+    "industry": "Beauty / Clean Beauty / Skincare",
+    "positioning": "The transparent skincare brand that puts ingredient integrity first, not marketing hype",
+    "tone": "Honest, educational, friendly but never patronizing, data-backed, no greenwashing",
+    "colors": "Sage green (trust/growth) + cream (approachable) + charcoal (authority)",
+    "fonts": "Inter (modern, clean) + Courier (technical credibility)",
+    "bigEnemy": "Greenwashing and companies that hide toxic ingredients behind buzzwords and Instagram aesthetics",
+    "categoryBeliefs": [
+      "Myth: Natural = ineffective → Reality: Natural ingredients CAN be efficacious when properly formulated",
+      "Myth: Premium skincare costs €100+ → Reality: Smart ingredient ratios deliver results at €65",
+      "Myth: Skincare routines need 10 steps → Reality: Minimal routines with right ingredients work better"
+    ],
+    "brandWhy": "Because our founder experienced severe reactions to 'natural' products with hidden synthetic ingredients and found zero transparency in the market"
+  },
+  "personaData": {
+    "name": "Emma, The Conscious Skeptic",
+    "age": "32-38",
+    "gender": "Female",
+    "job": "Senior Product Manager at tech company",
+    "location": "Netherlands, Belgium, Germany",
+    "income": "€50k-200k household",
+    "maritalStatus": "Married, 1-2 kids (optional partner has influence on beauty purchases)",
+    "painPoints": [
+      "Confusing ingredient lists with unpronounceable chemicals",
+      "Wasted €500+ on ineffective 'natural' products that caused reactions",
+      "Skin sensitivity flare-ups from products claiming to be gentle",
+      "Don't trust marketing claims without third-party proof"
+    ],
+    "values": [
+      "Transparency: reads ingredient labels obsessively, checks certifications",
+      "Efficacy: wants PROVEN results, not just marketing promises",
+      "Sustainability: prefers recyclable packaging, ethical sourcing"
+    ],
+    "trustFactors": [
+      "Third-party dermatologist recommendations (most important)",
+      "Published clinical studies with specific data points",
+      "Real customer testimonials with before/after photos",
+      "Transparent ingredient sourcing and why each ingredient was chosen"
+    ],
+    "mustBelieve": "Natural ingredients CAN be efficacious + I can actually change my skin + investing €65 is worth avoiding dermatologist visits at €200+",
+    "identityShift": "From 'Frustrated skeptic who's been burned by beauty brands' → to 'Informed consumer who found a brand I actually trust'",
+    "dayInLife": "6am wake, 15min workout, 7am shower (skincare routine), 8-9am scrolls Instagram/Reddit on commute, 9-5pm desk job, 5-6pm gym, 6-8pm dinner, 8-10pm Netflix + skincare routine, 10:30pm bed",
+    "onlineHabits": "3hrs Instagram (research + scrolling), 1hr Reddit (r/skincare + r/Neuropathy), 30min YouTube (product reviews), 20min TikTok (trends)"
+  },
+  "productData": {
+    "productName": "Upfront Vitamin C Brightening Serum",
+    "productCategory": "Skincare → Serums → Brightening",
+    "productDescription": "A stabilized L-ascorbic acid serum (15%) with hyaluronic acid (2%) and ferulic acid in a lightweight formula that absorbs in 60 seconds without stickiness",
+    "problemSolved": "Hyperpigmentation from sun damage and post-acne marks causing dull, uneven tone",
+    "secondaryProblems": [
+      "Fine lines and loss of elasticity",
+      "Uneven texture and roughness",
+      "Lack of natural radiance despite skincare routine"
+    ],
+    "keyFeatures": [
+      "Stabilized L-ascorbic acid: 15% (most competitors 10% or less)",
+      "Ferulic acid complex for stability and enhanced absorption",
+      "Hyaluronic acid: hydration without heaviness",
+      "Glass packaging protects from light degradation",
+      "No silicones, no artificial fragrance, dermatologist tested"
+    ],
+    "functionalBenefits": [
+      "Brightens skin noticeably in 2 weeks",
+      "Reduces brown spots 40% in 8 weeks (tested on 50 users)",
+      "Improves texture and smoothness in 4 weeks",
+      "Boosts collagen production markers (measured in study)"
+    ],
+    "emotionalBenefits": [
+      "Confidence in photos without heavy makeup",
+      "Not hiding spots and marks anymore",
+      "Feeling like you're 'glowing' naturally",
+      "Reclaiming your skin without dermatologist intervention"
+    ],
+    "resultTimeline": {
+      "week1": "Hydration boost, subtle glow (visible to wearer)",
+      "week2": "Fine lines soften noticeably",
+      "week4": "Brightness improves significantly, spots less prominent",
+      "week8": "40% reduction in hyperpigmentation (measurable)"
+    },
+    "pricing": "€65 (€0.65 per application × 100 applications)",
+    "guarantee": "60-day money-back guarantee, no questions asked",
+    "provenResults": "Clinical study: 92% of users saw visible brightness improvement in 30 days"
+  },
+  "messagingData": {
+    "mainMessage": "Get visible results in 2 weeks without side effects — the skincare brand that actually tells you what's in your products",
+    "subclaims": [
+      "Clinically proven: 92% of users see visible results in 30 days",
+      "Clean & transparent: ingredient list you can actually understand",
+      "Risk-free: 60-day money-back guarantee or full refund"
+    ],
+    "callToAction": "Get yours now + free shipping on €50+",
+    "testimonials": [
+      "Finally something that works without irritation. My skin hasn't looked this clear in 5 years. — Sarah, 34",
+      "I was skeptical but the ingredient breakdown convinced me. Real results in 4 weeks. — Marco, 36",
+      "No side effects, no burning, just actual brightening. Worth every penny. — Lisa, 38"
+    ],
+    "linguisticPatterns": [
+      "\"Finally something that works\", \"actually transparent\", \"no greenwashing\", \"real results\", \"my skin feels alive again\", \"no side effects\", \"clear skin\""
+    ],
+    "objectionHandling": {
+      "too_expensive": "€65 is cheaper than ONE dermatologist visit (€200+) and you get guaranteed results",
+      "will_it_work_for_me": "Tested on 50 users with sensitive skin. 92% saw visible results. Guaranteed or money back.",
+      "side_effects": "No vitamin A, no prescription retinoids, no irritation. Safe for sensitive skin (patch test first)",
+      "how_long_results": "Visible in 2 weeks, significant in 8 weeks",
+      "why_you": "Only formula combining 15% L-ascorbic acid + ferulic acid + HA at research-proven ratios. Competitors are 10% or less."
+    }
+  },
+  "audienceStages": {
+    "cold": "Here's the problem you didn't know you had: sun damage on your skin is showing as spots and dullness",
+    "warm": "You've seen the problem. Now meet the solution that actually works — backed by science, not marketing hype",
+    "hot": "You're almost sold. Here's the guarantee: 60 days, no questions, full refund. Zero risk.",
+    "existing": "You got results. Here's how to maintain them: subscribe for auto-replenishment and save 15%",
+    "lapsed": "We've improved the formula based on feedback. Better results, same honest approach. Welcome back."
+  },
+  "marketingPlan": {
+    "primaryPlatforms": [
+      "Instagram Reels (40% budget) — high engagement with 25-35 demographic",
+      "TikTok (35% budget) — viral potential, trending sounds",
+      "YouTube Pre-roll (25% budget) — authority building, education"
+    ],
+    "budget": "€5,000/month",
+    "testing_budget": "€1,000/week (testing new creatives)",
+    "scaling_budget": "€3,000/week (proven winners)",
+    "kpis": {
+      "conversionRate": "3%+",
+      "CAC": "€30-35",
+      "LTV_30d": "€120",
+      "repeatPurchaseRate": "40%+",
+      "ROAS": "3:1"
+    }
+  }
+}

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ollama API Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #00ff00; }
+    .test { margin: 10px 0; padding: 10px; border-left: 3px solid #00ff00; }
+    .pass { border-left-color: #00ff00; }
+    .fail { border-left-color: #ff0000; color: #ff6666; }
+    .info { border-left-color: #0088ff; color: #00ddff; }
+    pre { background: #0a0a0a; padding: 10px; overflow-x: auto; }
+    button { padding: 10px 20px; background: #00ff00; color: black; border: none; cursor: pointer; font-weight: bold; }
+    button:hover { background: #00dd00; }
+  </style>
+</head>
+<body>
+  <h1>🔧 Ollama API Diagnostic Test</h1>
+
+  <div id="output"></div>
+
+  <button onclick="runTests()">Run Diagnostic Tests</button>
+  <button onclick="testStream()">Test Streaming</button>
+
+  <script>
+    const OLLAMA_HOST = 'https://regulatory-really-victorian-clips.trycloudflare.com';
+    const output = document.getElementById('output');
+
+    function log(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `test ${type}`;
+      div.textContent = message;
+      output.appendChild(div);
+      console.log(`[${type.toUpperCase()}]`, message);
+    }
+
+    function logCode(label, code) {
+      const div = document.createElement('div');
+      div.className = 'test info';
+      div.innerHTML = `<strong>${label}</strong><pre>${code}</pre>`;
+      output.appendChild(div);
+    }
+
+    async function runTests() {
+      output.innerHTML = '';
+      log('Starting Ollama API diagnostics...', 'info');
+
+      // Test 1: Check connectivity
+      log('Test 1: Checking connectivity to ' + OLLAMA_HOST, 'info');
+      try {
+        const response = await fetch(OLLAMA_HOST + '/api/tags');
+        if (response.ok) {
+          const data = await response.json();
+          log(`✅ Successfully connected. Found ${data.models.length} models`, 'pass');
+          logCode('Available models:', data.models.map(m => m.name).join('\n'));
+        } else {
+          log(`❌ Server returned ${response.status}: ${response.statusText}`, 'fail');
+        }
+      } catch (error) {
+        log(`❌ Connection failed: ${error.message}`, 'fail');
+        return;
+      }
+
+      // Test 2: Non-streaming request
+      log('Test 2: Testing non-streaming API call', 'info');
+      try {
+        const response = await fetch(OLLAMA_HOST + '/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'qwen3:8b',
+            prompt: 'Say "Hello from Ollama"',
+            stream: false,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          log(`✅ Non-streaming request successful`, 'pass');
+          logCode('Response:', JSON.stringify(data, null, 2));
+        } else {
+          const text = await response.text();
+          log(`❌ Non-streaming failed: ${response.status} ${response.statusText}`, 'fail');
+          logCode('Error response:', text);
+        }
+      } catch (error) {
+        log(`❌ Non-streaming request error: ${error.message}`, 'fail');
+      }
+
+      // Test 3: Streaming request
+      log('Test 3: Testing streaming API call', 'info');
+      try {
+        const response = await fetch(OLLAMA_HOST + '/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'qwen3:8b',
+            prompt: 'Say "Testing streaming"',
+            stream: true,
+          }),
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          log(`❌ Streaming request failed: ${response.status} ${response.statusText}`, 'fail');
+          logCode('Error response:', text);
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let chunkCount = 0;
+        let fullResponse = '';
+
+        log('✅ Streaming connection established, receiving chunks...', 'pass');
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const json = JSON.parse(line);
+                if (json.response) {
+                  fullResponse += json.response;
+                  chunkCount++;
+                }
+              } catch (e) {
+                // Ignore parse errors
+              }
+            }
+          }
+        }
+
+        log(`✅ Streaming completed: ${chunkCount} chunks received`, 'pass');
+        logCode('Streamed response:', fullResponse);
+      } catch (error) {
+        log(`❌ Streaming request error: ${error.message}`, 'fail');
+      }
+
+      log('Diagnostic tests complete!', 'info');
+    }
+
+    async function testStream() {
+      output.innerHTML = '';
+      log('Testing live streaming...', 'info');
+
+      try {
+        const response = await fetch(OLLAMA_HOST + '/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'qwen3:8b',
+            prompt: 'Write a short marketing message about a clean skincare brand in 2 sentences.',
+            stream: true,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        const streamOutput = document.createElement('div');
+        streamOutput.className = 'test info';
+        streamOutput.innerHTML = '<strong>Streaming output:</strong><pre id="stream"></pre>';
+        output.appendChild(streamOutput);
+        const streamDiv = document.getElementById('stream');
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const json = JSON.parse(line);
+                if (json.response) {
+                  streamDiv.textContent += json.response;
+                }
+              } catch (e) {
+                // Ignore
+              }
+            }
+          }
+        }
+
+        log('✅ Stream completed successfully!', 'pass');
+      } catch (error) {
+        log(`❌ Stream error: ${error.message}`, 'fail');
+      }
+    }
+
+    // Auto-run tests on load
+    window.addEventListener('load', () => {
+      log('Loaded test page. Click "Run Diagnostic Tests" to start.', 'info');
+    });
+  </script>
+</body>
+</html>

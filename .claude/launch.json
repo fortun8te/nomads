@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ad-agent",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "/Users/mk/Downloads/ad-agent",
+      "port": 5173,
+      "autoPort": true
+    }
+  ]
+}
