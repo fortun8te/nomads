@@ -1,4 +1,4 @@
-const OLLAMA_HOST = 'https://regulatory-really-victorian-clips.trycloudflare.com';
+const OLLAMA_HOST = process.env.VITE_OLLAMA_HOST || 'http://localhost:11434';
 const OLLAMA_API = `${OLLAMA_HOST}/api/generate`;
 
 export interface OllamaOptions {
