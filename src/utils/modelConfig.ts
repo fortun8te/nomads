@@ -2,10 +2,10 @@
 // Maps each stage to the optimal model from remote Ollama
 
 export const MODEL_CONFIG = {
-  // Fast, creative model - good for initial ideation
-  research: 'glm-4.7-flash:q4_K_M',
+  // Fast, lightweight model for quick execution
+  research: 'lfm2.5-thinking:latest',
 
-  // Creative direction - fast inference
+  // Creative direction - balanced quality/speed
   taste: 'glm-4.7-flash:q4_K_M',
 
   // Asset generation - uses GPT model for quality
@@ -14,11 +14,11 @@ export const MODEL_CONFIG = {
   // Testing/evaluation - needs deep reasoning
   test: 'gpt-oss:20b',
 
-  // Memory consolidation - learning
+  // Memory consolidation - deep learning
   memories: 'lfm2.5-thinking:latest',
 
   // Default fallback
-  default: 'glm-4.7-flash:q4_K_M',
+  default: 'lfm2.5-thinking:latest',
 } as const;
 
 export function getModelForStage(stageName: string): string {

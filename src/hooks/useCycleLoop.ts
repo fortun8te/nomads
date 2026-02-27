@@ -80,7 +80,7 @@ export function useCycleLoop() {
         if (stageName === 'research') {
           // Use the new multi-agent research system
           // Brain (analysis) uses gpt-oss:20b for strategic thinking
-          // Searchers use glm-4.7-flash:q4_K_M for fast query execution
+          // Searchers use lfm2.5-thinking for fast execution
           result = await executeResearch(
             campaign,
             (msg) => {
@@ -89,7 +89,7 @@ export function useCycleLoop() {
               setCurrentCycle(refreshCycleReference(cycle));
             },
             'gpt-oss:20b',        // Brain: strategic analysis & synthesis
-            'glm-4.7-flash:q4_K_M' // Searchers: fast query execution
+            'lfm2.5-thinking:latest' // Searchers: fast query execution
           );
         } else {
           let prompt = '';
