@@ -28,21 +28,36 @@ export function useResearchAgent() {
    * Returns list of research tasks to deploy agents for
    */
   const analyzeResearchNeeds = async (campaign: Campaign): Promise<ResearchTask[]> => {
-    const prompt = `You are a research planning expert. Given this campaign, decide what specific research tasks are needed.
+    const prompt = `You are a strategic research director. Given this campaign, identify EXACTLY what research tasks are needed to build competitive intelligence.
 
 Campaign:
 - Brand: ${campaign.brand}
 - Target Audience: ${campaign.targetAudience}
 - Goal: ${campaign.marketingGoal}
 
-Return a JSON array of research tasks. Each task should be specific and searchable. Example format:
-[
-  { "task": "competitor_positioning", "description": "Research how main competitors position themselves" },
-  { "task": "audience_needs", "description": "Research target audience's primary needs and pain points" },
-  { "task": "market_trends", "description": "Research emerging trends in this market" }
+You need to understand:
+1. Who are the main competitors and HOW are they positioned?
+2. What are the target audience's ACTUAL needs (primary vs secondary)?
+3. What is the market SHIFT happening right now?
+4. What positioning do NO competitors claim (the gap)?
+5. What messages are LOSING power vs EMERGING?
+6. What price tiers exist and where is money flowing?
+
+Return a JSON array of 5-7 research tasks. Each task focuses on ONE specific aspect.
+Format: [
+  { "task": "identifier", "description": "specific research goal" },
+  ...
 ]
 
-Return ONLY the JSON array, no other text.`;
+Example tasks:
+- "main_competitors" → "Identify top 3-4 competitors in this space and their positioning"
+- "audience_priorities" → "Research what target audience ACTUALLY wants (willingness to pay, non-negotiables)"
+- "market_shifts" → "What consumer behavior is changing in this market?"
+- "pricing_tiers" → "How is the market segmented by price and what's in each tier?"
+- "emerging_messaging" → "What new messaging angles are gaining traction?"
+- "positioning_gaps" → "What positioning do competitors avoid or can't claim?"
+
+Return ONLY the JSON array, no other text. Be strategic - think about what you NEED to know to create winning positioning.`;
 
     try {
       const result = await generate(prompt, '', {});
@@ -62,15 +77,25 @@ Return ONLY the JSON array, no other text.`;
    * This is a GENERIC agent - same code, different tasks
    */
   const generateSearchQueries = async (task: ResearchTask): Promise<string[]> => {
-    const prompt = `You are a search strategy expert. Given this research task, generate 4-5 specific, searchable queries.
+    const prompt = `You are a search strategist who creates queries that ACTUALLY RETURN USEFUL INFORMATION.
 
-Task: ${task.task}
-Description: ${task.description}
+Research Task: ${task.task}
+Goal: ${task.description}
 
-Return ONLY a JSON array of search query strings. Example:
-["query 1", "query 2", "query 3", "query 4", "query 5"]
+Generate 5-7 search queries that will find the BEST information for this research. Think about:
+- What specific companies or brands should I search for?
+- What industry reports or trend analyses exist?
+- What forums/communities discuss this topic authentically?
+- What data or statistics would prove this point?
 
-Make queries specific and likely to return relevant results.`;
+Good queries are SPECIFIC. Bad queries are GENERIC.
+✓ Good: "Drunk Elephant brand positioning luxury natural skincare"
+✗ Bad: "skincare brands"
+
+Return ONLY a JSON array of query strings:
+["query 1", "query 2", "query 3", "query 4", "query 5", "query 6", "query 7"]
+
+Make queries that will return REAL, SPECIFIC, USEFUL information that answers the research goal.`;
 
     try {
       const result = await generate(prompt, '', {});
@@ -86,25 +111,39 @@ Make queries specific and likely to return relevant results.`;
   };
 
   /**
-   * Summarizer: Takes raw search results and creates a brief summary
-   * Used by searcher agents to condense findings
+   * Summarizer: Takes raw search results and creates a structured summary
+   * Used by searcher agents to extract KEY INSIGHTS (not just compress)
    */
   const summarizeFindings = async (
     task: ResearchTask,
     searchResults: string
   ): Promise<string> => {
-    const prompt = `You are a research analyst. Summarize these findings in 2-3 sentences.
+    const prompt = `You are a strategic research analyst. Extract KEY FINDINGS from these search results.
 
-Task: ${task.task} - ${task.description}
+Research Task: ${task.task}
+Goal: ${task.description}
 
 Search Results:
 ${searchResults}
 
-Provide a brief, actionable summary of the key findings. Be specific and avoid generic statements.`;
+Structure your response as:
+KEY FINDINGS:
+- [Specific finding 1 with evidence]
+- [Specific finding 2 with evidence]
+- [Specific finding 3 with evidence]
+
+STRATEGIC IMPLICATIONS:
+- [What this means for positioning/strategy]
+- [Opportunity or threat this reveals]
+
+SPECIFIC DATA/FACTS:
+- [Any numbers, prices, market share, quotes]
+
+Be SPECIFIC. Use actual data from the search results. NOT generic statements. Focus on what's STRATEGICALLY USEFUL for competitive positioning.`;
 
     try {
       const result = await generate(prompt, '', {});
-      return result.substring(0, 500); // Keep summaries short
+      return result.substring(0, 1500); // Allow longer summaries with structure
     } catch (err) {
       console.error('Error summarizing findings:', err);
       return 'Unable to summarize findings.';
@@ -145,6 +184,7 @@ Provide a brief, actionable summary of the key findings. Be specific and avoid g
 
   /**
    * Research Brain Synthesis: Combines all searcher agent reports into strategic intelligence
+   * Uses the full strategic intelligence framework
    */
   const synthesizeResearch = async (
     campaign: Campaign,
@@ -153,51 +193,76 @@ Provide a brief, actionable summary of the key findings. Be specific and avoid g
     const reportsSummary = reports
       .map(
         (r) => `
-RESEARCH TASK: ${r.task}
-SUMMARY: ${r.summary}
+RESEARCH AREA: ${r.task}
+RESEARCH GOAL: ${r.description}
+FINDINGS:
+${r.summary}
 `
       )
-      .join('\n---\n');
+      .join('\n\n---\n\n');
 
-    const prompt = `You are a strategic competitive intelligence analyst. Synthesize these research findings into a strategic intelligence brief.
+    const prompt = `You are a STRATEGIC COMPETITIVE INTELLIGENCE ANALYST. Your job is not to summarize - it's to find the STRATEGIC WEDGE.
 
 Campaign:
 - Brand: ${campaign.brand}
 - Target Audience: ${campaign.targetAudience}
 - Goal: ${campaign.marketingGoal}
 
-Research Findings:
+RESEARCH FINDINGS FROM AGENTS:
 ${reportsSummary}
 
-Generate a STRATEGIC INTELLIGENCE BRIEF that includes:
+Using these findings, generate a STRATEGIC INTELLIGENCE BRIEF with these sections:
 
 § COMPETITOR POSITIONING ANALYSIS
-  For each major competitor:
-  - Core positioning claim
-  - Brand permission (why they can claim this)
-  - Blind spots (what they CAN'T claim)
-  - Vulnerabilities (what questions hang over them)
+  For EACH major competitor mentioned:
+    [Competitor Name]
+      Core positioning: [What ONE thing are they claiming?]
+      Brand permission: [What gives them the right to claim this?]
+      Blind spot: [What CAN'T they claim without breaking their brand?]
+      Lock-in: [What are they trapped by? (price point, audience, narrative)]
+      Vulnerability: [What question always hangs over them?]
+      What they DO: [Dominant hook, visual, colors, pacing]
+      Why it works: [What emotion/need triggers purchase]
 
 § AUDIENCE NEED HIERARCHY
-  - Primary need
-  - Secondary needs
-  - Non-negotiables
-  - Money location
-  - Core resentment
+  Primary need: [What they MUST have - would pay premium for]
+  Secondary needs: [Nice to have but tradeable]
+  Trade-off point: [Where they draw the line]
+  Non-negotiable: [What they NEVER sacrifice]
+  Money location: [Where are they actually spending?]
+  Core resentment: [What frustrates them most? (biggest pain)]
 
-§ MARKET DYNAMICS
-  - What's shifting
-  - Messaging losing power
-  - Messaging emerging
-  - Market gaps
+§ MARKET DYNAMICS (What's shifting?)
+  Consumer behavior change:
+    FROM: [Old assumption]
+    TO: [New reality]
+    Implication: [What this opens up]
+  Messaging losing power: [Old claims that don't work - explain why]
+  Messaging emerging: [New claims gaining traction - explain why]
+  Market movement: [New entrants, consolidation, price stratification]
+
+§ POSITIONING VULNERABILITY MAP
+  What can NONE of them claim together?
+    Gap description: [Exact positioning no one owns]
+    Why it's unclaimed: [Explain the business lock-in]
+    Which competitors block it: [Who prevents it]
+  What question hangs over each competitor?
+    [Competitor A]: [The doubt they can never shake]
+    [Competitor B]: [The doubt they can never shake]
 
 § YOUR STRATEGIC OPPORTUNITY
-  - Unique positioning
-  - Why only you can claim it
-  - Competitive moat
-  - Attack angles
+  Unique positioning (only you can claim this):
+    Your claim: [What intersection of needs/attributes no one else claims]
+    Why only you: [Explain why competitors can't claim it]
+    Competitive moat: [Why can't they copy you even if they tried?]
+  Attack angle (where competitors are vulnerable):
+    vs [Competitor A]: [Their blind spot, your advantage]
+    vs [Competitor B]: [Their lock-in, your freedom]
+  Audience resonance (why your position solves their pain):
+    Their resentment: [What frustrates them]
+    Your answer: [How you eliminate the false choice]
 
-Be strategic and specific. This brief should guide creative strategy.`;
+CRITICAL: Be strategically SPECIFIC. Not just what competitors do, but WHY they do it and what they CAN'T claim. This is your strategic wedge.`;
 
     try {
       const result = await generate(prompt, '', {});
