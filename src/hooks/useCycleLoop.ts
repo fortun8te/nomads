@@ -5,6 +5,7 @@ import { useStorage } from './useStorage';
 import { useResearchAgent } from './useResearchAgent';
 import { getSystemPrompt } from '../utils/prompts';
 import { extractCompetitorNames } from '../utils/competitorAnalysis';
+import { getModelForStage } from '../utils/modelConfig';
 
 const STAGE_ORDER: StageName[] = ['research', 'taste', 'make', 'test', 'memories'];
 const STAGE_DELAY = 2000; // 2 second delay between stages
@@ -104,8 +105,9 @@ export function useCycleLoop() {
           // Create abort controller for this stage
           abortControllerRef.current = new AbortController();
 
-          // Generate using Ollama
+          // Generate using Ollama with stage-specific model
           result = await generate(prompt, systemPrompt, {
+            model: getModelForStage(stageName),
             signal: abortControllerRef.current.signal,
           });
         }
