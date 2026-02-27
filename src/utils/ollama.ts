@@ -26,7 +26,7 @@ export const ollamaService = {
     systemPrompt: string,
     options: OllamaOptions = {}
   ): Promise<string> {
-    const { model = 'qwen3:8b', onChunk, onComplete, onError, signal } = options;
+    const { model = 'mistral', onChunk, onComplete, onError, signal } = options;
 
     const fullPrompt = `${systemPrompt}\n\n${prompt}`;
     let fullResponse = '';

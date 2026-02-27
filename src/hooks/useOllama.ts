@@ -34,7 +34,7 @@ export function useOllama() {
         onChunk?: (chunk: string) => void;
       }
     ) => {
-      const { model = 'qwen3:8b', signal, onChunk } = options || {};
+      const { model = 'mistral', signal, onChunk } = options || {};
       setIsLoading(true);
       setError(null);
       setOutput('');
