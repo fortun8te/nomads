@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Campaign, Cycle, StageName, StageData } from '../types';
 import { useOllama } from './useOllama';
 import { useStorage } from './useStorage';
+import { useResearchAgent } from './useResearchAgent';
 import { getSystemPrompt } from '../utils/prompts';
 import { extractCompetitorNames } from '../utils/competitorAnalysis';
 
@@ -48,6 +49,7 @@ function createCycle(campaignId: string, cycleNumber: number): Cycle {
 
 export function useCycleLoop() {
   const { generate } = useOllama();
+  const { executeResearch } = useResearchAgent();
   const { saveCycle, updateCycle } = useStorage();
 
   const [isRunning, setIsRunning] = useState(false);
@@ -71,34 +73,42 @@ export function useCycleLoop() {
         setCurrentCycle(refreshCycleReference(cycle));
 
         // Build prompt based on stage and previous outputs
-        let prompt = '';
+        let result = '';
         const systemPrompt = getSystemPrompt(stageName);
 
         if (stageName === 'research') {
-          prompt = `Brand: ${campaign.brand}\nTarget Audience: ${campaign.targetAudience}\nMarketing Goal: ${campaign.marketingGoal}`;
-        } else if (stageName === 'taste') {
-          // Extract competitor insights from research for taste analysis
-          const competitors = extractCompetitorNames(cycle.stages.research.agentOutput);
-          const competitorContext = competitors.length > 0
-            ? `\n\nKEY COMPETITORS TO ANALYZE:\n${competitors.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
-            : '';
+          // Use the new multi-agent research system
+          result = await executeResearch(campaign, (msg) => {
+            // Update output in real-time as agents report
+            stage.agentOutput += msg + '\n';
+            setCurrentCycle(refreshCycleReference(cycle));
+          });
+        } else {
+          let prompt = '';
+          if (stageName === 'taste') {
+            // Extract competitor insights from research for taste analysis
+            const competitors = extractCompetitorNames(cycle.stages.research.agentOutput);
+            const competitorContext = competitors.length > 0
+              ? `\n\nKEY COMPETITORS TO ANALYZE:\n${competitors.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
+              : '';
 
-          prompt = `RESEARCH FINDINGS:\n${cycle.stages.research.agentOutput}${competitorContext}\n\nBased on the research and competitor analysis above, define the creative direction that will:\n1. Win against competitors\n2. Resonate with target audience\n3. Align with brand values from the questionnaire\n\nBe specific about colors, styles, pacing, and messaging.`;
-        } else if (stageName === 'make') {
-          prompt = `Research: ${cycle.stages.research.agentOutput}\n\nCreative Direction: ${cycle.stages.taste.agentOutput}\n\nGenerate ad creative concepts.`;
-        } else if (stageName === 'test') {
-          prompt = `Evaluate this creative:\n\n${cycle.stages.make.agentOutput}`;
-        } else if (stageName === 'memories') {
-          prompt = `Summarize this cycle's learnings:\nResearch: ${cycle.stages.research.agentOutput}\nTaste: ${cycle.stages.taste.agentOutput}\nMake: ${cycle.stages.make.agentOutput}\nTest: ${cycle.stages.test.agentOutput}`;
+            prompt = `RESEARCH FINDINGS:\n${cycle.stages.research.agentOutput}${competitorContext}\n\nBased on the research and competitor analysis above, define the creative direction that will:\n1. Win against competitors\n2. Resonate with target audience\n3. Align with brand values from the questionnaire\n\nBe specific about colors, styles, pacing, and messaging.`;
+          } else if (stageName === 'make') {
+            prompt = `Research: ${cycle.stages.research.agentOutput}\n\nCreative Direction: ${cycle.stages.taste.agentOutput}\n\nGenerate ad creative concepts.`;
+          } else if (stageName === 'test') {
+            prompt = `Evaluate this creative:\n\n${cycle.stages.make.agentOutput}`;
+          } else if (stageName === 'memories') {
+            prompt = `Summarize this cycle's learnings:\nResearch: ${cycle.stages.research.agentOutput}\nTaste: ${cycle.stages.taste.agentOutput}\nMake: ${cycle.stages.make.agentOutput}\nTest: ${cycle.stages.test.agentOutput}`;
+          }
+
+          // Create abort controller for this stage
+          abortControllerRef.current = new AbortController();
+
+          // Generate using Ollama
+          result = await generate(prompt, systemPrompt, {
+            signal: abortControllerRef.current.signal,
+          });
         }
-
-        // Create abort controller for this stage
-        abortControllerRef.current = new AbortController();
-
-        // Generate using Ollama
-        const result = await generate(prompt, systemPrompt, {
-          signal: abortControllerRef.current.signal,
-        });
 
         stage.agentOutput = result;
         stage.status = 'complete';
@@ -115,7 +125,7 @@ export function useCycleLoop() {
         throw err;
       }
     },
-    [generate]
+    [generate, executeResearch]
   );
 
   // Advance to next stage
