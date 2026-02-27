@@ -844,14 +844,16 @@ export function CampaignSelector() {
             ))}
           </div>
           {campaign && (
-            <Button
-              size="small"
-              danger
+            <button
               onClick={clearCampaign}
-              className="mb-1"
+              className={`pb-3 font-medium text-sm uppercase tracking-wide transition-colors ${
+                isDarkMode
+                  ? 'text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent hover:border-zinc-500'
+                  : 'text-zinc-500 hover:text-zinc-700 border-b-2 border-transparent hover:border-zinc-700'
+              }`}
             >
               New Campaign
-            </Button>
+            </button>
           )}
         </div>
 

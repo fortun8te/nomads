@@ -295,7 +295,7 @@ CRITICAL: Be strategically SPECIFIC. Not just what competitors do, but WHY they 
   const executeResearch = async (
     campaign: Campaign,
     onProgress?: (msg: string) => void,
-    brainModel: string = 'gpt-oss:20b',
+    brainModel: string = 'glm-4.7-flash:q4_K_M',
     searcherModel: string = 'lfm2.5-thinking:latest'
   ): Promise<ResearchResult> => {
     const startTime = Date.now();
