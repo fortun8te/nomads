@@ -158,22 +158,22 @@ Be SPECIFIC. Use actual data from the search results. NOT generic statements. Fo
     task: ResearchTask,
     onProgress?: (msg: string) => void
   ): Promise<SearcherAgentReport> => {
-    onProgress?.(`\n📊 AGENT: Researching "${task.description}"\n`);
+    onProgress?.(`\nAGENT: Researching "${task.description}"\n`);
 
     // Step 1: Generate search queries
-    onProgress?.(`  🔍 Generating search queries...`);
+    onProgress?.(`  Generating search queries...`);
     const queries = await generateSearchQueries(task);
-    onProgress?.(`  ✓ Created ${queries.length} search queries`);
+    onProgress?.(`  Created ${queries.length} search queries`);
 
     // Step 2: Execute searches (hits SearXNG placeholder or mock)
-    onProgress?.(`\n  🌐 Browsing: ${queries.slice(0, 2).join(", ")}...`);
+    onProgress?.(`\n  Browsing: ${queries.slice(0, 2).join(", ")}...`);
     const searchResults = await batchSearch(queries);
-    onProgress?.(`  ✓ Search complete\n`);
+    onProgress?.(`  Search complete\n`);
 
     // Step 3: Summarize findings
-    onProgress?.(`  📝 Analyzing findings...`);
+    onProgress?.(`  Analyzing findings...`);
     const summary = await summarizeFindings(task, searchResults);
-    onProgress?.(`  ✓ Summary complete\n`);
+    onProgress?.(`  Summary complete\n`);
 
     return {
       task: task.task,
@@ -281,25 +281,25 @@ CRITICAL: Be strategically SPECIFIC. Not just what competitors do, but WHY they 
     campaign: Campaign,
     onProgress?: (msg: string) => void
   ): Promise<string> => {
-    onProgress?.(`\n🧠 RESEARCH BRAIN: Starting strategic analysis for "${campaign.brand}"\n`);
+    onProgress?.(`\nRESEARCH BRAIN: Starting strategic analysis for "${campaign.brand}"\n`);
     onProgress?.(`Target: ${campaign.targetAudience}\nGoal: ${campaign.marketingGoal}\n`);
 
     // Step 1: Research brain decides what to investigate
-    onProgress?.(`\n⚙️  Analyzing research needs...`);
+    onProgress?.(`\nAnalyzing research needs...`);
     const tasks = await analyzeResearchNeeds(campaign);
 
     if (tasks.length === 0) {
-      onProgress?.(`\n❌ No research tasks identified.`);
+      onProgress?.(`\nNo research tasks identified.`);
       return 'No research tasks identified.';
     }
 
-    onProgress?.(`✓ Identified ${tasks.length} research areas:\n`);
+    onProgress?.(`Identified ${tasks.length} research areas:\n`);
     tasks.forEach((t, i) => {
       onProgress?.(`  ${i + 1}. ${t.description}`);
     });
 
     // Step 2: Deploy searcher agents (runs in parallel for speed)
-    onProgress?.(`\n🚀 Deploying ${tasks.length} searcher agents (running in parallel)...\n`);
+    onProgress?.(`\nDeploying ${tasks.length} searcher agents (running in parallel)...\n`);
     const agentReports = await Promise.all(
       tasks.map((task) =>
         deploySearcherAgent(task, (msg) => {
@@ -308,12 +308,12 @@ CRITICAL: Be strategically SPECIFIC. Not just what competitors do, but WHY they 
       )
     );
 
-    onProgress?.(`\n\n🔗 Synthesizing all findings into STRATEGIC BRIEF...\n`);
+    onProgress?.(`\n\nSynthesizing all findings into STRATEGIC BRIEF...\n`);
 
     // Step 3: Brain synthesizes all findings
     const strategicBrief = await synthesizeResearch(campaign, agentReports);
 
-    onProgress?.(`\n✅ RESEARCH COMPLETE\n`);
+    onProgress?.(`\nRESEARCH COMPLETE\n`);
     return strategicBrief;
   };
 
