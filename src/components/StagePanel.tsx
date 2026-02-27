@@ -114,16 +114,14 @@ export function StagePanel({ cycle, isRunning }: StagePanelProps) {
               </div>
             )}
 
-            {/* Model output debug info */}
-            {stageData.rawOutput && (
-              <ModelOutputDebug
-                rawOutput={stageData.rawOutput}
-                model={stageData.model}
-                tokensUsed={stageData.tokensUsed}
-                processingTime={stageData.processingTime}
-                stageName={currentStage}
-              />
-            )}
+            {/* Model output debug info - always show if there's metadata or during processing */}
+            <ModelOutputDebug
+              rawOutput={stageData.rawOutput}
+              model={stageData.model}
+              tokensUsed={stageData.tokensUsed}
+              processingTime={stageData.processingTime}
+              stageName={currentStage}
+            />
           </div>
         ) : (
           <span className={placeholderTextClass}>

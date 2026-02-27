@@ -19,7 +19,9 @@ export function ModelOutputDebug({
   const { isDarkMode } = useTheme();
   const [expanded, setExpanded] = useState(false);
 
-  if (!rawOutput) return null;
+  // Show if there's any metadata or raw output
+  const hasAnyData = rawOutput || model || tokensUsed || processingTime;
+  if (!hasAnyData) return null;
 
   const borderClass = isDarkMode ? 'border-zinc-700' : 'border-zinc-300';
   const bgClass = isDarkMode ? 'bg-zinc-900' : 'bg-zinc-100';
@@ -27,7 +29,7 @@ export function ModelOutputDebug({
   const hoverClass = isDarkMode ? 'hover:bg-zinc-800' : 'hover:bg-zinc-200';
   const labelClass = isDarkMode ? 'text-zinc-500' : 'text-zinc-600';
 
-  const outputLength = rawOutput.length;
+  const outputLength = rawOutput?.length || 0;
   const lineCount = rawOutput.split('\n').length;
 
   return (

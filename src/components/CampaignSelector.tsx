@@ -680,7 +680,8 @@ const imageTypeOptions = [
 ];
 
 export function CampaignSelector() {
-  const { createCampaign } = useCampaign();
+  const context = useCampaign();
+  const { createCampaign, campaign, clearCampaign } = context as any;
   const { isDarkMode } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('preset');
   const [form] = Form.useForm();
@@ -822,24 +823,36 @@ export function CampaignSelector() {
     <ConfigProvider theme={themeConfig}>
       <div className={`p-6 rounded-lg border ${isDarkMode ? 'bg-zinc-900 border-zinc-700' : 'bg-white border-zinc-200'}`}>
         {/* Custom Tab Navigation */}
-        <div className={`flex gap-6 mb-6 border-b ${isDarkMode ? 'border-zinc-700' : 'border-zinc-200'}`}>
-          {(['preset', 'detailed', 'chat'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`pb-3 font-medium text-sm uppercase tracking-wide transition-colors ${
-                activeTab === tab
-                  ? `text-blue-500 border-b-2 border-blue-500`
-                  : isDarkMode
-                  ? 'text-zinc-400 hover:text-zinc-300'
-                  : 'text-zinc-600 hover:text-zinc-900'
-              }`}
+        <div className={`flex gap-6 mb-6 border-b ${isDarkMode ? 'border-zinc-700' : 'border-zinc-200'} justify-between items-end`}>
+          <div className="flex gap-6">
+            {(['preset', 'detailed', 'chat'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`pb-3 font-medium text-sm uppercase tracking-wide transition-colors ${
+                  activeTab === tab
+                    ? `text-blue-500 border-b-2 border-blue-500`
+                    : isDarkMode
+                    ? 'text-zinc-400 hover:text-zinc-300'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                {tab === 'preset' && 'Preset'}
+                {tab === 'detailed' && 'Detailed'}
+                {tab === 'chat' && 'Quick Chat'}
+              </button>
+            ))}
+          </div>
+          {campaign && (
+            <Button
+              size="small"
+              danger
+              onClick={clearCampaign}
+              className="mb-1"
             >
-              {tab === 'preset' && 'Preset'}
-              {tab === 'detailed' && 'Detailed'}
-              {tab === 'chat' && 'Quick Chat'}
-            </button>
-          ))}
+              New Campaign
+            </Button>
+          )}
         </div>
 
         {/* Tab Content */}

@@ -29,6 +29,9 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
 
   const createCampaign = useCallback(
     async (brand: string, targetAudience: string, marketingGoal: string) => {
+      // Stop any running cycle from previous campaign
+      pause();
+
       const newCampaign: Campaign = {
         id: `campaign-${Date.now()}`,
         brand,
@@ -45,8 +48,15 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
       setCycles([]);
       setCurrentCycle(null);
     },
-    [saveCampaign]
+    [saveCampaign, pause]
   );
+
+  const clearCampaign = useCallback(() => {
+    pause();
+    setCampaign(null);
+    setCycles([]);
+    setCurrentCycle(null);
+  }, [pause]);
 
   const startCycle = useCallback(async () => {
     if (!campaign) return;
@@ -86,7 +96,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     loadCycles();
   }, [campaign, loadCycles]);
 
-  const value: CampaignContextType = {
+  const value: CampaignContextType & { clearCampaign: () => void } = {
     campaign,
     cycles,
     currentCycle,
@@ -98,6 +108,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     resumeCycle,
     completeStage,
     setCampaign,
+    clearCampaign,
   };
 
   return (
