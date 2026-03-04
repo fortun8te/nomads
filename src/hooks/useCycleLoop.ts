@@ -78,6 +78,11 @@ export function useCycleLoop() {
         stage.status = 'in-progress';
         stage.startedAt = Date.now();
 
+        console.debug(`[CycleLoop] Starting stage: ${stageName}`, {
+          cycle: cycle.id,
+          campaign: campaign.brand,
+        });
+
         setCurrentCycle(refreshCycleReference(cycle));
 
         // Build prompt based on stage and previous outputs
@@ -324,12 +329,20 @@ DOCUMENT THE LEARNINGS:
         stage.completedAt = Date.now();
         stage.readyForNext = true;
 
+        const duration = (stage.completedAt - (stage.startedAt || 0));
+        console.debug(`[CycleLoop] Stage complete: ${stageName}`, {
+          duration: `${duration}ms`,
+          outputLength: result.length,
+          model: stage.model,
+        });
+
         // Use refreshed reference to ensure React detects the change
         setCurrentCycle(refreshCycleReference(cycle));
 
         return stage;
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Stage execution failed';
+        console.error(`[CycleLoop] Stage failed: ${stageName}`, msg);
         setError(msg);
         throw err;
       }
@@ -364,12 +377,20 @@ DOCUMENT THE LEARNINGS:
       let cycle = createCycle(campaign.id, cycleNumber, mode);
       cycleRef.current = cycle;
 
+      console.debug('[CycleLoop] Starting cycle:', {
+        cycleId: cycle.id,
+        campaign: campaign.brand,
+        mode,
+        startTime: new Date().toISOString(),
+      });
+
       isRunningRef.current = true;
       setIsRunning(true);
       setError(null);
 
       while (isRunningRef.current) {
         if (isPausedRef.current) {
+          console.debug('[CycleLoop] Cycle paused');
           await new Promise((resolve) => {
             timeoutRef.current = setTimeout(resolve, 500);
           });
@@ -378,6 +399,7 @@ DOCUMENT THE LEARNINGS:
 
         try {
           // Execute current stage
+          console.debug(`[CycleLoop] Executing stage: ${cycle.currentStage}`);
           await executeStage(cycle, cycle.currentStage, campaign);
           // State already updated in executeStage, but refresh again to be sure
           setCurrentCycle(refreshCycleReference(cycle));
@@ -396,6 +418,7 @@ DOCUMENT THE LEARNINGS:
           cycleRef.current = cycle;
 
           if (done) {
+            console.debug('[CycleLoop] Cycle complete, starting new cycle:', cycleNumber + 1);
             // Start new cycle
             cycleNumber++;
             cycle = createCycle(campaign.id, cycleNumber);
@@ -406,6 +429,7 @@ DOCUMENT THE LEARNINGS:
           setCurrentCycle(refreshCycleReference(cycle));
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Cycle error';
+          console.error('[CycleLoop] Cycle error:', msg, err);
           if (!msg.includes('aborted')) {
             setError(msg);
           }
@@ -420,6 +444,7 @@ DOCUMENT THE LEARNINGS:
       // Ensure cleanup on exit
       isRunningRef.current = false;
       setIsRunning(false);
+      console.debug('[CycleLoop] Cycle stopped at:', new Date().toISOString());
     },
     [executeStage, advanceToNextStage, updateCycle, saveCycle]
   );
