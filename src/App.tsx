@@ -2,6 +2,7 @@ import { CampaignProvider } from './context/CampaignContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Dashboard } from './components/Dashboard';
 import ForzaXLanding from './components/ForzaXLanding';
+import { OllamaConnectionManager } from './components/OllamaConnectionManager';
 import { useOllamaDiscovery } from './hooks/useOllamaDiscovery';
 
 const SHOW_FORZAX = new URLSearchParams(window.location.search).has('forzax');
@@ -17,6 +18,7 @@ function AppContent() {
     <ThemeProvider>
       <CampaignProvider>
         <Dashboard />
+        <OllamaConnectionManager />
       </CampaignProvider>
     </ThemeProvider>
   );
