@@ -3,7 +3,7 @@ function getOllamaHost(): string {
     const saved = localStorage.getItem('ollama_host');
     if (saved) return saved;
   }
-  return import.meta.env.VITE_OLLAMA_HOST || 'http://localhost:11434';
+  return import.meta.env.VITE_OLLAMA_HOST || 'http://localhost:11435';
 }
 
 function getOllamaApi(): string {
