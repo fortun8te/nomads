@@ -30,8 +30,14 @@ export const storage = {
 
   // Cycle operations
   async saveCycle(cycle: Cycle): Promise<void> {
+    // Ensure we only save serializable data (strip researchFindings if it contains non-serializable objects)
+    const serializableCycle = {
+      ...cycle,
+      // Ensure researchFindings is plain JSON
+      researchFindings: cycle.researchFindings ? JSON.parse(JSON.stringify(cycle.researchFindings)) : undefined,
+    };
     const cycles = (await get(CYCLES_KEY)) || {};
-    cycles[cycle.id] = cycle;
+    cycles[cycle.id] = serializableCycle;
     await set(CYCLES_KEY, cycles);
   },
 
