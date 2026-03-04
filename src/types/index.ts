@@ -50,6 +50,12 @@ export interface StageData {
   readyForNext: boolean;
 }
 
+export interface ResearchQuestion {
+  question: string;
+  context: string;
+  suggestedAnswers?: string[];
+}
+
 export interface Cycle {
   id: string;
   campaignId: string;
@@ -68,13 +74,21 @@ export interface Cycle {
   status: CycleStatus;
   mode: CycleMode;
   researchFindings?: ResearchFindings;
+  pendingResearchQuestion?: ResearchQuestion; // When research pauses for clarification
 }
+
+export type ResearchMode = 'interactive' | 'autonomous';
 
 export interface Campaign {
   id: string;
   brand: string;
   targetAudience: string;
   marketingGoal: string;
+  productDescription: string;
+  productFeatures: string[];
+  productPrice?: string;
+  researchMode: ResearchMode; // interactive = ask user for clarifications, autonomous = figure it out
+  maxResearchIterations: number; // max rounds before giving up (default: 5)
   currentCycle: number;
   createdAt: number;
   updatedAt: number;
@@ -96,7 +110,16 @@ export interface CampaignContextType {
   error: string | null;
 
   // Actions
-  createCampaign: (brand: string, audience: string, goal: string) => Promise<void>;
+  createCampaign: (
+    brand: string,
+    audience: string,
+    goal: string,
+    productDescription: string,
+    productFeatures: string[],
+    productPrice?: string,
+    researchMode?: 'interactive' | 'autonomous',
+    maxResearchIterations?: number
+  ) => Promise<void>;
   startCycle: () => Promise<void>;
   pauseCycle: () => void;
   resumeCycle: () => void;

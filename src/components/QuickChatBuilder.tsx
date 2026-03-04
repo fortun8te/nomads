@@ -75,6 +75,7 @@ export function QuickChatBuilder({ messages, setMessages, onComplete }: QuickCha
   const [showForm, setShowForm] = useState(false);
   const [extractionPreview, setExtractionPreview] = useState<FormDataFromChat>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -103,17 +104,37 @@ export function QuickChatBuilder({ messages, setMessages, onComplete }: QuickCha
 
 Now respond as the AI campaign builder. Ask the next smart question or if we have enough info, output READY_TO_BUILD.`;
 
-      // Call Ollama with streaming
+      // Add placeholder message for streaming
+      setMessages((prev) => [
+        ...prev,
+        { type: 'ai' as const, content: '🧠 Thinking...' },
+      ]);
+
+      // Call Ollama with streaming and real-time UI updates
       let aiResponse = '';
 
+      abortControllerRef.current = new AbortController();
       await ollamaService.generateStream(
         prompt,
         SYSTEM_PROMPT,
         {
-          model: 'qwen3:8b',
+          model: 'mistral:latest',
           onChunk: (chunk) => {
             aiResponse += chunk;
+            // Livestream: Update message in real-time as chunks arrive
+            setMessages((prev) => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              if (updated[lastIdx]?.type === 'ai') {
+                updated[lastIdx] = {
+                  type: 'ai' as const,
+                  content: aiResponse,
+                };
+              }
+              return updated;
+            });
           },
+          signal: abortControllerRef.current.signal,
         }
       );
 
@@ -127,35 +148,29 @@ Now respond as the AI campaign builder. Ask the next smart question or if we hav
             setFormData(extracted);
             setShowForm(true);
 
-            // Show confirmation message
+            // Clean up the streaming message and show confirmation
             const cleanResponse = aiResponse
               .replace(/READY_TO_BUILD/g, '')
               .replace(/\{[\s\S]*\}/, '')
               .trim();
 
-            setMessages((prev) => [
-              ...prev,
-              {
+            setMessages((prev) => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              updated[lastIdx] = {
                 type: 'ai' as const,
                 content: cleanResponse || `Great! I've gathered all the info. Review and confirm below:`,
-              },
-            ]);
+              };
+              return updated;
+            });
           }
         } catch (e) {
-          // JSON parse error, just show the response
-          setMessages((prev) => [
-            ...prev,
-            { type: 'ai' as const, content: aiResponse },
-          ]);
+          // JSON parse error, keep the streaming response
+          console.error('JSON parse error:', e);
         }
       } else {
-        // Regular response, continue conversation
-        setMessages((prev) => [
-          ...prev,
-          { type: 'ai' as const, content: aiResponse },
-        ]);
-
-        // Try to extract partial JSON from regular responses (for preview)
+        // Regular response - streaming is already updating the UI
+        // Try to extract partial JSON for preview
         try {
           const jsonMatch = aiResponse.match(/\{[\s\S]*?\}/);
           if (jsonMatch) {
@@ -193,6 +208,13 @@ Now respond as the AI campaign builder. Ask the next smart question or if we hav
       return;
     }
     onComplete(formData);
+  };
+
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setIsLoading(false);
   };
 
   return (
@@ -333,13 +355,21 @@ Now respond as the AI campaign builder. Ask the next smart question or if we hav
             onPressEnter={handleSendMessage}
             disabled={isLoading}
           />
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={handleSendMessage}
-            disabled={isLoading || !userInput.trim()}
-            loading={isLoading}
-          />
+          {isLoading ? (
+            <Button
+              danger
+              onClick={handleCancel}
+            >
+              Cancel
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              onClick={handleSendMessage}
+              disabled={!userInput.trim()}
+            />
+          )}
         </div>
       )}
 

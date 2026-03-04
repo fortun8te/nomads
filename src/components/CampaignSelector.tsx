@@ -694,53 +694,32 @@ export function CampaignSelector() {
   ]);
 
   const handlePresetSelect = (preset: typeof DEFAULT_PRESET) => {
-    const brandStr = JSON.stringify(preset.brand);
-    const audienceStr = JSON.stringify(preset.audience);
     const goalStr = `${preset.goal} | Budget: ${preset.budget} | Timeline: ${preset.timeline} | KPIs: ${preset.kpis}`;
 
-    createCampaign(brandStr, audienceStr, goalStr);
+    createCampaign(
+      preset.brand.name,
+      preset.audience.name,
+      goalStr,
+      'Premium skincare product with natural, transparent ingredients',
+      ['Clean formula', 'Transparent ingredients', 'Dermatologist tested'],
+      'Premium pricing'
+    );
     message.success('Preset campaign created!');
   };
 
   const handleDetailedSubmit = async (values: any) => {
-    const brandData = {
-      name: values.brandName,
-      website: values.website,
-      industry: values.industry,
-      positioning: values.positioning,
-      tone: values.tone,
-      colors: values.brandColors,
-      fonts: values.brandFonts,
-    };
-
-    const audienceData = {
-      name: values.personaName,
-      age: values.age,
-      job: values.job,
-      location: values.location,
-      income: values.income,
-      painPoints: values.painPoints,
-      values: values.values,
-      trustFactors: values.trustFactors,
-    };
-
-    const goalData = {
-      product: values.productName,
-      category: values.productCategory,
-      problem: values.problemSolved,
-      benefits: `Functional: ${values.functionalBenefits} | Emotional: ${values.emotionalBenefits}`,
-      timeline: values.resultTimeline,
-      usp: values.uniqueUsp,
-      pricing: values.pricing,
-      platforms: values.primaryPlatforms,
-      budget: values.campaignBudget,
-      kpis: values.conversionRate && values.cac ? `Conversion: ${values.conversionRate}, CAC: ${values.cac}` : 'Not specified',
-    };
+    // Parse features from keyFeatures field
+    const productFeatures = values.keyFeatures
+      ? values.keyFeatures.split('\n').filter((f: string) => f.trim())
+      : [];
 
     createCampaign(
-      JSON.stringify(brandData),
-      JSON.stringify(audienceData),
-      JSON.stringify(goalData)
+      values.brandName,
+      values.personaName,
+      `${values.marketingGoal || values.productName} | Category: ${values.productCategory} | Platforms: ${values.primaryPlatforms}`,
+      values.productDescription,
+      productFeatures,
+      values.pricing
     );
     message.success('Detailed campaign created!');
   };
@@ -978,24 +957,20 @@ export function CampaignSelector() {
             <QuickChatBuilder
               messages={chatMessages}
               setMessages={setChatMessages}
-              onComplete={(chatData) => {
+              onComplete={(chatData: any) => {
                 // Merge chat data with form defaults and create campaign
-                const brandStr = JSON.stringify({
-                  name: chatData.brandName || 'Unknown Brand',
-                  industry: chatData.industry || '',
-                  positioning: chatData.positioning || '',
-                  website: chatData.website || '',
-                });
+                const productFeatures = (chatData.keyFeatures as string | undefined)
+                  ? (chatData.keyFeatures as string).split('\n').filter((f: string) => f.trim())
+                  : [(chatData.problemSolved as string | undefined) || 'Unknown feature'];
 
-                const audienceStr = JSON.stringify({
-                  name: chatData.personaName || 'Unknown Persona',
-                  age: chatData.age || '',
-                  painPoints: chatData.painPoints || '',
-                });
-
-                const goalStr = `Product: ${chatData.productName || 'Unknown'} | Problem: ${chatData.problemSolved || 'Unknown'} | Price: ${chatData.pricing || 'TBD'} | Platforms: ${chatData.primaryPlatforms || 'TBD'}`;
-
-                createCampaign(brandStr, audienceStr, goalStr);
+                createCampaign(
+                  (chatData.brandName as string | undefined) || 'Unknown Brand',
+                  (chatData.personaName as string | undefined) || 'Unknown Persona',
+                  `Product: ${(chatData.productName as string | undefined) || 'Unknown'} | Problem: ${(chatData.problemSolved as string | undefined) || 'Unknown'} | Platforms: ${(chatData.primaryPlatforms as string | undefined) || 'TBD'}`,
+                  (chatData.productDescription as string | undefined) || (chatData.productName as string | undefined) || 'Unknown product',
+                  productFeatures,
+                  (chatData.pricing as string | undefined) || 'TBD'
+                );
                 message.success('Campaign created from chat! Starting research...');
               }}
             />

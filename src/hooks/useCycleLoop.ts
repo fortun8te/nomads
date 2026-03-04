@@ -2,9 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Campaign, Cycle, StageName, StageData, CycleMode } from '../types';
 import { useOllama } from './useOllama';
 import { useStorage } from './useStorage';
-import { useResearchAgent } from './useResearchAgent';
+import { useOrchestratedResearch } from './useOrchestratedResearch';
 import { getSystemPrompt } from '../utils/prompts';
-import { extractCompetitorNames } from '../utils/competitorAnalysis';
 import { getModelForStage } from '../utils/modelConfig';
 
 const FULL_STAGE_ORDER: StageName[] = ['research', 'objections', 'taste', 'make', 'test', 'memories'];
@@ -57,7 +56,7 @@ function createCycle(campaignId: string, cycleNumber: number, mode: CycleMode = 
 
 export function useCycleLoop() {
   const { generate } = useOllama();
-  const { executeResearch } = useResearchAgent();
+  const { executeOrchestratedResearch } = useOrchestratedResearch();
   const { saveCycle, updateCycle } = useStorage();
 
   const [isRunning, setIsRunning] = useState(false);
@@ -68,6 +67,7 @@ export function useCycleLoop() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cycleRef = useRef<Cycle | null>(null);
   const isPausedRef = useRef(false);
+  const isRunningRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Execute a single stage
@@ -85,13 +85,14 @@ export function useCycleLoop() {
         const systemPrompt = getSystemPrompt(stageName);
 
         if (stageName === 'research') {
-          // Desire-driven research using Zakaria Framework
-          const researchResult = await executeResearch(
+          // Orchestrated research: Zakaria Framework + Web Search Researchers
+          const researchResult = await executeOrchestratedResearch(
             campaign,
             (msg) => {
               stage.agentOutput += msg + '\n';
               setCurrentCycle(refreshCycleReference(cycle));
-            }
+            },
+            true // Enable web search orchestration
           );
 
           result = researchResult.processedOutput;
@@ -147,7 +148,6 @@ Be specific and powerful.`;
 
             if (findings && findings.deepDesires.length > 0) {
               // Use desires to inform creative direction
-              const primaryDesire = findings.deepDesires[0];
               const competitorGaps = findings.competitorWeaknesses.join(', ');
 
               prompt = `You are a creative strategist using the Zakaria Framework.
@@ -191,9 +191,6 @@ Create a strategic creative direction that:\n1. Aligns with audience psychology\
             const creativeDirection = cycle.stages.taste.agentOutput;
 
             if (findings && findings.deepDesires.length > 0) {
-              const primaryDesire = findings.deepDesires[0];
-              const topObjection = findings.objections[0];
-
               prompt = `You are a creative copywriter generating ad variations for ${campaign.brand}.
 
 DESIRES TO ACTIVATE:
@@ -337,7 +334,7 @@ DOCUMENT THE LEARNINGS:
         throw err;
       }
     },
-    [generate, executeResearch]
+    [generate, executeOrchestratedResearch]
   );
 
   // Advance to next stage
@@ -367,10 +364,11 @@ DOCUMENT THE LEARNINGS:
       let cycle = createCycle(campaign.id, cycleNumber, mode);
       cycleRef.current = cycle;
 
+      isRunningRef.current = true;
       setIsRunning(true);
       setError(null);
 
-      while (true) {
+      while (isRunningRef.current) {
         if (isPausedRef.current) {
           await new Promise((resolve) => {
             timeoutRef.current = setTimeout(resolve, 500);
@@ -408,11 +406,20 @@ DOCUMENT THE LEARNINGS:
           setCurrentCycle(refreshCycleReference(cycle));
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Cycle error';
-          setError(msg);
-          setIsRunning(false);
-          break;
+          if (!msg.includes('aborted')) {
+            setError(msg);
+          }
+          // Only stop on actual errors, not on abort
+          if (!err || !(err instanceof Error) || !err.message.includes('aborted')) {
+            isRunningRef.current = false;
+            setIsRunning(false);
+          }
         }
       }
+
+      // Ensure cleanup on exit
+      isRunningRef.current = false;
+      setIsRunning(false);
     },
     [executeStage, advanceToNextStage, updateCycle, saveCycle]
   );
@@ -430,35 +437,47 @@ DOCUMENT THE LEARNINGS:
   const pause = useCallback(() => {
     isPausedRef.current = true;
     setIsPaused(true);
-    // Abort any in-progress stage generation
+    // Abort in-progress request to free up Ollama
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
   }, []);
 
   const resume = useCallback(() => {
     isPausedRef.current = false;
     setIsPaused(false);
-    // Clear the abort controller to allow new requests
-    abortControllerRef.current = null;
   }, []);
 
   const stop = useCallback(() => {
-    setIsRunning(false);
+    isRunningRef.current = false;
     isPausedRef.current = false;
+    setIsRunning(false);
     setIsPaused(false);
+    setError(null);
+
+    // Clear all pending timeouts
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
+
+    // Abort any in-progress request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
   }, []);
 
   useEffect(() => {
     return () => {
+      // Cleanup on unmount
+      isRunningRef.current = false;
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
     };
   }, []);
@@ -471,6 +490,6 @@ DOCUMENT THE LEARNINGS:
     start,
     pause,
     resume,
-    stop,
+    stop, // Now exported for use in CampaignContext
   };
 }

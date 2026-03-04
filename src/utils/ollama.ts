@@ -1,5 +1,14 @@
-const OLLAMA_HOST = import.meta.env.VITE_OLLAMA_HOST || 'http://100.74.135.83:11434';
-const OLLAMA_API = `${OLLAMA_HOST}/api/generate`;
+function getOllamaHost(): string {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('ollama_host');
+    if (saved) return saved;
+  }
+  return import.meta.env.VITE_OLLAMA_HOST || 'http://localhost:11434';
+}
+
+function getOllamaApi(): string {
+  return `${getOllamaHost()}/api/generate`;
+}
 
 export interface OllamaOptions {
   model?: string;
@@ -12,7 +21,7 @@ export interface OllamaOptions {
 export const ollamaService = {
   async checkConnection(): Promise<boolean> {
     try {
-      const response = await fetch(`${OLLAMA_HOST}/api/tags`, {
+      const response = await fetch(`${getOllamaHost()}/api/tags`, {
         method: 'GET',
       });
       return response.ok;
@@ -32,7 +41,7 @@ export const ollamaService = {
     let fullResponse = '';
 
     try {
-      const response = await fetch(OLLAMA_API, {
+      const response = await fetch(getOllamaApi(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

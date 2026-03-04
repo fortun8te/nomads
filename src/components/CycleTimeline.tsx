@@ -1,8 +1,9 @@
 import type { Cycle, StageName } from '../types';
 import { useTheme } from '../context/ThemeContext';
 
-const STAGES: { name: StageName; label: string }[] = [
+const ALL_STAGES: { name: StageName; label: string }[] = [
   { name: 'research', label: 'Research' },
+  { name: 'objections', label: 'Objections' },
   { name: 'taste', label: 'Taste' },
   { name: 'make', label: 'Make' },
   { name: 'test', label: 'Test' },
@@ -21,19 +22,29 @@ export function CycleTimeline({ cycle }: CycleTimelineProps) {
   const borderClass = isDarkMode ? 'border-zinc-800' : 'border-zinc-200';
   const secondaryTextClass = isDarkMode ? 'text-zinc-500' : 'text-zinc-600';
 
+  // Filter stages based on mode
+  const stages = cycle.mode === 'concepting'
+    ? ALL_STAGES.filter(s => ['research', 'objections', 'taste'].includes(s.name))
+    : ALL_STAGES;
+
   return (
-    <div className={`border ${borderClass} p-5`}>
-      <div className="flex items-center justify-between mb-4">
-        <span className={`font-mono text-xs uppercase tracking-widest ${secondaryTextClass}`}>Cycle {cycle.cycleNumber}</span>
+    <div className={`border ${borderClass} p-3`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <span className={`font-mono text-xs uppercase tracking-widest ${secondaryTextClass}`}>Cycle {cycle.cycleNumber}</span>
+          {cycle.mode === 'concepting' && (
+            <span className={`font-mono text-xs px-2 py-0.5 rounded ${isDarkMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-100 text-zinc-600'}`}>Concepting</span>
+          )}
+        </div>
         {cycle.completedAt && (
           <span className={`font-mono text-xs ${secondaryTextClass}`}>
-            Done {new Date(cycle.completedAt).toLocaleTimeString()}
+            {new Date(cycle.completedAt).toLocaleTimeString()}
           </span>
         )}
       </div>
 
       <div className="flex gap-px">
-        {STAGES.map((stage) => {
+        {stages.map((stage) => {
           const stageData = cycle.stages[stage.name];
           const isActive = cycle.currentStage === stage.name;
           const isComplete = stageData.status === 'complete';
@@ -56,14 +67,9 @@ export function CycleTimeline({ cycle }: CycleTimelineProps) {
           return (
             <div
               key={stage.name}
-              className={`flex-1 py-3 text-center transition-colors ${stageClass}`}
+              className={`flex-1 py-2.5 px-2 text-center transition-colors ${stageClass}`}
             >
-              <div className="font-mono text-xs uppercase tracking-wider">{stage.label}</div>
-              {stageData.startedAt && (
-                <div className="font-mono text-xs mt-0.5 opacity-60">
-                  {new Date(stageData.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              )}
+              <div className="font-mono text-xs font-semibold uppercase tracking-wider">{stage.label}</div>
             </div>
           );
         })}

@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8888:8080"
+    restart: unless-stopped
+    networks:
+      - ad-agent-network
+
+networks:
+  ad-agent-network:
+    driver: bridge

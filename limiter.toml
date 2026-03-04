@@ -1,0 +1,4 @@
+# SearXNG rate limiter configuration
+# Disabled for localhost/development
+
+enabled = false

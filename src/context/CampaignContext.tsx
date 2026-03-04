@@ -9,7 +9,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [currentCycle, setCurrentCycle] = useState<Cycle | null>(null);
-  const [cycleMode, setCycleMode] = useState<CycleMode>('full');
+  const [cycleMode] = useState<CycleMode>('full');
 
   const {
     isRunning,
@@ -19,6 +19,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     start,
     pause,
     resume,
+    stop,
   } = useCycleLoop();
 
   const { saveCampaign, saveCycle, getCyclesByCampaign } = useStorage();
@@ -29,15 +30,29 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   }, [cycleLoopCycle]);
 
   const createCampaign = useCallback(
-    async (brand: string, targetAudience: string, marketingGoal: string) => {
+    async (
+      brand: string,
+      targetAudience: string,
+      marketingGoal: string,
+      productDescription: string,
+      productFeatures: string[],
+      productPrice?: string,
+      researchMode: 'interactive' | 'autonomous' = 'autonomous',
+      maxResearchIterations: number = 5
+    ) => {
       // Stop any running cycle from previous campaign
-      pause();
+      stop();
 
       const newCampaign: Campaign = {
         id: `campaign-${Date.now()}`,
         brand,
         targetAudience,
         marketingGoal,
+        productDescription,
+        productFeatures,
+        productPrice,
+        researchMode,
+        maxResearchIterations,
         currentCycle: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -49,15 +64,15 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
       setCycles([]);
       setCurrentCycle(null);
     },
-    [saveCampaign, pause]
+    [saveCampaign, stop]
   );
 
   const clearCampaign = useCallback(() => {
-    pause();
+    stop();
     setCampaign(null);
     setCycles([]);
     setCurrentCycle(null);
-  }, [pause]);
+  }, [stop]);
 
   const startCycle = useCallback(async (mode: CycleMode = cycleMode) => {
     if (!campaign) return;
@@ -71,6 +86,10 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   const resumeCycle = useCallback(() => {
     resume();
   }, [resume]);
+
+  const stopCycle = useCallback(() => {
+    stop();
+  }, [stop]);
 
   const completeStage = useCallback(
     async (stageName: StageName, output: string) => {
@@ -97,7 +116,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     loadCycles();
   }, [campaign, loadCycles]);
 
-  const value: CampaignContextType & { clearCampaign: () => void } = {
+  const value: CampaignContextType & { clearCampaign: () => void; stopCycle: () => void } = {
     campaign,
     cycles,
     currentCycle,
@@ -107,6 +126,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     startCycle,
     pauseCycle,
     resumeCycle,
+    stopCycle,
     completeStage,
     setCampaign,
     clearCampaign,

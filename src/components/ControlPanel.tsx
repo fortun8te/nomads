@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { SettingsModal } from './SettingsModal';
 
 export function ControlPanel() {
-  const { systemStatus, currentCycle, campaign, startCycle, pauseCycle, resumeCycle } = useCampaign();
+  const { systemStatus, currentCycle, campaign, startCycle, pauseCycle, resumeCycle, stopCycle, clearCampaign } = useCampaign() as any;
   const { isDarkMode } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
   const isRunning = systemStatus === 'running';
@@ -65,15 +65,41 @@ export function ControlPanel() {
             </button>
           )}
           {isPaused && (
+            <>
+              <button
+                onClick={resumeCycle}
+                className={`px-4 py-1.5 text-xs font-mono font-bold uppercase tracking-widest transition-colors ${
+                  isDarkMode
+                    ? 'bg-white text-black hover:bg-zinc-200'
+                    : 'bg-black text-white hover:bg-zinc-800'
+                }`}
+              >
+                Resume
+              </button>
+              <button
+                onClick={stopCycle}
+                className={`border px-4 py-1.5 text-xs font-mono font-bold uppercase tracking-widest transition-colors ${
+                  isDarkMode
+                    ? 'border-red-700 text-red-400 hover:border-red-500'
+                    : 'border-red-300 text-red-600 hover:border-red-600'
+                }`}
+              >
+                Stop
+              </button>
+            </>
+          )}
+
+          {campaign && (
             <button
-              onClick={resumeCycle}
-              className={`px-4 py-1.5 text-xs font-mono font-bold uppercase tracking-widest transition-colors ${
+              onClick={clearCampaign}
+              className={`border px-4 py-1.5 text-xs font-mono font-bold uppercase tracking-widest transition-colors ${
                 isDarkMode
-                  ? 'bg-white text-black hover:bg-zinc-200'
-                  : 'bg-black text-white hover:bg-zinc-800'
+                  ? 'border-red-800 text-red-400 hover:border-red-600 hover:bg-red-950/30'
+                  : 'border-red-300 text-red-600 hover:border-red-600 hover:bg-red-50'
               }`}
+              title="Kill cycle & reset campaign"
             >
-              Resume
+              Kill
             </button>
           )}
 

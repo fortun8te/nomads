@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useTheme } from '../context/ThemeContext';
 
 interface ResearchSection {
   type: 'campaign' | 'step' | 'agent' | 'synthesis' | 'text';
@@ -12,7 +11,6 @@ function parseResearchOutput(output: string): ResearchSection[] {
   const sections: ResearchSection[] = [];
   const lines = output.split('\n');
   let currentSection: ResearchSection | null = null;
-  let buffer: string[] = [];
 
   for (const line of lines) {
     if (line.includes('[CAMPAIGN_DATA]')) {

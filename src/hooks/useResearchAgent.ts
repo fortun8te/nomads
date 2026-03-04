@@ -1,5 +1,4 @@
 import { useOllama } from './useOllama';
-import { batchSearch } from '../utils/search';
 import type { Campaign, DeepDesire, Objection, ResearchFindings } from '../types';
 
 interface ResearchResult {

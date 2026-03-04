@@ -5,21 +5,26 @@ import { ResearchOutput } from './ResearchOutput';
 import { ModelOutputDebug } from './ModelOutputDebug';
 
 const STAGE_DESCRIPTIONS: Record<StageName, string> = {
-  research: 'Researching market, competitors, and audience insights',
-  taste: 'Defining visual direction, tone, and creative DNA',
-  make: 'Generating ad creative assets and concepts',
-  test: 'Evaluating creative effectiveness',
-  memories: 'Archiving insights and extracting patterns',
+  research: 'Market & audience research',
+  objections: 'Objection handling strategy',
+  taste: 'Creative direction & positioning',
+  make: 'Ad creative generation',
+  test: 'Creative evaluation',
+  memories: 'Pattern & insights archive',
 };
 
 
 interface StagePanelProps {
   cycle: Cycle | null;
-  isRunning: boolean;
+  isRunning?: boolean;
+  isDarkMode?: boolean;
+  onUpdateOutput?: (stageName: StageName, output: string) => void;
+  onPauseForInput?: (event: any) => Promise<string>;
 }
 
-export function StagePanel({ cycle, isRunning }: StagePanelProps) {
-  const { isDarkMode } = useTheme();
+export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode }: StagePanelProps) {
+  const { isDarkMode: themeDarkMode } = useTheme();
+  const isDarkMode = propDarkMode !== undefined ? propDarkMode : themeDarkMode;
   const outputRef = useRef<HTMLDivElement>(null);
   const [prevStage, setPrevStage] = useState<StageName | null>(null);
 
@@ -62,26 +67,26 @@ export function StagePanel({ cycle, isRunning }: StagePanelProps) {
   return (
     <div className={`border ${borderClass}`}>
       {/* Header */}
-      <div className={`border-b ${borderClass} px-5 py-3 flex items-center justify-between ${bgClass}`}>
-        <div className="flex items-center gap-4">
-          <div>
-            <h3 className={`font-black text-lg uppercase tracking-tight ${textClass}`}>{currentStage}</h3>
-            <p className={`font-mono text-xs ${secondaryTextClass} mt-1`}>{STAGE_DESCRIPTIONS[currentStage]}</p>
+      <div className={`border-b ${borderClass} px-4 py-2.5 flex items-center justify-between ${bgClass}`}>
+        <div className="flex items-center gap-3">
+          <div className="flex-1">
+            <h3 className={`font-bold text-base uppercase tracking-tight ${textClass}`}>{currentStage}</h3>
+            <p className={`font-mono text-xs ${secondaryTextClass} mt-0.5`}>{STAGE_DESCRIPTIONS[currentStage]}</p>
           </div>
-          <div className="flex items-center gap-2 ml-4">
+          <div className="flex items-center gap-2">
             <div className={`w-2 h-2 ${statusDotClass} ${stageData.status === 'in-progress' ? 'animate-pulse' : ''}`} />
             <span className={`font-mono text-xs uppercase tracking-wider ${secondaryTextClass}`}>
               {stageData.status}
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 ml-4">
           {elapsed !== null && (
             <span className={`font-mono text-xs ${secondaryTextClass}`}>{elapsed}s</span>
           )}
           {stageData.completedAt && (
             <span className={`font-mono text-xs ${secondaryTextClass}`}>
-              {Math.round((stageData.completedAt - (stageData.startedAt || 0)) / 1000)}s done
+              {Math.round((stageData.completedAt - (stageData.startedAt || 0)) / 1000)}s
             </span>
           )}
         </div>
@@ -90,14 +95,14 @@ export function StagePanel({ cycle, isRunning }: StagePanelProps) {
       {/* Output Console */}
       <div
         ref={outputRef}
-        className={`p-5 h-96 overflow-y-auto ${outputBgClass} font-mono text-sm ${outputTextClass} leading-relaxed space-y-2`}
+        className={`p-4 h-96 overflow-y-auto ${outputBgClass} font-mono text-sm ${outputTextClass} leading-relaxed space-y-2`}
       >
         {stageData.agentOutput ? (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {/* Stage transition message */}
             {prevStage && prevStage !== currentStage && (
-              <div className={`border-l-2 ${isDarkMode ? 'border-blue-600' : 'border-blue-400'} pl-3 py-2 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
-                → Switched to {currentStage} mode
+              <div className={`border-l-2 ${isDarkMode ? 'border-blue-600' : 'border-blue-400'} pl-2 py-1 text-xs ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
+                → {currentStage}
               </div>
             )}
 
@@ -107,7 +112,7 @@ export function StagePanel({ cycle, isRunning }: StagePanelProps) {
             ) : (
               <div className={`${isDarkMode ? 'text-zinc-200' : 'text-zinc-900'}`}>
                 {stageData.agentOutput.split('\n').map((line, idx) => (
-                  <div key={idx} className={`${line.startsWith('§') ? `${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'} font-semibold` : ''}`}>
+                  <div key={idx} className={`text-xs ${line.startsWith('§') ? `${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'} font-semibold` : ''}`}>
                     {line.startsWith('§') ? line.substring(1) : line || <span className={placeholderTextClass}>.</span>}
                   </div>
                 ))}
@@ -126,13 +131,13 @@ export function StagePanel({ cycle, isRunning }: StagePanelProps) {
         ) : (
           <span className={placeholderTextClass}>
             {isRunning ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 text-xs">
                 <div className="flex gap-1">
-                  <div className={`w-1.5 h-1.5 ${bounceDotClass} rounded-full animate-bounce`} />
-                  <div className={`w-1.5 h-1.5 ${bounceDotClass} rounded-full animate-bounce`} style={{animationDelay:'0.1s'}} />
-                  <div className={`w-1.5 h-1.5 ${bounceDotClass} rounded-full animate-bounce`} style={{animationDelay:'0.2s'}} />
+                  <div className={`w-1 h-1 ${bounceDotClass} rounded-full animate-bounce`} />
+                  <div className={`w-1 h-1 ${bounceDotClass} rounded-full animate-bounce`} style={{animationDelay:'0.1s'}} />
+                  <div className={`w-1 h-1 ${bounceDotClass} rounded-full animate-bounce`} style={{animationDelay:'0.2s'}} />
                 </div>
-                <span>awaiting model output...</span>
+                <span>awaiting output</span>
               </div>
             ) : (
               '_ no output yet'
@@ -143,13 +148,13 @@ export function StagePanel({ cycle, isRunning }: StagePanelProps) {
 
       {/* Status Footer */}
       {stageData.status === 'in-progress' && (
-        <div className={`px-5 py-3 border-t ${borderClass} flex items-center gap-2`}>
+        <div className={`px-4 py-2 border-t ${borderClass} flex items-center gap-2`}>
           <div className="flex gap-1">
-            <div className={`w-1.5 h-1.5 ${bounceDotClass} rounded-full animate-bounce`} />
-            <div className={`w-1.5 h-1.5 ${bounceDotClass} rounded-full animate-bounce`} style={{animationDelay:'0.1s'}} />
-            <div className={`w-1.5 h-1.5 ${bounceDotClass} rounded-full animate-bounce`} style={{animationDelay:'0.2s'}} />
+            <div className={`w-1 h-1 ${bounceDotClass} rounded-full animate-bounce`} />
+            <div className={`w-1 h-1 ${bounceDotClass} rounded-full animate-bounce`} style={{animationDelay:'0.1s'}} />
+            <div className={`w-1 h-1 ${bounceDotClass} rounded-full animate-bounce`} style={{animationDelay:'0.2s'}} />
           </div>
-          <span className={`font-mono text-xs ${secondaryTextClass}`}>processing...</span>
+          <span className={`font-mono text-xs ${secondaryTextClass}`}>processing</span>
         </div>
       )}
     </div>

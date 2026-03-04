@@ -30,7 +30,7 @@ export function ModelOutputDebug({
   const labelClass = isDarkMode ? 'text-zinc-500' : 'text-zinc-600';
 
   const outputLength = rawOutput?.length || 0;
-  const lineCount = rawOutput.split('\n').length;
+  const lineCount = (rawOutput || '').split('\n').length;
 
   return (
     <div className={`border ${borderClass} rounded mt-3`}>
@@ -82,11 +82,13 @@ export function ModelOutputDebug({
           </div>
 
           {/* Raw output preview */}
-          <div
-            className={`mt-2 p-2 rounded text-xs font-mono ${isDarkMode ? 'bg-black/30' : 'bg-white/30'} overflow-x-auto max-h-32 overflow-y-auto`}
-          >
-            <pre className={textClass}>{rawOutput.slice(0, 500)}{rawOutput.length > 500 ? '\n...(truncated)' : ''}</pre>
-          </div>
+          {rawOutput && (
+            <div
+              className={`mt-2 p-2 rounded text-xs font-mono ${isDarkMode ? 'bg-black/30' : 'bg-white/30'} overflow-x-auto max-h-32 overflow-y-auto`}
+            >
+              <pre className={textClass}>{rawOutput.slice(0, 500)}{rawOutput.length > 500 ? '\n...(truncated)' : ''}</pre>
+            </div>
+          )}
         </div>
       )}
     </div>
