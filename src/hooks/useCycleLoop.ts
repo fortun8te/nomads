@@ -304,7 +304,6 @@ DOCUMENT THE LEARNINGS:
 § FOR NEXT CYCLE
 [3-5 specific things to optimize]`;
           }
-          }
 
           // Create abort controller for this stage
           abortControllerRef.current = new AbortController();
