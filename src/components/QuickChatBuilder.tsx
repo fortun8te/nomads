@@ -186,14 +186,26 @@ Now respond as the AI campaign builder. Ask the next smart question or if we hav
     } catch (error) {
       const errorMsg =
         error instanceof Error ? error.message : 'Failed to generate response';
-      message.error(`AI Error: ${errorMsg}`);
-      setMessages((prev) => [
-        ...prev,
-        {
-          type: 'ai' as const,
-          content: `Oops, I had an error: ${errorMsg}. Please try again.`,
-        },
-      ]);
+      console.error('❌ QuickChat error:', error);
+
+      // Show error in UI
+      const errorDisplay = errorMsg.includes('CORS')
+        ? 'Ollama connection blocked (CORS). Check if http://localhost:11434 is accessible.'
+        : errorMsg.includes('connection')
+        ? 'Cannot connect to Ollama at localhost:11434. Is it running? (ollama serve)'
+        : errorMsg;
+
+      setMessages((prev) => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (updated[lastIdx]?.type === 'ai' && updated[lastIdx].content === '🧠 Thinking...') {
+          updated[lastIdx] = {
+            type: 'ai' as const,
+            content: `❌ Error: ${errorDisplay}\n\nTroubleshoot:\n1. Is Ollama running? (ollama serve)\n2. Check http://localhost:11434/api/tags\n3. Refresh this page and try again`,
+          };
+        }
+        return updated;
+      });
       setIsLoading(false);
     }
   };

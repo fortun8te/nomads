@@ -20,9 +20,14 @@ export function ControlPanel() {
     <div className={`border-b ${borderClass} ${bgClass}`}>
       <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <span className={`font-mono text-xs font-bold tracking-widest uppercase ${textClass}`}>
-            AD CREATIVE AGENT
-          </span>
+          <div className="flex flex-col gap-0.5">
+            <span className={`font-mono text-xs font-bold tracking-widest uppercase ${textClass}`}>
+              AD CREATIVE AGENT
+            </span>
+            <span className={`font-mono text-xs ${secondaryTextClass}`}>
+              v1.0 (Coverage Graph)
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 ${statusDotClass} ${isRunning ? 'animate-pulse' : ''}`} />
             <span className={`font-mono text-xs ${secondaryTextClass} uppercase tracking-wider`}>
