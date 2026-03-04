@@ -34,6 +34,53 @@ export const ollamaService = {
     }
   },
 
+  async testConnection(): Promise<{ success: boolean; message: string; response?: string }> {
+    try {
+      const host = getOllamaHost();
+      console.debug('[Ollama] Testing connection with minimal prompt...');
+
+      const response = await fetch(`${host}/api/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'mistral',
+          prompt: 'Respond with exactly: YES',
+          stream: false,
+          temperature: 0,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('[Ollama] Test failed:', response.status, error);
+        return {
+          success: false,
+          message: `HTTP ${response.status}: ${error}`,
+        };
+      }
+
+      const data = await response.json() as { response?: string };
+      const responseText = data.response || '';
+      console.debug('[Ollama] Test response:', responseText);
+
+      const success = responseText.toLowerCase().includes('yes');
+      return {
+        success,
+        message: success ? '✅ Connection OK! Ollama is responding.' : '⚠️ Ollama responded but unexpected answer.',
+        response: responseText,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[Ollama] Test connection error:', msg);
+      return {
+        success: false,
+        message: `❌ Connection failed: ${msg}`,
+      };
+    }
+  },
+
   async generateStream(
     prompt: string,
     systemPrompt: string,

@@ -19,8 +19,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [debugTests, setDebugTests] = useState<DebugTest[]>([
-    { name: 'Ollama Connection', status: 'pending', message: 'Not tested' },
-    { name: 'Ollama Models', status: 'pending', message: 'Not tested' },
+    { name: 'Ollama API Tags', status: 'pending', message: 'Not tested' },
+    { name: 'Ollama Generation (Minimal)', status: 'pending', message: 'Not tested - will send "Respond with: YES"' },
     { name: 'Web Search (DuckDuckGo)', status: 'pending', message: 'Not tested' },
   ]);
 
@@ -31,9 +31,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }, []);
 
   // Fetch with timeout (10s for remote connections)
-  const fetchWithTimeout = (url: string, timeout = 10000) => {
+  const fetchWithTimeout = (url: string, timeout = 10000, options?: RequestInit) => {
     return Promise.race([
-      fetch(url, { method: 'GET' }),
+      fetch(url, options || { method: 'GET' }),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timeout')), timeout)
       ),
@@ -61,33 +61,72 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const runDebugTests = async () => {
     setDebugTests([
-      { name: 'Ollama Connection', status: 'testing', message: 'Connecting...' },
-      { name: 'Ollama Models', status: 'testing', message: 'Checking...' },
+      { name: 'Ollama API Tags', status: 'testing', message: 'Connecting...' },
+      { name: 'Ollama Generation (Minimal)', status: 'testing', message: 'Sending minimal prompt...' },
       { name: 'Web Search (DuckDuckGo)', status: 'testing', message: 'Testing...' },
     ]);
 
-    // Test 1: Ollama Connection
+    // Test 1: Ollama API Tags (check if server is up)
     try {
       const ollamaResp = (await fetchWithTimeout(`${ollamaHost}/api/tags`, 10000)) as Response;
       if (ollamaResp.ok) {
         const models = await ollamaResp.json();
         const modelCount = models.models?.length || 0;
+        const modelNames = models.models?.map((m: any) => m.name).join(', ') || 'None';
         setDebugTests((prev) => [
-          { ...prev[0], status: 'success', message: `Connected (${modelCount} models available)` },
-          { name: 'Ollama Models', status: 'success', message: models.models?.map((m: any) => m.name).join(', ') || 'None' },
+          { ...prev[0], status: 'success', message: `Connected (${modelCount} models): ${modelNames}` },
+          { name: 'Ollama Generation (Minimal)', status: 'testing', message: 'Sending minimal prompt...' },
           prev[2],
         ]);
+
+        // Test 2: Ollama Generation with minimal prompt
+        try {
+          const genResp = (await fetchWithTimeout(`${ollamaHost}/api/generate`, 15000, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'mistral',
+              prompt: 'Respond with exactly: YES',
+              stream: false,
+              temperature: 0,
+            }),
+          })) as Response;
+
+          if (genResp.ok) {
+            const genData = await genResp.json() as { response?: string };
+            const response = genData.response || '';
+            const success = response.toLowerCase().includes('yes');
+            setDebugTests((prev) => [
+              prev[0],
+              { ...prev[1], status: success ? 'success' : 'error', message: success ? `✓ Generated: "${response.trim()}"` : `✗ Unexpected: "${response.trim()}"` },
+              prev[2],
+            ]);
+          } else {
+            const errorText = await genResp.text();
+            setDebugTests((prev) => [
+              prev[0],
+              { ...prev[1], status: 'error', message: `HTTP ${genResp.status}: ${errorText}` },
+              prev[2],
+            ]);
+          }
+        } catch (genErr: unknown) {
+          setDebugTests((prev) => [
+            prev[0],
+            { ...prev[1], status: 'error', message: `Generation failed: ${genErr instanceof Error ? genErr.message : 'Unknown error'}` },
+            prev[2],
+          ]);
+        }
       } else {
         setDebugTests((prev) => [
-          { ...prev[0], status: 'error', message: `Error: ${ollamaResp.status}` },
-          { name: 'Ollama Models', status: 'error', message: 'Skipped' },
+          { ...prev[0], status: 'error', message: `API Error: ${ollamaResp.status}` },
+          { name: 'Ollama Generation (Minimal)', status: 'error', message: 'Skipped - server not responding' },
           prev[2],
         ]);
       }
     } catch (err: unknown) {
       setDebugTests((prev) => [
         { ...prev[0], status: 'error', message: `${err instanceof Error ? err.message : 'Unknown error'}` },
-        { name: 'Ollama Models', status: 'error', message: 'Skipped' },
+        { name: 'Ollama Generation (Minimal)', status: 'error', message: 'Skipped - connection failed' },
         prev[2],
       ]);
     }

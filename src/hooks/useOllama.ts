@@ -107,6 +107,13 @@ export function useOllama() {
     []
   );
 
+  const testConnection = useCallback(async () => {
+    console.debug('[useOllama] testConnection() called');
+    const result = await ollamaService.testConnection();
+    console.debug('[useOllama] testConnection() result:', result);
+    return result;
+  }, []);
+
   return {
     isConnected,
     isLoading,
@@ -115,5 +122,6 @@ export function useOllama() {
     generate,
     generateWithCallback,
     checkConnection,
+    testConnection,
   };
 }
