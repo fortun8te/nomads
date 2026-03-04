@@ -27,7 +27,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   useEffect(() => {
     // Load saved Ollama host from localStorage
     const saved = localStorage.getItem('ollama_host');
-    setOllamaHost(saved || 'http://100.74.135.83:11434');
+    setOllamaHost(saved || 'http://localhost:11434');
   }, []);
 
   // Fetch with timeout (10s for remote connections)
