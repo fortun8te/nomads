@@ -16,45 +16,67 @@ export interface SearchResponse {
 export const searxngService = {
   async search(query: string): Promise<SearchResponse> {
     try {
-      const searchParams = new URLSearchParams({
+      // Try DuckDuckGo first
+      const ddgParams = new URLSearchParams({
         q: query,
         format: 'json',
       });
 
-      const response = await fetch(`https://api.duckduckgo.com/?${searchParams}`, {
+      const response = await fetch(`https://api.duckduckgo.com/?${ddgParams}`, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
         },
       });
 
-      if (!response.ok) {
-        throw new Error(`Search error: ${response.status}`);
-      }
+      if (response.ok) {
+        const data = await response.json();
+        const results: SearchResult[] = [];
 
-      const data = await response.json();
-      const results: SearchResult[] = [];
+        // Parse DuckDuckGo results - try both RelatedTopics and Results
+        const topics = data.RelatedTopics || [];
+        const resultsList = data.Results || [];
 
-      // Parse DuckDuckGo results
-      if (data.RelatedTopics && Array.isArray(data.RelatedTopics)) {
-        data.RelatedTopics.slice(0, 10).forEach((item: any) => {
+        // Combine both sources
+        [...topics, ...resultsList].slice(0, 10).forEach((item: any) => {
           if (item.FirstURL && item.Text) {
             results.push({
               title: item.Text.substring(0, 100),
               url: item.FirstURL,
               content: item.Text,
             });
+          } else if (item.URL && item.Title) {
+            results.push({
+              title: item.Title.substring(0, 100),
+              url: item.URL,
+              content: item.Title,
+            });
           }
         });
+
+        if (results.length > 0) {
+          return {
+            results,
+            query,
+            number_of_results: results.length,
+          };
+        }
       }
 
+      // Fallback: Return mock data with message
+      console.warn('DuckDuckGo search unavailable, using LLM-only research');
       return {
-        results,
+        results: [],
         query,
-        number_of_results: results.length,
+        number_of_results: 0,
       };
     } catch (error) {
       console.error('Search error:', error);
-      throw error;
+      // Return empty results instead of throwing - allows LLM fallback
+      return {
+        results: [],
+        query,
+        number_of_results: 0,
+      };
     }
   },
 
