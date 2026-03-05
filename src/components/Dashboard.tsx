@@ -46,9 +46,9 @@ export function Dashboard() {
           </div>
         )}
 
-        <div className="grid grid-cols-12 gap-4">
+        <div className="grid grid-cols-12 gap-3">
           {/* Left — Campaign info */}
-          <div className="col-span-4 space-y-3">
+          <div className="col-span-3 space-y-3">
             <CampaignSelector />
             <CycleHistory cycles={cycles} />
 
@@ -73,7 +73,7 @@ export function Dashboard() {
           </div>
 
           {/* Right — Active stage */}
-          <div className="col-span-8 space-y-3">
+          <div className="col-span-9 space-y-3">
             {campaign && currentCycle ? (
               <>
                 <CycleTimeline cycle={currentCycle} selectedStage={selectedStage} onSelectStage={setSelectedStage} />

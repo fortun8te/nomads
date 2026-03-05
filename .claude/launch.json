@@ -3,9 +3,8 @@
   "configurations": [
     {
       "name": "ad-agent",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "cwd": "/Users/mk/Downloads/ad-agent",
+      "runtimeExecutable": "/Users/mk/Downloads/nomads/start-dev.sh",
+      "runtimeArgs": [],
       "port": 5173,
       "autoPort": true
     }

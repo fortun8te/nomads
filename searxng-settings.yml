@@ -1,53 +1,40 @@
-# SearXNG default configuration
+use_default_settings: true
+
 server:
-  port: 8080
-  bind_address: "0.0.0.0"
-  secret_key: "ultrasecretkey"
-  base_url: "http://localhost:8888/"
+  secret_key: "ultrasecretkey!"
   limiter: false
   image_proxy: false
 
 search:
+  safe_search: 0
   autocomplete: "duckduckgo"
   default_lang: "en"
-  safe_search: 0
-
-redis:
-  url: false
-
-outgoing:
-  request_timeout: 10
-  max_retries: 1
-  pool_connections: 100
-  pool_maxsize: 100
-
-enabled_plugins:
-  - "Basic Authentication"
-  - "Hash plugin"
-  - "Self Information"
-  - "Tracker URL remover"
+  formats:
+    - html
+    - json
 
 engines:
   - name: google
     engine: google
-    enabled: true
+    shortcut: g
+    disabled: false
 
   - name: bing
     engine: bing
-    enabled: true
+    shortcut: b
+    disabled: false
 
   - name: duckduckgo
     engine: duckduckgo
-    enabled: true
+    shortcut: ddg
+    disabled: false
 
   - name: wikipedia
     engine: wikipedia
-    enabled: true
+    shortcut: wp
+    disabled: false
 
-categories:
-  general:
-    name: General
-  science:
-    name: Science
-  social media:
-    name: Social Media
+  - name: reddit
+    engine: reddit
+    shortcut: re
+    disabled: false

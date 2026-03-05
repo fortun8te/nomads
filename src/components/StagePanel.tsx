@@ -115,7 +115,7 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
       {/* Output Console */}
       <div
         ref={outputRef}
-        className={`${currentStage === 'research' ? 'p-3 min-h-96 max-h-[600px]' : 'p-4 h-96'} overflow-y-auto ${outputBgClass} shadow-inner ${currentStage !== 'research' ? `font-mono text-sm ${outputTextClass} leading-relaxed` : ''} space-y-2`}
+        className={`${currentStage === 'research' ? 'p-4 min-h-[500px] max-h-[700px]' : 'p-4 h-96'} overflow-y-auto ${outputBgClass} shadow-inner ${currentStage !== 'research' ? `font-mono text-sm ${outputTextClass} leading-relaxed` : ''} space-y-2`}
       >
         {stageData.agentOutput ? (
           <div className="space-y-2">
