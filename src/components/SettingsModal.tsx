@@ -16,21 +16,28 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { isDarkMode, toggleTheme } = useTheme();
   const [tab, setTab] = useState<'settings' | 'debug'>('settings');
   const [ollamaHost, setOllamaHost] = useState('');
+  const [wayfarerHost, setWayfarerHost] = useState('');
+  const [maxResearchTime, setMaxResearchTime] = useState('10');
+  const [maxIterations, setMaxIterations] = useState('3');
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [debugTests, setDebugTests] = useState<DebugTest[]>([
     { name: 'Ollama Connection', status: 'pending', message: 'Not tested' },
     { name: 'Ollama Models', status: 'pending', message: 'Not tested' },
-    { name: 'Web Search (DuckDuckGo)', status: 'pending', message: 'Not tested' },
+    { name: 'Wayfayer (Web Research)', status: 'pending', message: 'Not tested' },
   ]);
 
   useEffect(() => {
-    // Load saved Ollama host from localStorage
-    const saved = localStorage.getItem('ollama_host');
-    setOllamaHost(saved || 'http://localhost:11434');
+    const savedOllama = localStorage.getItem('ollama_host');
+    setOllamaHost(savedOllama || 'http://localhost:11434');
+    const savedWayfarer = localStorage.getItem('wayfarer_host');
+    setWayfarerHost(savedWayfarer || 'http://localhost:8889');
+    const savedTime = localStorage.getItem('max_research_time_minutes');
+    setMaxResearchTime(savedTime || '10');
+    const savedIter = localStorage.getItem('max_research_iterations');
+    setMaxIterations(savedIter || '3');
   }, []);
 
-  // Fetch with timeout (10s for remote connections)
   const fetchWithTimeout = (url: string, timeout = 10000) => {
     return Promise.race([
       fetch(url, { method: 'GET' }),
@@ -59,11 +66,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
+  const saveResearchSettings = () => {
+    localStorage.setItem('wayfarer_host', wayfarerHost);
+    localStorage.setItem('max_research_time_minutes', maxResearchTime);
+    localStorage.setItem('max_research_iterations', maxIterations);
+  };
+
   const runDebugTests = async () => {
     setDebugTests([
       { name: 'Ollama Connection', status: 'testing', message: 'Connecting...' },
       { name: 'Ollama Models', status: 'testing', message: 'Checking...' },
-      { name: 'Web Search (DuckDuckGo)', status: 'testing', message: 'Testing...' },
+      { name: 'Wayfayer (Web Research)', status: 'testing', message: 'Testing...' },
     ]);
 
     // Test 1: Ollama Connection
@@ -92,32 +105,55 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       ]);
     }
 
-    // Test 2: Web Search API
+    // Test 2: Wayfarer API
     try {
-      const searchResp = (await fetchWithTimeout('https://api.duckduckgo.com/?q=test&format=json', 10000)) as Response;
-      if (searchResp.ok) {
-        setDebugTests((prev) => [
-          prev[0],
-          prev[1],
-          { ...prev[2], status: 'success', message: 'DuckDuckGo API working' },
-        ]);
+      const wfHost = localStorage.getItem('wayfarer_host') || 'http://localhost:8889';
+      const wayfarerResp = (await fetchWithTimeout(`${wfHost}/health`, 5000)) as Response;
+      if (wayfarerResp.ok) {
+        // Quick research test
+        const testResp = await fetch(`${wfHost}/research`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: 'test', num_results: 1 }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (testResp.ok) {
+          const data = await testResp.json();
+          setDebugTests((prev) => [
+            prev[0],
+            prev[1],
+            { ...prev[2], status: 'success', message: `Online — ${data.meta?.success || 0}/${data.meta?.total || 0} pages scraped in ${(data.meta?.elapsed || 0).toFixed(1)}s` },
+          ]);
+        } else {
+          setDebugTests((prev) => [
+            prev[0],
+            prev[1],
+            { ...prev[2], status: 'success', message: 'Health OK, but research endpoint returned error' },
+          ]);
+        }
       } else {
         setDebugTests((prev) => [
           prev[0],
           prev[1],
-          { ...prev[2], status: 'error', message: `Error: ${searchResp.status}` },
+          { ...prev[2], status: 'error', message: `Error: ${wayfarerResp.status}` },
         ]);
       }
     } catch (err: unknown) {
       setDebugTests((prev) => [
         prev[0],
         prev[1],
-        { ...prev[2], status: 'error', message: `${err instanceof Error ? err.message : 'Unavailable'}` },
+        { ...prev[2], status: 'error', message: `${err instanceof Error ? err.message : 'Unavailable'} — is Wayfayer server running?` },
       ]);
     }
   };
 
   if (!isOpen) return null;
+
+  const labelClass = `font-mono text-xs uppercase tracking-widest ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`;
+  const inputClass = `w-full px-3 py-2 rounded font-mono text-xs ${
+    isDarkMode ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-white border-zinc-200 text-black'
+  } border transition-colors`;
+  const sectionBorder = `pt-4 border-t ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`;
 
   return (
     <>
@@ -129,7 +165,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       {/* Modal */}
       <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
-        <div className={`pointer-events-auto w-96 ${
+        <div className={`pointer-events-auto w-[420px] ${
           isDarkMode
             ? 'bg-[#0d0d0d] border-zinc-800'
             : 'bg-white border-zinc-200'
@@ -179,46 +215,32 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
 
           {/* Content */}
-          <div className="px-6 py-4 space-y-4 max-h-96 overflow-y-auto">
+          <div className="px-6 py-4 space-y-4 max-h-[28rem] overflow-y-auto">
             {tab === 'settings' ? (
               <>
                 {/* Theme Toggle */}
                 <div className="flex items-center justify-between">
-                  <label className={`font-mono text-xs uppercase tracking-widest ${
-                    isDarkMode ? 'text-zinc-400' : 'text-zinc-600'
-                  }`}>
-                    Theme
-                  </label>
+                  <label className={labelClass}>Theme</label>
                   <div className="flex items-center gap-2">
-                    <span className={`font-mono text-xs ${
-                      isDarkMode ? 'text-zinc-500' : 'text-zinc-500'
-                    }`}>
+                    <span className={`font-mono text-xs ${isDarkMode ? 'text-zinc-500' : 'text-zinc-500'}`}>
                       {isDarkMode ? 'Dark' : 'Light'}
                     </span>
                     <button
                       onClick={toggleTheme}
                       className={`relative w-12 h-6 rounded-full transition-colors ${
-                        isDarkMode
-                          ? 'bg-white'
-                          : 'bg-black'
+                        isDarkMode ? 'bg-white' : 'bg-black'
                       }`}
                     >
                       <div className={`absolute top-0.5 w-5 h-5 rounded-full transition-all ${
-                        isDarkMode
-                          ? 'right-0.5 bg-black'
-                          : 'left-0.5 bg-white'
+                        isDarkMode ? 'right-0.5 bg-black' : 'left-0.5 bg-white'
                       }`} />
                     </button>
                   </div>
                 </div>
 
                 {/* Ollama Connection */}
-                <div className={`pt-4 border-t ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
-                  <label className={`block font-mono text-xs uppercase tracking-widest mb-2 ${
-                    isDarkMode ? 'text-zinc-400' : 'text-zinc-600'
-                  }`}>
-                    Ollama Host
-                  </label>
+                <div className={sectionBorder}>
+                  <label className={`block ${labelClass} mb-2`}>Ollama Host</label>
                   <input
                     type="text"
                     value={ollamaHost}
@@ -226,11 +248,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       setOllamaHost(e.target.value);
                       setConnectionStatus('idle');
                     }}
-                    className={`w-full px-3 py-2 rounded font-mono text-xs mb-2 ${
-                      isDarkMode
-                        ? 'bg-zinc-900 border-zinc-700 text-white'
-                        : 'bg-white border-zinc-200 text-black'
-                    } border transition-colors`}
+                    className={`${inputClass} mb-2`}
                     placeholder="http://localhost:11434"
                   />
                   <button
@@ -250,12 +268,62 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </button>
                 </div>
 
+                {/* Wayfayer / Research Config */}
+                <div className={sectionBorder}>
+                  <label className={`block ${labelClass} mb-2`}>Wayfayer Host</label>
+                  <input
+                    type="text"
+                    value={wayfarerHost}
+                    onChange={(e) => setWayfarerHost(e.target.value)}
+                    className={`${inputClass} mb-3`}
+                    placeholder="http://localhost:8889"
+                  />
+
+                  <div className="flex gap-3 mb-3">
+                    <div className="flex-1">
+                      <label className={`block ${labelClass} mb-1`}>Time Limit</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={maxResearchTime}
+                          onChange={(e) => setMaxResearchTime(e.target.value)}
+                          min="1"
+                          max="60"
+                          className={`${inputClass} w-20`}
+                        />
+                        <span className={`font-mono text-xs ${isDarkMode ? 'text-zinc-500' : 'text-zinc-500'}`}>min</span>
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <label className={`block ${labelClass} mb-1`}>Max Iterations</label>
+                      <input
+                        type="number"
+                        value={maxIterations}
+                        onChange={(e) => setMaxIterations(e.target.value)}
+                        min="1"
+                        max="10"
+                        className={`${inputClass} w-20`}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={saveResearchSettings}
+                    className={`w-full px-3 py-1.5 rounded font-mono text-xs uppercase tracking-widest transition-colors ${
+                      isDarkMode ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-zinc-100 text-black hover:bg-zinc-200'
+                    }`}
+                  >
+                    Save Research Settings
+                  </button>
+                  <p className={`font-mono text-[10px] mt-1.5 ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    Applies to new campaigns. Running research will use its campaign settings.
+                  </p>
+                </div>
+
                 {/* Version */}
                 <div className={`pt-2 border-t ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
-                  <p className={`font-mono text-xs ${
-                    isDarkMode ? 'text-zinc-600' : 'text-zinc-400'
-                  }`}>
-                    Ad Creative Agent v1.0
+                  <p className={`font-mono text-xs ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    NOMADS Ad Creative Agent v1.1
                   </p>
                 </div>
               </>
@@ -315,9 +383,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   ))}
 
                   <div className={`pt-2 border-t text-xs font-mono ${isDarkMode ? 'border-zinc-800 text-zinc-500' : 'border-zinc-200 text-zinc-600'}`}>
-                    <p>Search: DuckDuckGo API (free, no setup)</p>
+                    <p>Search: Wayfayer + SearXNG (local, full page scraping)</p>
                     <p className={`mt-1 p-2 rounded ${isDarkMode ? 'bg-zinc-900' : 'bg-zinc-100'}`}>
-                      Rate limit: 30 req/min • Public API
+                      SearXNG :8888 → Wayfayer :8889 → Full pages
                     </p>
                   </div>
                 </div>

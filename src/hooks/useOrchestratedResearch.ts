@@ -12,37 +12,39 @@ interface OrchestratedResearchResult {
 
 /**
  * Orchestrated Research Hook
- * Combines Zakaria framework research with web-searching researcher agents
+ * Combines desire-driven research with web-searching researcher agents
  * glm-4.7 orchestrates multiple lfm-2.5 researchers
  */
 export function useOrchestratedResearch() {
-  const { executeResearch: executeZakariaResearch } = useResearchAgent();
+  const { executeResearch: executeDesireResearch } = useResearchAgent();
 
   const executeOrchestratedResearch = async (
     campaign: Campaign,
     onProgress?: (msg: string) => void,
     enableWebSearch: boolean = true,
-    onPauseForInput?: (event: any) => Promise<string>
+    onPauseForInput?: (event: any) => Promise<string>,
+    signal?: AbortSignal
   ): Promise<OrchestratedResearchResult> => {
     const startTime = Date.now();
 
     onProgress?.('\n════════════════════════════════════════════════════════════════════\n');
-    onProgress?.('ORCHESTRATED RESEARCH: Zakaria Framework + Web Search Agents\n');
+    onProgress?.('ORCHESTRATED RESEARCH: Desire-Driven Analysis + Web Search Agents\n');
     onProgress?.('════════════════════════════════════════════════════════════════════\n\n');
 
-    // Phase 1: Execute Zakaria Framework Research
-    onProgress?.('[PHASE 1] Running Zakaria Framework Research (Deep Desires, Objections, Audience)\n\n');
-    const zakariaResult = await executeZakariaResearch(
+    // Phase 1: Execute Desire-Driven Research
+    onProgress?.('[PHASE 1] Running Desire-Driven Research (Deep Desires, Objections, Audience)\n\n');
+    const desireResult = await executeDesireResearch(
       campaign,
       (msg) => onProgress?.(msg),
-      'glm-4.7-flash:q4_K_M'
+      'glm-4.7-flash:q4_K_M',
+      signal
     );
 
-    if (!zakariaResult.researchFindings) {
+    if (!desireResult.researchFindings) {
       return {
-        processedOutput: zakariaResult.processedOutput,
-        rawOutput: zakariaResult.rawOutput,
-        model: zakariaResult.model,
+        processedOutput: desireResult.processedOutput,
+        rawOutput: desireResult.rawOutput,
+        model: desireResult.model,
         processingTime: Date.now() - startTime,
         researchFindings: {
           deepDesires: [],
@@ -55,17 +57,17 @@ export function useOrchestratedResearch() {
       };
     }
 
-    onProgress?.('\n[PHASE 1 COMPLETE] Zakaria framework research done.\n\n');
+    onProgress?.('\n[PHASE 1 COMPLETE] Desire-driven research done.\n\n');
 
     // Phase 2: Web Search Orchestration (if enabled)
     if (!enableWebSearch) {
-      onProgress?.('[WEB SEARCH] Skipped. Using Zakaria findings only.\n\n');
+      onProgress?.('[WEB SEARCH] Skipped. Using desire-driven findings only.\n\n');
       return {
-        processedOutput: zakariaResult.processedOutput,
-        rawOutput: zakariaResult.rawOutput,
-        model: zakariaResult.model,
+        processedOutput: desireResult.processedOutput,
+        rawOutput: desireResult.rawOutput,
+        model: desireResult.model,
         processingTime: Date.now() - startTime,
-        researchFindings: zakariaResult.researchFindings,
+        researchFindings: desireResult.researchFindings,
       };
     }
 
@@ -90,13 +92,14 @@ export function useOrchestratedResearch() {
       const webResearchResults = await orchestrator.orchestrateResearch(
         orchestratorState,
         (msg) => onProgress?.(msg),
-        onPauseForInput
+        onPauseForInput,
+        signal
       );
 
       onProgress?.('\n[PHASE 2 COMPLETE] Web research orchestration done.\n\n');
 
       // Combine findings
-      const combinedOutput = `${zakariaResult.processedOutput}
+      const combinedOutput = `${desireResult.processedOutput}
 
 ════════════════════════════════════════════════════════════════════
 WEB RESEARCH FINDINGS (via Researcher Agents)
@@ -117,13 +120,13 @@ RESEARCH SYNTHESIS COMPLETE
 ════════════════════════════════════════════════════════════════════
 
 This research combines:
-✓ Deep desire mapping (Zakaria Framework)
-✓ Objection identification
-✓ Audience behavior research
-✓ Web-based competitive analysis
-✓ Market trend validation
+- Deep desire mapping
+- Objection identification
+- Audience behavior research
+- Web-based competitive analysis
+- Market trend validation
 
-Ready for: Objection Handling → Creative Direction (Taste)
+Ready for: Objection Handling -> Creative Direction (Taste)
 `;
 
       return {
@@ -131,18 +134,18 @@ Ready for: Objection Handling → Creative Direction (Taste)
         rawOutput: combinedOutput,
         model: 'glm-4.7-flash:q4_K_M (orchestrator) + lfm-2.5 (researchers)',
         processingTime: Date.now() - startTime,
-        researchFindings: zakariaResult.researchFindings,
+        researchFindings: desireResult.researchFindings,
       };
     } catch (error) {
-      onProgress?.('\n[WEB SEARCH ERROR] Falling back to Zakaria findings only.\n');
+      onProgress?.('\n[WEB SEARCH ERROR] Falling back to desire-driven findings only.\n');
       console.error('Orchestrated research error:', error);
 
       return {
-        processedOutput: zakariaResult.processedOutput,
-        rawOutput: zakariaResult.rawOutput,
-        model: zakariaResult.model,
+        processedOutput: desireResult.processedOutput,
+        rawOutput: desireResult.rawOutput,
+        model: desireResult.model,
         processingTime: Date.now() - startTime,
-        researchFindings: zakariaResult.researchFindings,
+        researchFindings: desireResult.researchFindings,
       };
     }
   };

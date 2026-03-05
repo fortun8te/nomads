@@ -666,7 +666,8 @@ Ready? Tell me about your brand or product: What do you sell, and who are you tr
   ]);
 
   const handlePresetSelect = (preset: typeof DEFAULT_PRESET) => {
-    const goalStr = `${preset.goal} | Budget: ${preset.budget} | Timeline: ${preset.timeline} | KPIs: ${preset.kpis}`;
+    const growth = (preset as any).growth || { goal: '', budget: '', timeline: [], kpis: {} };
+    const goalStr = `${growth.goal} | Budget: ${growth.budget} | Timeline: ${Array.isArray(growth.timeline) ? growth.timeline[0] : ''}`;
 
     createCampaign(
       preset.brand.name,
@@ -749,43 +750,64 @@ Ready? Tell me about your brand or product: What do you sell, and who are you tr
 
   const themeConfig = {
     token: {
-      colorPrimary: isDarkMode ? '#2563eb' : '#3b82f6',
-      colorBgBase: isDarkMode ? '#1f2937' : '#ffffff',
-      colorTextBase: isDarkMode ? '#f3f4f6' : '#111827',
-      borderRadius: 8,
-      colorBgContainer: isDarkMode ? '#1f2937' : '#ffffff',
-      colorBgElevated: isDarkMode ? '#111827' : '#f9fafb',
-      colorBgLayout: isDarkMode ? '#111827' : '#ffffff',
-      colorBorder: isDarkMode ? '#3f3f46' : '#e5e7eb',
+      colorPrimary: isDarkMode ? '#ffffff' : '#000000',
+      colorBgBase: isDarkMode ? '#0a0a0a' : '#ffffff',
+      colorTextBase: isDarkMode ? '#d4d4d8' : '#111827',
+      borderRadius: 0,
+      colorBgContainer: isDarkMode ? '#0a0a0a' : '#ffffff',
+      colorBgElevated: isDarkMode ? '#0f0f0f' : '#f9fafb',
+      colorBgLayout: isDarkMode ? '#0a0a0a' : '#ffffff',
+      colorBorder: isDarkMode ? '#27272a' : '#e5e7eb',
+      fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, monospace",
+      fontSize: 12,
     },
     components: {
       Input: {
-        controlBg: isDarkMode ? '#27272a' : '#f3f4f6',
-        colorBorder: isDarkMode ? '#3f3f46' : '#d1d5db',
+        controlBg: isDarkMode ? '#0f0f0f' : '#f3f4f6',
+        colorBorder: isDarkMode ? '#27272a' : '#d1d5db',
+        activeBorderColor: isDarkMode ? '#52525b' : '#3b82f6',
       },
-      TextArea: {
-        controlBg: isDarkMode ? '#27272a' : '#f3f4f6',
-        colorBorder: isDarkMode ? '#3f3f46' : '#d1d5db',
+      Collapse: {
+        headerBg: isDarkMode ? '#0a0a0a' : '#f9fafb',
+        contentBg: isDarkMode ? '#0a0a0a' : '#ffffff',
+        colorBorder: isDarkMode ? '#1a1a1a' : '#e5e7eb',
+      },
+      Card: {
+        colorBgContainer: isDarkMode ? '#0f0f0f' : '#ffffff',
+        colorBorder: isDarkMode ? '#1a1a1a' : '#e5e7eb',
+      },
+      Select: {
+        controlBg: isDarkMode ? '#0f0f0f' : '#f3f4f6',
+        colorBorder: isDarkMode ? '#27272a' : '#d1d5db',
+        selectorBg: isDarkMode ? '#0f0f0f' : '#f3f4f6',
+      },
+      Button: {
+        defaultBg: isDarkMode ? '#0a0a0a' : '#ffffff',
+        defaultBorderColor: isDarkMode ? '#27272a' : '#d1d5db',
+        primaryColor: isDarkMode ? '#000000' : '#ffffff',
+      },
+      Upload: {
+        colorBorder: isDarkMode ? '#27272a' : '#d1d5db',
       },
     },
   };
 
   return (
     <ConfigProvider theme={themeConfig}>
-      <div className={`p-6 rounded-lg border ${isDarkMode ? 'bg-zinc-900 border-zinc-700' : 'bg-white border-zinc-200'}`}>
+      <div className={`border ${isDarkMode ? 'bg-[#0a0a0a] border-zinc-800/70' : 'bg-white border-zinc-200'}`}>
         {/* Custom Tab Navigation */}
-        <div className={`flex gap-6 mb-6 border-b ${isDarkMode ? 'border-zinc-700' : 'border-zinc-200'} justify-between items-end`}>
-          <div className="flex gap-6">
+        <div className={`flex gap-0 border-b ${isDarkMode ? 'border-zinc-800/70' : 'border-zinc-200'} justify-between items-end`}>
+          <div className="flex">
             {(['preset', 'detailed', 'chat'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`pb-3 font-medium text-sm uppercase tracking-wide transition-colors ${
+                className={`px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-all duration-150 border-b-2 ${
                   activeTab === tab
-                    ? `text-blue-500 border-b-2 border-blue-500`
+                    ? (isDarkMode ? 'text-white border-white' : 'text-black border-black')
                     : isDarkMode
-                    ? 'text-zinc-400 hover:text-zinc-300'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                    ? 'text-zinc-600 border-transparent hover:text-zinc-400'
+                    : 'text-zinc-400 border-transparent hover:text-zinc-600'
                 }`}
               >
                 {tab === 'preset' && 'Preset'}
@@ -797,10 +819,10 @@ Ready? Tell me about your brand or product: What do you sell, and who are you tr
           {campaign && (
             <button
               onClick={() => clearCampaign()}
-              className={`pb-3 font-medium text-sm uppercase tracking-wide transition-colors ${
+              className={`px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-all duration-150 border-b-2 border-transparent ${
                 isDarkMode
-                  ? 'text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent hover:border-zinc-500'
-                  : 'text-zinc-500 hover:text-zinc-700 border-b-2 border-transparent hover:border-zinc-700'
+                  ? 'text-zinc-600 hover:text-zinc-400'
+                  : 'text-zinc-400 hover:text-zinc-600'
               }`}
             >
               New Campaign
@@ -811,30 +833,31 @@ Ready? Tell me about your brand or product: What do you sell, and who are you tr
         {/* Tab Content */}
         <div>
           {activeTab === 'preset' && (
-            <div className="space-y-4">
-              <Card
-                hoverable
-                className="cursor-pointer"
-                onClick={() => handlePresetSelect(DEFAULT_PRESET)}
-              >
-                <div className="space-y-2">
-                  <h3 className="font-semibold text-lg">{DEFAULT_PRESET.label}</h3>
-                  <p className={`text-sm ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>
-                    {DEFAULT_PRESET.brand.description}
-                  </p>
-                  <div className="pt-2">
-                    <Button type="primary">Use This Preset</Button>
-                  </div>
-                </div>
-              </Card>
+            <div
+              className={`p-4 cursor-pointer transition-all duration-150 ${isDarkMode ? 'hover:bg-zinc-900/60' : 'hover:bg-zinc-50'}`}
+              onClick={() => handlePresetSelect(DEFAULT_PRESET)}
+            >
+              <h3 className={`font-mono text-sm font-bold ${isDarkMode ? 'text-white' : 'text-black'}`}>{DEFAULT_PRESET.label}</h3>
+              <p className={`text-xs mt-2 leading-relaxed ${isDarkMode ? 'text-zinc-500' : 'text-zinc-600'}`}>
+                {DEFAULT_PRESET.brand.description}
+              </p>
+              <div className="pt-3">
+                <button className={`px-4 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.15em] transition-all duration-150 ${
+                  isDarkMode
+                    ? 'bg-white text-black hover:bg-zinc-200'
+                    : 'bg-black text-white hover:bg-zinc-800'
+                }`}>
+                  Use This Preset
+                </button>
+              </div>
             </div>
           )}
 
           {activeTab === 'detailed' && (
-                <div className="space-y-6">
+                <div className="space-y-4 p-4">
                   {/* Image Upload */}
                   <div>
-                    <h3 className="font-semibold mb-4 text-base">Product Images (JPG/PNG, Max 5)</h3>
+                    <h3 className={`font-mono text-[10px] uppercase tracking-[0.15em] font-semibold mb-3 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>Product Images (JPG/PNG, Max 5)</h3>
                     <Upload
                       beforeUpload={handleImageUpload}
                       maxCount={5}
@@ -913,14 +936,17 @@ Ready? Tell me about your brand or product: What do you sell, and who are you tr
                   <Collapse items={collapseItems} />
 
                   {/* Submit Button */}
-                  <div className="flex gap-3 pt-4">
-                    <Button
-                      type="primary"
-                      size="large"
+                  <div className="flex gap-3 pt-4 pb-2">
+                    <button
                       onClick={() => handleDetailedSubmit(form.getFieldsValue())}
+                      className={`px-5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.15em] transition-all duration-150 ${
+                        isDarkMode
+                          ? 'bg-white text-black hover:bg-zinc-200'
+                          : 'bg-black text-white hover:bg-zinc-800'
+                      }`}
                     >
                       Create Campaign
-                    </Button>
+                    </button>
                   </div>
                 </div>
           )}

@@ -5,7 +5,7 @@ export type CampaignStatus = 'active' | 'paused' | 'archived';
 export type CycleStatus = 'in-progress' | 'complete';
 export type SystemStatus = 'idle' | 'running' | 'paused' | 'error';
 
-// Desire-driven selling framework (from Zakaria Course)
+// Desire-driven selling framework
 export interface DesireLayer {
   level: number; // 1 = surface problem, 2+ = deeper layers
   description: string;
@@ -40,6 +40,7 @@ export interface ResearchFindings {
 export interface StageData {
   status: StageStatus;
   agentOutput: string;
+  processedOutput?: string; // Final processed output for downstream stages (separate from agentOutput which shows thought process)
   rawOutput?: string;
   model?: string;
   tokensUsed?: number;
@@ -89,6 +90,7 @@ export interface Campaign {
   productPrice?: string;
   researchMode: ResearchMode; // interactive = ask user for clarifications, autonomous = figure it out
   maxResearchIterations: number; // max rounds before giving up (default: 5)
+  maxResearchTimeMinutes: number; // max total research time in minutes (default: 10)
   currentCycle: number;
   createdAt: number;
   updatedAt: number;
@@ -118,7 +120,8 @@ export interface CampaignContextType {
     productFeatures: string[],
     productPrice?: string,
     researchMode?: 'interactive' | 'autonomous',
-    maxResearchIterations?: number
+    maxResearchIterations?: number,
+    maxResearchTimeMinutes?: number
   ) => Promise<void>;
   startCycle: () => Promise<void>;
   pauseCycle: () => void;

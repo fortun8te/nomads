@@ -8,6 +8,128 @@
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* JetBrains Mono for all monospace text */
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Custom scrollbar — thin, subtle */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.3);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.5);
+}
+
+/* Selection */
+::selection {
+  background: rgba(161, 161, 170, 0.25);
+}
+
+/* Slower bounce for loading dots */
+@keyframes slow-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.animate-slow-bounce {
+  animation: slow-bounce 1.2s ease-in-out infinite;
+}
+
+/* ── Ant Design Dark Theme Overrides ── */
+/* Force monospace font across all Ant Design components */
+.ant-collapse,
+.ant-form,
+.ant-input,
+.ant-select,
+.ant-btn,
+.ant-card,
+.ant-upload,
+.ant-collapse-header-text,
+.ant-form-item-label > label {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace !important;
+}
+
+/* Collapse panels — sharper, darker */
+.ant-collapse {
+  border-radius: 0 !important;
+  border-color: #1a1a1a !important;
+}
+.ant-collapse > .ant-collapse-item {
+  border-color: #1a1a1a !important;
+}
+.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 10px 12px !important;
+}
+.ant-collapse .ant-collapse-content {
+  border-color: #1a1a1a !important;
+}
+.ant-collapse .ant-collapse-content-box {
+  padding: 12px !important;
+}
+
+/* Form labels — small, monospace, uppercase */
+.ant-form-item-label > label {
+  font-size: 10px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #71717a !important;
+}
+
+/* Inputs — flush with dark bg */
+.ant-input,
+.ant-input-affix-wrapper,
+textarea.ant-input {
+  border-radius: 0 !important;
+  font-size: 12px !important;
+}
+.ant-input::placeholder,
+textarea.ant-input::placeholder {
+  font-size: 11px !important;
+  color: #3f3f46 !important;
+}
+
+/* Select — flush corners */
+.ant-select .ant-select-selector {
+  border-radius: 0 !important;
+  font-size: 12px !important;
+}
+
+/* Cards — minimal, dark */
+.ant-card {
+  border-radius: 0 !important;
+}
+
+/* Upload — dark zone */
+.ant-upload-wrapper .ant-upload.ant-upload-select {
+  border-radius: 0 !important;
+  border-style: dashed !important;
+}
+
+/* Buttons — sharp */
+.ant-btn {
+  border-radius: 0 !important;
+  font-size: 10px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }

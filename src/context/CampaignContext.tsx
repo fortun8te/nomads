@@ -38,8 +38,15 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
       productFeatures: string[],
       productPrice?: string,
       researchMode: 'interactive' | 'autonomous' = 'autonomous',
-      maxResearchIterations: number = 5
+      maxResearchIterations?: number,
+      maxResearchTimeMinutes?: number
     ) => {
+      // Pull defaults from localStorage (set in Settings), fallback to hardcoded
+      const savedIter = localStorage.getItem('max_research_iterations');
+      const savedTime = localStorage.getItem('max_research_time_minutes');
+      const finalIterations = maxResearchIterations ?? (savedIter ? parseInt(savedIter) : 3);
+      const finalTime = maxResearchTimeMinutes ?? (savedTime ? parseInt(savedTime) : 10);
+
       // Stop any running cycle from previous campaign
       stop();
 
@@ -52,7 +59,8 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
         productFeatures,
         productPrice,
         researchMode,
-        maxResearchIterations,
+        maxResearchIterations: finalIterations,
+        maxResearchTimeMinutes: finalTime,
         currentCycle: 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),

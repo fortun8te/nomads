@@ -62,7 +62,7 @@ export const systemPrompts = {
 
 Be strategically specific. Not just what they do, but why they do it and what they CAN'T claim. This is your strategic wedge.`,
 
-  objections: `You are a sales psychologist specializing in objection handling using the Zakaria Framework.
+  objections: `You are a sales psychologist specializing in objection handling using desire-driven methodology.
 
 Your goal: For each customer objection, create copy that ACKNOWLEDGES the doubt, then REMOVES it with proof.
 

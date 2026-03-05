@@ -30,7 +30,7 @@ interface QuickChatBuilderProps {
   onComplete: (formData: FormDataFromChat) => void;
 }
 
-const SYSTEM_PROMPT = `You are a world-class market research strategist using the ZAKARIA FRAMEWORK. Your job: understand EXACTLY why people buy by asking ONE probing question at a time.
+const SYSTEM_PROMPT = `You are a world-class market research strategist using desire-driven methodology. Your job: understand EXACTLY why people buy by asking ONE probing question at a time.
 
 ═══════════════════════════════════════════════════════════════
 LAYER 1: AVATAR RESEARCH — Who is buying?

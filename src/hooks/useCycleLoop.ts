@@ -75,6 +75,12 @@ export function useCycleLoop() {
     async (cycle: Cycle, stageName: StageName, campaign: Campaign) => {
       try {
         const stage = cycle.stages[stageName];
+
+        // If resuming a previously aborted stage, clear partial output to avoid duplicates
+        if (stage.status === 'in-progress' && stage.agentOutput) {
+          stage.agentOutput = '';
+        }
+
         stage.status = 'in-progress';
         stage.startedAt = Date.now();
 
@@ -85,14 +91,18 @@ export function useCycleLoop() {
         const systemPrompt = getSystemPrompt(stageName);
 
         if (stageName === 'research') {
-          // Orchestrated research: Zakaria Framework + Web Search Researchers
+          // Orchestrated research: Desire-Driven Analysis + Web Search Researchers
+          // Create abort controller for research stage
+          abortControllerRef.current = new AbortController();
           const researchResult = await executeOrchestratedResearch(
             campaign,
             (msg) => {
               stage.agentOutput += msg + '\n';
               setCurrentCycle(refreshCycleReference(cycle));
             },
-            true // Enable web search orchestration
+            true, // Enable web search orchestration
+            undefined, // onPauseForInput
+            abortControllerRef.current.signal
           );
 
           result = researchResult.processedOutput;
@@ -119,7 +129,7 @@ ${findings.objections.slice(0, 5).map(o => `- "${o.objection}"\n  Frequency: ${o
 For EACH objection, create specific messaging that:
 1. Acknowledges the objection (shows you understand)
 2. Explains why this product is different (mechanism)
-3. Provides required proof type (${findings.objections[0]?.requiredProof?.join(', ') || 'testimonials'})
+3. Provides required proof type (${Array.isArray(findings.objections[0]?.requiredProof) ? findings.objections[0].requiredProof.join(', ') : 'testimonials'})
 4. Reconnects to deep desire
 
 Format as:
@@ -130,12 +140,18 @@ PROOF NEEDED: [type of proof]
 Be specific and powerful.`;
 
             const systemPrompt = getSystemPrompt('objections');
+            // Fresh abort controller for this stage (same pattern as taste/make/test/memories)
+            abortControllerRef.current = new AbortController();
             const stageStartTime = Date.now();
             result = await generate(prompt, systemPrompt, {
-              model: 'glm-4.7-flash:q4_K_M',
-              signal: abortControllerRef.current?.signal,
+              model: getModelForStage('objections'),
+              signal: abortControllerRef.current.signal,
+              onChunk: (chunk) => {
+                stage.agentOutput += chunk;
+                setCurrentCycle(refreshCycleReference(cycle));
+              },
             });
-            stage.model = 'glm-4.7-flash:q4_K_M';
+            stage.model = getModelForStage('objections');
             stage.processingTime = Date.now() - stageStartTime;
             stage.rawOutput = result;
           }
@@ -150,7 +166,7 @@ Be specific and powerful.`;
               // Use desires to inform creative direction
               const competitorGaps = findings.competitorWeaknesses.join(', ');
 
-              prompt = `You are a creative strategist using the Zakaria Framework.
+              prompt = `You are a creative strategist using desire-driven positioning.
 
 Customer Desires (Ranked by Power):
 ${findings.deepDesires.map((d, i) => `${i + 1}. ${d.targetSegment}: DEEP DESIRE = "${d.deepestDesire}"\n   Surface: "${d.surfaceProblem}" (Intensity: ${d.desireIntensity})`).join('\n\n')}
@@ -305,12 +321,16 @@ DOCUMENT THE LEARNINGS:
           // Create abort controller for this stage
           abortControllerRef.current = new AbortController();
 
-          // Generate using Ollama with stage-specific model
+          // Generate using Ollama with stage-specific model — stream chunks live into agentOutput
           const stageStartTime = Date.now();
           const modelForStage = getModelForStage(stageName);
           result = await generate(prompt, systemPrompt, {
             model: modelForStage,
             signal: abortControllerRef.current.signal,
+            onChunk: (chunk) => {
+              stage.agentOutput += chunk;
+              setCurrentCycle(refreshCycleReference(cycle));
+            },
           });
 
           // Capture metadata for this stage
@@ -319,7 +339,13 @@ DOCUMENT THE LEARNINGS:
           stage.rawOutput = result;
         }
 
-        stage.agentOutput = result;
+        // For research stage, keep the progressive output (agent thought process)
+        // instead of overwriting with final synthesis
+        if (stageName !== 'research') {
+          stage.agentOutput = result;
+        }
+        // Store processedOutput separately for downstream stages
+        stage.processedOutput = result;
         stage.status = 'complete';
         stage.completedAt = Date.now();
         stage.readyForNext = true;
