@@ -659,7 +659,7 @@ export const ALTERNATIVE_PRESET_SAAS = {
 
 export const SIMPLETICS_PRESET = {
   id: 'simpletics-seasalt',
-  label: 'Men\'s Hair — Simpletics Sea Salt Spray',
+  label: 'Simpletics Sea Salt Spray',
 
   brand: {
     name: 'Simpletics',
