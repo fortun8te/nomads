@@ -79,13 +79,15 @@ export function useOrchestratedResearch() {
     const orchestratorState: OrchestratorState = {
       campaign,
       researchGoals: [
-        'Research competitor ads and creative strategies (Meta Ad Library, ad examples)',
-        'Validate competitive positioning gaps with real market data',
-        'Identify market trends, growth rates, and emerging shifts',
-        'Find audience congregations (Reddit, forums, communities) and their language',
-        'Research competitor weaknesses from customer reviews and complaints',
-        'Analyze pricing strategies and value perception across market',
-        'Research brand perception and sentiment (reviews, social mentions)',
+        'Find VERBATIM customer language — how real people describe this problem on Reddit, forums, Trustpilot (NOT brand language)',
+        'Research competitor ADVERTISING — Meta Ad Library, ad hooks, what visuals/angles are running now',
+        'Find NEGATIVE REVIEWS of competitors — Trustpilot 1-star, Amazon complaints, Reddit rants',
+        'Validate TURNING POINTS — when does this pain become unbearable? What triggers the purchase?',
+        'Research FAILED SOLUTIONS — what specific products did people try before? Why did they fail?',
+        'Identify market trends, growth rates, and new entrants disrupting the space',
+        'Find competitor STRUCTURAL WEAKNESSES — what can they NEVER claim?',
+        'Analyze pricing strategies, willingness-to-pay, and value perception',
+        'Research ADJACENT NICHES — what approaches from other industries could work here?',
       ],
       completedResearch: [],
       coverageThreshold: 0.8, // Orchestrator needs 80%+ dimensional coverage

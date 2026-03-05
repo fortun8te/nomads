@@ -1,5 +1,7 @@
 import { ollamaService } from './ollama';
 import { wayfarerService } from './wayfarer';
+// Framework constants available for future prompt enrichment
+// import { DESIRE_INTENSITY_GUIDE, FOUR_LAYER_RESEARCH } from './desireFramework';
 import type { Campaign } from '../types';
 
 export interface ResearchQuery {
@@ -148,7 +150,7 @@ export const researcherAgent = {
 
       // Step 3: Synthesize compressed findings with LLM
       const hasWebData = compressedContent.length > 100;
-      const synthesisPrompt = `You are a research analyst synthesizing ${hasWebData ? 'web research findings' : 'your knowledge'} for marketing research.
+      const synthesisPrompt = `You are a research analyst synthesizing ${hasWebData ? 'web research findings' : 'your knowledge'} for desire-driven marketing.
 
 ${hasWebData ? `Compressed Web Research Findings:\n${compressedContent}` : '(No web data available — use your training knowledge)'}
 
@@ -156,25 +158,30 @@ Topic: ${query.topic}
 Context: ${query.context}
 Depth: ${query.depth}
 
+KEY FRAMEWORK: People don't buy products — they buy fulfillment of desires.
+Look for: TURNING POINTS (when pain becomes unbearable), AMPLIFIED DESIRES (loved ones, identity, survival), ROOT CAUSES (why nothing else worked), and VERBATIM LANGUAGE (how real people actually talk about this problem).
+
 Provide:
 1. Key insights (2-3 paragraphs, cite specific sources when available)
-2. Notable trends or patterns
-3. Specific evidence, numbers, and quotes
+2. VERBATIM QUOTES: Extract exact customer language — phrases, complaints, desires in THEIR words (not brand speak)
+3. Specific evidence, numbers, and data points
+4. AHA INSIGHTS: Anything surprising or counterintuitive
 
 Identify which of these dimensions your research covers:
 - Market size and trends
-- Competitor analysis
-- Customer objections
+- Competitor analysis (including their advertising)
+- Customer objections (real complaints, not hypothetical)
 - Emerging trends
 - Regional differences
 - Pricing strategies
 - Channel effectiveness
 - Brand positioning gaps
-- Psychological triggers
+- Psychological triggers (desires, fears, turning points)
 - Media consumption patterns
 
 Format:
 FINDINGS: [Your synthesis]
+VERBATIM: [Exact quotes from real people if found]
 COVERAGE: [dimension: covered/uncovered, ...]
 SOURCES: [URLs cited]`;
 
@@ -444,7 +451,15 @@ export const reflectionAgent = {
 
       onChunk?.(`[150% BAR] Covered: ${10 - gaps.length}/10. Missing: ${gaps.join(', ') || 'none declared'}\n`);
 
-      const reflectionPrompt = `You are a RUTHLESS research strategist at 150% thoroughness bar. Your job is to find the AHA MOMENTS we're missing — not just fill gaps, but find INSIGHTS that change the entire strategy.
+      const reflectionPrompt = `You are a RUTHLESS research strategist at 150% thoroughness bar. Your job is to find the AHA MOMENTS — not just fill gaps, but find INSIGHTS that change the entire strategy.
+
+CORE PRINCIPLE: "All products are winners. Some are just easier because the desire is so intense that NOT taking action has unbearable consequences."
+
+We need research deep enough to find:
+- The TURNING POINT: The exact moment this audience can't tolerate the pain anymore
+- VERBATIM LANGUAGE: How REAL PEOPLE (not brands) describe this problem
+- The ROOT CAUSE nobody talks about: Why everything else failed
+- The STRUCTURAL WEAKNESS: What competitors can NEVER claim
 
 Campaign: ${state.campaign.brand} | ${state.campaign.productDescription} | Target: ${state.campaign.targetAudience}
 
@@ -452,33 +467,42 @@ RESEARCH COMPLETED (${completedResults.length} queries):
 ${completedResults.map((r, i) => `${i + 1}. "${r.query}" → ${Object.values(r.coverage_graph).filter(Boolean).length}/10 dimensions`).join('\n')}
 
 MISSING DIMENSIONS:
-${gaps.length > 0 ? gaps.map((g, i) => `[GAP ${i + 1}] ${g}`).join('\n') : '⚠️ NONE DECLARED — OVERCONFIDENCE RISK! Are we sure?'}
+${gaps.length > 0 ? gaps.map((g, i) => `[GAP ${i + 1}] ${g}`).join('\n') : 'NONE DECLARED — OVERCONFIDENCE RISK! Are we REALLY done?'}
 
-CRITICAL BLIND SPOT CHECKS:
-1. Did we check TRUSTPILOT reviews for competitors? (Real complaints = gold)
-2. Did we search REDDIT for real user opinions? (r/SkincareAddiction, r/30PlusSkinCare, etc.)
-3. Did we look at competitor ADVERTISING? (Meta Ad Library, what hooks are they running?)
-4. Did we find CONTRADICTIONS between what brands claim vs what users say?
-5. Did we research what ADJACENT niches are doing differently? (What can we steal from fitness/wellness/beauty?)
-6. Did we find the ONE THING competitors can NEVER claim? (Their structural weakness)
-7. Did we check what's ACTUALLY TRENDING on TikTok/Instagram for this category?
-8. Did we look at NEGATIVE reviews and 1-star complaints? (What makes people ANGRY?)
-9. Did we research price sensitivity and willingness-to-pay data?
-10. Did we find any SURPRISING insights that would change the strategy?
+DESIRE FRAMEWORK CHECKS:
+1. Do we know the TURNING POINT for each sub-avatar? (The moment they MUST buy)
+2. Do we have VERBATIM QUOTES from real customers? (Reddit posts, Trustpilot reviews, forum complaints)
+3. Do we understand the ROOT CAUSE? (Why nothing else worked — the "aha" explanation)
+4. Do we know the MARKET SOPHISTICATION level? (Virgin / Early / Crowded / Skeptical)
+5. Have we mapped what they TRIED BEFORE and WHY it failed? (Specific products + specific reasons)
 
-The best research doesn't just answer questions — it reveals things nobody expected.
-Look for the AHA: "Wait, customers don't actually care about X, they care about Y!"
+COMPETITIVE INTELLIGENCE CHECKS:
+6. Did we check COMPETITOR ADS? (Meta Ad Library, "brand name ads", what hooks work?)
+7. Did we find what competitors are TRAPPED by? (Can't change without breaking their brand)
+8. Did we search for NEGATIVE REVIEWS of competitors? (Trustpilot 1-star, Amazon complaints)
+9. What are ADJACENT NICHES doing that we can steal? (Different industry, same desire)
+10. Did we find CONTRADICTIONS? (What brands claim vs what users actually say)
+
+EMOTIONAL INTELLIGENCE CHECKS:
+11. Do we know what their SPOUSE/FRIENDS think about this purchase?
+12. What makes them feel STUPID for trying yet another product?
+13. What would make them feel SMART for choosing this one?
+14. Is there a STATUS signal in this purchase? (What does buying this SAY about them?)
+
+The best research reveals: "Wait, customers don't actually care about X — they care about Y!"
 
 Output HYPERSPECIFIC research queries (not vague):
 BAD: "Research social media sentiment"
-GOOD: "trustpilot reviews The Ordinary vitamin C serum complaints"
-GOOD: "reddit r/SkincareAddiction vitamin C serum recommendations 2025"
-GOOD: "meta ad library competitor_name skincare ads running now"
-GOOD: "tiktok trending vitamin C serum hooks viral 2025"
+GOOD: "trustpilot reviews [competitor] [product] complaints"
+GOOD: "reddit [specific subreddit] [product] reviews recommendations"
+GOOD: "meta ad library [competitor] [niche] ads"
+GOOD: "[niche] before and after results real"
+GOOD: "why [previous solution] doesn't work [problem]"
 
 Format:
 OVERCONFIDENCE RISK: [LOW/MEDIUM/HIGH/CRITICAL]
 AHA POTENTIAL: [What kind of breakthrough insight are we still missing?]
+VERBATIM GAP: [Do we have enough real customer language? YES/NO — what's missing?]
 
 AGGRESSIVE NEW RESEARCH ANGLES:
 1. [hyperspecific query]
@@ -603,7 +627,13 @@ ${state.reflectionSuggestedTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')}
 Consider these angles for next research deployment.`
     : '';
 
-  return `You are evaluating research completeness for an ad campaign. Be THOROUGH — don't mark dimensions as covered unless we have SPECIFIC data.
+  return `You are evaluating research completeness for a desire-driven ad campaign. Be THOROUGH — don't mark dimensions as covered unless we have SPECIFIC data with evidence.
+
+FRAMEWORK: People don't buy products — they buy fulfillment of desires. We need research deep enough to find:
+- TURNING POINTS (when pain becomes unbearable → highest conversion)
+- VERBATIM LANGUAGE (how real people talk about this — NOT brand speak)
+- ROOT CAUSES (why nothing else worked for them)
+- AHA INSIGHTS (surprising truths that change the whole strategy)
 
 Campaign:
 - Brand: ${state.campaign.brand}
@@ -624,30 +654,38 @@ ${results.map((r) => {
 }).join('\n')}
 
 10 Dimensions to cover (ALL must have REAL data, not just mentions):
-1. Market size & trends (actual numbers, growth rates)
-2. Competitor analysis (specific competitors, their strategies, ad creative approaches)
-3. Customer objections (real complaints from reviews/forums, not hypothetical)
-4. Emerging trends (what's changing in this market RIGHT NOW)
-5. Regional differences (geography matters?)
-6. Pricing strategies (actual price points, value perception)
-7. Channel effectiveness (where do ads work? Meta, TikTok, Google?)
-8. Brand positioning gaps (what NO competitor claims)
-9. Psychological triggers (emotional drivers, fear/desire based)
-10. Media consumption patterns (where does this audience actually spend time?)
+1. Market size & trends (actual numbers, growth rates, TAM)
+2. Competitor analysis (specific competitors, their strategies, their ADVERTISING — hooks, visuals, ad creative)
+3. Customer objections (REAL complaints from Trustpilot, Reddit, Amazon reviews — not hypothetical)
+4. Emerging trends (what's changing in this market RIGHT NOW — TikTok trends, new entrants)
+5. Regional differences (geography matters? Where is demand strongest?)
+6. Pricing strategies (actual price points, willingness-to-pay, value perception)
+7. Channel effectiveness (where do ads work? Meta, TikTok, Google, YouTube?)
+8. Brand positioning gaps (what NO competitor claims because of structural constraints)
+9. Psychological triggers (desires at TURNING POINT intensity, fears, identity threats)
+10. Media consumption patterns (where does this audience spend time? Which creators/influencers?)
 
-IMPORTANT: Research competitor ADVERTISING specifically — what ads are they running? What hooks? What visuals? Check Meta Ad Library, search for competitor ad examples, and look at what's working in this niche.
+CRITICAL RESEARCH PRIORITIES:
+- Search for COMPETITOR ADS specifically (Meta Ad Library, "brand name" ads, ad examples in niche)
+- Search for REAL USER OPINIONS (Reddit threads, Trustpilot reviews, Amazon reviews with complaints)
+- Search for VERBATIM QUOTES (how real people describe this problem in their own words)
+- Search for what FAILED (products/solutions people tried that didn't work → why → objections)
+- Look for ADJACENT NICHES doing something we can steal/adapt
 ${reflectionNote}
 
-If gaps remain, list 3-5 specific research queries:
+If gaps remain, list 3-5 HYPERSPECIFIC research queries:
 RESEARCH: [specific topic 1]
 RESEARCH: [specific topic 2]
 RESEARCH: [specific topic 3]
 RESEARCH: [specific topic 4]
 RESEARCH: [specific topic 5]
 
-Include at LEAST one competitor-focused query and one audience sentiment query.
+BAD queries: "Research social media sentiment" (too vague)
+GOOD queries: "trustpilot reviews [competitor] complaints 2025" or "reddit r/[subreddit] [product] recommendations"
+
+Include at LEAST one competitor-advertising query and one real-user-opinion query.
 If need user input: QUESTION: [question]
-If ALL 10 dimensions are thoroughly covered with real data: COMPLETE: true${interactiveNote}`;
+If ALL 10 dimensions are thoroughly covered with REAL evidence: COMPLETE: true${interactiveNote}`;
 }
 
 function buildCoverageGraph(response: string): CoverageGraph {

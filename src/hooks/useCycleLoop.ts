@@ -5,6 +5,27 @@ import { useStorage } from './useStorage';
 import { useOrchestratedResearch } from './useOrchestratedResearch';
 import { getSystemPrompt, getCheckpointQuestionPrompt } from '../utils/prompts';
 import { getModelForStage } from '../utils/modelConfig';
+import { getFrameworkContext } from '../utils/desireFramework';
+
+/** Generate a persona context block for injection into downstream stage prompts */
+function buildPersonaContext(findings: any): string {
+  const persona = findings?.persona;
+  if (!persona?.name) return '';
+
+  return `
+TARGET PERSONA: "${persona.name}" (${persona.age})
+${persona.situation}
+Identity: ${persona.identity}
+Pain (in their words): "${persona.painNarrative}"
+Inner monologue: "${persona.innerMonologue}"
+Turning point: ${persona.turningPointMoment}
+Deep desire: "${persona.deepDesire}"
+Biggest fear: "${persona.biggestFear}"
+How they talk: ${persona.languagePatterns?.slice(0, 4).map((l: string) => `"${l}"`).join(', ') || 'N/A'}
+Purchase journey: ${persona.purchaseJourney}
+Social influence: ${persona.socialInfluence}
+`;
+}
 
 const FULL_STAGE_ORDER: StageName[] = ['research', 'objections', 'taste', 'make', 'test', 'memories'];
 const CONCEPTING_STAGE_ORDER: StageName[] = ['research', 'objections', 'taste'];
@@ -168,31 +189,63 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
           // Capture research findings for downstream stages
           cycle.researchFindings = researchResult.researchFindings;
         } else if (stageName === 'objections') {
-          // Objection Handling Stage - Create targeted messaging for key objections
+          // Objection Handling Stage — Root Cause + Mechanism framework
           const findings = cycle.researchFindings;
           if (!findings || findings.objections.length === 0) {
             result = 'No objections identified in research phase.';
           } else {
-            const prompt = `You are a sales copywriter specializing in objection handling.
+            const rootCause = findings.rootCauseMechanism;
+            const marketSoph = findings.marketSophistication || 3;
+            const sophisticationNote = marketSoph <= 2
+              ? 'Market is relatively unsophisticated — objection handling can be direct and mechanism-focused.'
+              : marketSoph === 3
+              ? 'Market is CROWDED — objections require NEW MECHANISM explanation. Show WHY this is different from everything else.'
+              : 'Market is SKEPTICAL (Level 4) — objections require OVERWHELMING PROOF. Lead with personal stories and evidence, not claims.';
 
-Customer Desires (from research):
-${findings.deepDesires.map(d => `- ${d.targetSegment}: "${d.deepestDesire}"`).join('\n')}
+            const personaBlock = buildPersonaContext(findings);
+            const prompt = `You are a sales copywriter using the root cause + mechanism framework for objection handling.
+
+${getFrameworkContext('objections')}
+
+MARKET SOPHISTICATION: Level ${marketSoph}
+${sophisticationNote}
+${personaBlock ? `${personaBlock}` : ''}
+
+Customer Desires (deep, not surface):
+${findings.deepDesires.map(d => `- SUB-AVATAR: ${d.targetSegment}
+  Deep Desire: "${d.deepestDesire}" (${d.desireIntensity})
+  Turning Point: ${d.turningPoint || 'N/A'}
+  Amplified Type: ${d.amplifiedDesireType || 'other'}`).join('\n')}
+
+ROOT CAUSE MECHANISM:
+- Root Cause: ${rootCause?.rootCause || 'Not identified'}
+- Mechanism: ${rootCause?.mechanism || 'Not identified'}
+- AHA Insight: "${rootCause?.ahaInsight || 'Not identified'}"
 
 Key Objections to Handle:
-${findings.objections.slice(0, 5).map(o => `- "${o.objection}"\n  Frequency: ${o.frequency}, Impact: ${o.impact}\n  Approach: ${o.handlingApproach}`).join('\n\n')}
+${findings.objections.slice(0, 6).map(o => `- "${o.objection}"
+  Frequency: ${o.frequency}, Impact: ${o.impact}
+  Approach: ${o.handlingApproach}
+  Mechanism Answer: ${o.rootCauseAnswer || 'N/A'}`).join('\n\n')}
 
-For EACH objection, create specific messaging that:
-1. Acknowledges the objection (shows you understand)
-2. Explains why this product is different (mechanism)
-3. Provides required proof type (${Array.isArray(findings.objections[0]?.requiredProof) ? findings.objections[0].requiredProof.join(', ') : 'testimonials'})
-4. Reconnects to deep desire
+${findings.whatTheyTriedBefore?.length > 0 ? `What They Tried Before (and it FAILED):\n${findings.whatTheyTriedBefore.map(t => `- ${t}`).join('\n')}\n` : ''}
+${findings.verbatimQuotes?.length ? `Verbatim Customer Language:\n${findings.verbatimQuotes.slice(0, 5).map(q => `"${q}"`).join('\n')}\n` : ''}
+For EACH objection, use the ROOT CAUSE framework:
+1. ACKNOWLEDGE: Show you understand their doubt in THEIR language
+2. ROOT CAUSE: Reveal WHY everything else failed (the "aha" moment)
+3. MECHANISM: Show HOW this product fixes the root cause (not just "it's better")
+4. PROOF: Specify the type of proof that dissolves doubt (testimonial/before-after/mechanism demo/data)
+5. DESIRE RECONNECT: Remind them what they REALLY want (deep desire, not surface)
 
 Format as:
-OBJECTION: [objection text]
-MESSAGING: [copy angle that handles this]
-PROOF NEEDED: [type of proof]
+OBJECTION: [objection text — in their language]
+ACKNOWLEDGE: [Show you get it — use their words]
+ROOT CAUSE REFRAME: [Why everything else failed — the "aha"]
+MECHANISM ANSWER: [How this specifically fixes the root cause]
+PROOF NEEDED: [Specific proof type + what it should show]
+DESIRE HOOK: [Reconnect to their deep desire / turning point]
 
-Be specific and powerful.`;
+Be specific, powerful, and use THEIR language — not brand speak.`;
 
             const systemPrompt = getSystemPrompt('objections');
             // Fresh abort controller for this stage (same pattern as taste/make/test/memories)
@@ -213,40 +266,75 @@ Be specific and powerful.`;
         } else {
           let prompt = '';
           if (stageName === 'taste') {
-            // Desire-Driven Creative Direction
+            // Desire-Driven Creative Direction with Market Sophistication
             const findings = cycle.researchFindings;
             const objectionsOutput = cycle.stages.objections?.agentOutput || '';
 
             if (findings && findings.deepDesires.length > 0) {
-              // Use desires to inform creative direction
               const competitorGaps = findings.competitorWeaknesses.join(', ');
+              const rootCause = findings.rootCauseMechanism;
+              const marketSoph = findings.marketSophistication || 3;
 
+              const sophisticationStrategy = marketSoph === 1
+                ? 'INTRODUCE the mechanism. This is a virgin market — just show it works. Simple, clear, direct.'
+                : marketSoph === 2
+                ? 'Make BIGGER claims. Early competition — compete on degree, speed, power. "3x more effective."'
+                : marketSoph === 3
+                ? 'Introduce a NEW MECHANISM. Crowded market — don\'t just say "better." Explain WHY via root cause. New angle, new explanation.'
+                : 'Lead with IDENTITY + OVERWHELMING PROOF. Skeptical market — they\'ve tried everything. Start with someone JUST LIKE THEM who succeeded. Before-afters, testimonials, guarantees.';
+
+              const tastePersonaBlock = buildPersonaContext(findings);
               prompt = `You are a creative strategist using desire-driven positioning.
 
+${getFrameworkContext('taste')}
+
+MARKET SOPHISTICATION: Level ${marketSoph}
+MESSAGING STRATEGY: ${sophisticationStrategy}
+${tastePersonaBlock ? `${tastePersonaBlock}` : ''}
+
 Customer Desires (Ranked by Power):
-${findings.deepDesires.map((d, i) => `${i + 1}. ${d.targetSegment}: DEEP DESIRE = "${d.deepestDesire}"\n   Surface: "${d.surfaceProblem}" (Intensity: ${d.desireIntensity})`).join('\n\n')}
+${findings.deepDesires.map((d, i) => `${i + 1}. SUB-AVATAR: ${d.targetSegment}
+   DEEP DESIRE: "${d.deepestDesire}" (${d.desireIntensity})
+   TURNING POINT: ${d.turningPoint || 'Not identified'}
+   AMPLIFIED TYPE: ${d.amplifiedDesireType || 'other'}
+   Surface: "${d.surfaceProblem}"`).join('\n\n')}
 
-Key Objections & Messaging Angles:
-${objectionsOutput}
+ROOT CAUSE + MECHANISM:
+- Root Cause: ${rootCause?.rootCause || 'N/A'}
+- Mechanism: ${rootCause?.mechanism || 'N/A'}
+- AHA Insight: "${rootCause?.ahaInsight || 'N/A'}"
+- Belief Chain: ${rootCause?.chainOfYes?.map((s, i) => `${i + 1}. "${s}"`).join(' → ') || 'N/A'}
 
-Market Gaps (What competitors DON'T claim):
+Objection Handling Strategy:
+${objectionsOutput.slice(0, 1500)}
+
+Market Gaps (unclaimed positioning):
 ${competitorGaps}
 
-Define the Creative Direction that:
-1. LEADS with the strongest desire (not product features)
-2. OWNS the market gap (positioning no one else claims)
-3. ADDRESSES top objections through visual/messaging style
-4. USES audience language: ${findings.avatarLanguage.slice(0, 3).join(', ')}
-${userAnswersRef.current['mid-pipeline'] ? `\nUSER DIRECTION: The user specifically wants to focus on: "${userAnswersRef.current['mid-pipeline']}". Prioritize this direction.\n` : ''}
-Specify:
-- Primary Desire Angle: [which desire to lead with]
-- Secondary Angles: [other desires to mention]
-- Visual Direction: [colors, mood, aesthetic that supports desires]
-- Messaging Tone: [language style that resonates]
-- Objection-Handling Visuals: [how to show proof visually]
-- Copy Angles: [3-5 messaging variations tied to different desires]
+${findings.avatarLanguage?.length > 0 ? `Audience Language (VERBATIM — use these exact phrases):\n${findings.avatarLanguage.slice(0, 8).map(l => `"${l}"`).join(', ')}\n` : ''}
+${findings.verbatimQuotes?.length ? `Real Customer Quotes:\n${findings.verbatimQuotes.slice(0, 5).map(q => `"${q}"`).join('\n')}\n` : ''}
+${userAnswersRef.current['mid-pipeline'] ? `\nUSER DIRECTION: "${userAnswersRef.current['mid-pipeline']}". Prioritize this.\n` : ''}
+Define the Creative Direction:
 
-Remember: People buy desires, not products.`;
+1. PRIMARY DESIRE ANGLE: Which deep desire to lead with? Why?
+2. TURNING POINT HOOK: How do we activate the turning point moment in the creative?
+3. ROOT CAUSE REVEAL: How do we introduce the "aha" insight visually/verbally?
+4. MECHANISM DEMO: How do we show the mechanism in action?
+5. MARKET SOPHISTICATION TACTICS: Given Level ${marketSoph}, what specific approach?
+   ${marketSoph >= 3 ? '- Need NEW MECHANISM explanation (not just "better")' : ''}
+   ${marketSoph >= 4 ? '- Need IDENTITY-LED creative (someone just like them)' : ''}
+6. PROOF STRATEGY: What types of proof, and how to present them?
+7. COMPETITIVE POSITIONING: Own what gap? Attack what weakness?
+
+Visual & Messaging Specs:
+- Visual Direction: [colors, mood, aesthetic that supports the desire + mechanism]
+- Messaging Tone: [language style — use audience verbatim, not brand speak]
+- System 1 (Emotion): [What triggers the emotional response in <2 seconds?]
+- System 2 (Logic): [What builds belief through mechanism + proof?]
+- Copy Angles: [5 messaging variations — each tied to a different desire/objection combo]
+- Objection-Handling Visuals: [how to show proof without feeling like a sales pitch]
+
+Remember: System 1 (emotion) gets the click. System 2 (logic) gets the purchase. You need BOTH.`;
             } else {
               // Fallback if research findings unavailable
               prompt = `Define creative direction for ${campaign.brand} targeting ${campaign.targetAudience}.
@@ -257,78 +345,141 @@ ${cycle.stages.research.agentOutput}
 Create a strategic creative direction that:\n1. Aligns with audience psychology\n2. Differentiates from competitors\n3. Will resonate emotionally\n\nBe specific about colors, pacing, tone, and messaging angles.`;
             }
           } else if (stageName === 'make') {
-            // Multi-Angle Asset Generation based on Desires + Objections
+            // Multi-Angle Asset Generation — Framework-driven ad creation
             const findings = cycle.researchFindings;
             const creativeDirection = cycle.stages.taste.agentOutput;
 
             if (findings && findings.deepDesires.length > 0) {
-              prompt = `You are a creative copywriter generating ad variations for ${campaign.brand}.
+              const rootCause = findings.rootCauseMechanism;
+              const marketSoph = findings.marketSophistication || 3;
+
+              const makePersonaBlock = buildPersonaContext(findings);
+              prompt = `You are a direct response copywriter generating ad variations for ${campaign.brand}.
+
+${getFrameworkContext('make')}
+
+MARKET SOPHISTICATION: Level ${marketSoph}
+${makePersonaBlock ? `${makePersonaBlock}` : ''}
+${marketSoph >= 4 ? 'CRITICAL: This is a SKEPTICAL market. Lead with IDENTITY (someone like them), not claims.' : ''}
+${marketSoph === 3 ? 'NOTE: Crowded market — every ad MUST introduce the NEW MECHANISM. Don\'t just say "better."' : ''}
 
 DESIRES TO ACTIVATE:
-${findings.deepDesires.map(d => `- "${d.deepestDesire}" (${d.targetSegment})`).join('\n')}
+${findings.deepDesires.map(d => `- "${d.deepestDesire}" (${d.targetSegment})
+  Turning Point: ${d.turningPoint || 'N/A'}`).join('\n')}
+
+ROOT CAUSE + MECHANISM:
+- Root Cause: ${rootCause?.rootCause || 'N/A'}
+- Mechanism: ${rootCause?.mechanism || 'N/A'}
+- AHA: "${rootCause?.ahaInsight || 'N/A'}"
+- Belief Chain: ${rootCause?.chainOfYes?.join(' → ') || 'N/A'}
 
 CREATIVE DIRECTION:
 ${creativeDirection}
 
 TOP OBJECTIONS TO ADDRESS:
-${findings.objections.slice(0, 2).map(o => `- "${o.objection}"`).join('\n')}
-${userAnswersRef.current['pre-make'] ? `\nUSER CREATIVE PREFERENCE: "${userAnswersRef.current['pre-make']}". Prioritize this angle/approach across all concepts.\n` : ''}
-Generate 3 DIFFERENT AD CONCEPTS, each targeting different psychology:
+${findings.objections.slice(0, 3).map(o => `- "${o.objection}" → Mechanism answer: ${o.rootCauseAnswer || o.handlingApproach}`).join('\n')}
 
-ANGLE 1: DESIRE-FOCUSED (Lead with what they REALLY want)
-- Copy: [Headline that activates primary desire]
-- Subheading: [Connect to deep desire]
-- CTA: [Action tied to desire fulfillment]
+${findings.avatarLanguage?.length > 0 ? `AUDIENCE LANGUAGE (use their exact words):\n${findings.avatarLanguage.slice(0, 6).map(l => `"${l}"`).join(', ')}\n` : ''}
+${userAnswersRef.current['pre-make'] ? `\nUSER CREATIVE PREFERENCE: "${userAnswersRef.current['pre-make']}". Prioritize this.\n` : ''}
+Generate 3 DIFFERENT AD CONCEPTS using the VIDEO AD STRUCTURE (Hook → Problem → Agitate → Root Cause → Mechanism → Product → Desire → CTA):
 
-ANGLE 2: OBJECTION-HANDLING (Address the doubt directly)
-- Copy: [Show why this is different]
-- Proof: [Mechanism or testimonial angle]
-- CTA: [Lower objection threshold]
+ANGLE 1: TURNING POINT (Activate the moment pain becomes unbearable)
+- Hook (0-3s): [Scroll-stopper that hits the turning point]
+- Problem + Agitate (3-15s): [Use THEIR language to describe the pain]
+- Root Cause Reveal (15-25s): [The "aha" — why nothing else worked]
+- Mechanism (25-35s): [How this fixes it]
+- Desire Payoff (35-50s): [Paint the dream state]
+- CTA: [Desire-connected action]
+- Image ad version: [headline + visual for static]
 
-ANGLE 3: SOCIAL PROOF (Peers are getting this desire)
-- Copy: [Real person, real result]
-- Proof: [Before/after or testimonial]
-- CTA: [Join others]
+ANGLE 2: ROOT CAUSE REVEAL (Lead with the "aha" insight)
+- Hook: [Start with the surprising root cause — "The reason X doesn't work is..."]
+- Chain of Yes: [Build belief through logical sequence]
+- Mechanism + Product: [Inevitable conclusion]
+- Proof: [Type of proof that fits market sophistication level ${marketSoph}]
+- CTA: [Mechanism-connected action]
+- Image ad version: [headline + visual]
+
+ANGLE 3: IDENTITY + SOCIAL PROOF (Someone just like them who succeeded)
+- Hook: [Real person, relatable opening — "I tried everything..."]
+- Story: [Their journey through failed solutions]
+- Discovery: [How they found this product]
+- Result: [Before/after transformation]
+- CTA: [Join the transformation]
+- Image ad version: [headline + visual]
 
 For each angle, specify:
-- Headline copy (specific, not generic)
-- Body copy (45-60 words, uses audience language)
-- Visual concept (what image/video would show)
-- CTA button text`;
+- Exact headline copy (use audience language, not brand speak)
+- Body copy (45-60 words)
+- Visual concept / video direction
+- CTA button text
+- Which sub-avatar this targets most`;
             } else {
               prompt = `Research: ${cycle.stages.research.agentOutput}\n\nCreative Direction: ${creativeDirection}\n\nGenerate 3 different ad creative concepts with copy variations.`;
             }
           } else if (stageName === 'test') {
-            // Test Stage: Evaluate creative against desire framework
+            // Test Stage: Evaluate creative against desire framework + market sophistication
             const findings = cycle.researchFindings;
             const creativeAssets = cycle.stages.make.agentOutput;
 
             if (findings && findings.deepDesires.length > 0) {
-              prompt = `You are a creative strategist evaluating ad effectiveness.
+              const rootCause = findings.rootCauseMechanism;
+              const marketSoph = findings.marketSophistication || 3;
+
+              prompt = `You are a direct response ad strategist evaluating creative effectiveness.
+
+${getFrameworkContext('test')}
+
+MARKET SOPHISTICATION: Level ${marketSoph}
 
 TARGET DESIRES:
-${findings.deepDesires.map(d => `- ${d.deepestDesire} (Intensity: ${d.desireIntensity})`).join('\n')}
+${findings.deepDesires.map(d => `- ${d.targetSegment}: "${d.deepestDesire}" (${d.desireIntensity})
+  Turning Point: ${d.turningPoint || 'N/A'}`).join('\n')}
 
-TOP OBJECTIONS TO OVERCOME:
-${findings.objections.slice(0, 3).map(o => `- "${o.objection}"`).join('\n')}
+ROOT CAUSE MECHANISM:
+- AHA: "${rootCause?.ahaInsight || 'N/A'}"
+- Mechanism: ${rootCause?.mechanism || 'N/A'}
 
-CREATIVE ASSETS:
+TOP OBJECTIONS:
+${findings.objections.slice(0, 3).map(o => `- "${o.objection}" (${o.impact} impact)`).join('\n')}
+
+CREATIVE ASSETS TO EVALUATE:
 ${creativeAssets}
 
-For EACH of the 3 concepts, evaluate:
-1. DESIRE ACTIVATION: Does it tap into the deep desire or just surface problem?
-2. OBJECTION HANDLING: Which objections does it address/ignore?
-3. AUDIENCE RESONANCE: Will the ${campaign.targetAudience} respond to this tone/language?
-4. COMPETITIVE DIFFERENTIATION: How does this own the market gap?
-5. CONVERSION LIKELIHOOD: Which angle will convert best? Why?
+For EACH of the 3 concepts, evaluate against the framework:
 
-Ranking:
+1. DESIRE ACTIVATION: Does it tap into the DEEP desire or just the surface problem?
+   - Does it reference the TURNING POINT moment?
+   - Does it trigger an AMPLIFIED desire (loved ones / identity / survival)?
+
+2. ROOT CAUSE + MECHANISM: Does it reveal the "aha" insight?
+   - Does it explain WHY nothing else worked?
+   - Does it make the product feel INEVITABLE (not just "another option")?
+
+3. SYSTEM 1 + SYSTEM 2: Does it have BOTH emotional hook AND logical proof?
+   - System 1: Will this STOP THE SCROLL in <2 seconds?
+   - System 2: Does it BUILD BELIEF through mechanism + evidence?
+
+4. MARKET SOPHISTICATION FIT: Is the messaging right for Level ${marketSoph}?
+   ${marketSoph >= 4 ? '- Does it lead with IDENTITY (someone like them) instead of claims?' : ''}
+   ${marketSoph === 3 ? '- Does it introduce a NEW MECHANISM, not just "better"?' : ''}
+
+5. AUDIENCE LANGUAGE: Does it use THEIR words or brand speak?
+   ${findings.avatarLanguage?.length > 0 ? `Real audience language: ${findings.avatarLanguage.slice(0, 4).map(l => `"${l}"`).join(', ')}` : ''}
+
+6. OBJECTION HANDLING: Which objections does it address/miss?
+
+7. COMPETITIVE DIFFERENTIATION: Does it own a gap competitors CAN'T claim?
+
+RANKING:
 - Which angle will drive highest conversion? Why?
-- Which angle addresses the most powerful objection?
-- Which angle speaks most directly to the deep desire?
+- Which angle best matches market sophistication Level ${marketSoph}?
+- Which has the strongest HOOK (System 1)?
+- Which builds the strongest BELIEF (System 2)?
 
-Recommendation:
-[Which angle to lead with, which to test as variant, which to skip]`;
+VERDICT:
+[Lead with X, test Y as variant, rework/skip Z because...]
+[Key improvement for next cycle]`;
             } else {
               prompt = `Evaluate this creative for effectiveness:\n\n${creativeAssets}\n\nRate on: relevance, clarity, persuasiveness, differentiation`;
             }

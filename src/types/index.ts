@@ -17,7 +17,18 @@ export interface DeepDesire {
   layers: DesireLayer[];
   deepestDesire: string;
   desireIntensity: 'low' | 'moderate' | 'high' | 'extreme';
-  targetSegment: string;
+  turningPoint: string; // The moment desire becomes unbearable — highest conversion point
+  amplifiedDesireType: 'loved_ones' | 'identity_status' | 'survival' | 'other'; // What category of amplified desire
+  targetSegment: string; // Narrow sub-avatar, not broad audience
+}
+
+export type MarketSophisticationLevel = 1 | 2 | 3 | 4;
+
+export interface RootCauseMechanism {
+  rootCause: string; // What's ACTUALLY wrong beneath the symptoms
+  mechanism: string; // HOW the solution fixes it (theory, not product)
+  chainOfYes: string[]; // Sequential YES statements that build belief
+  ahaInsight: string; // The reframe that changes everything
 }
 
 export interface Objection {
@@ -26,15 +37,37 @@ export interface Objection {
   impact: 'high' | 'medium' | 'low';
   handlingApproach: string;
   requiredProof: string[];
+  rootCauseAnswer?: string; // How the root cause mechanism addresses this objection
+}
+
+export interface AvatarPersona {
+  name: string; // Fictional name for this sub-avatar
+  age: string; // Age range
+  situation: string; // Life situation (married, kids, career stage)
+  identity: string; // How they see themselves
+  dailyLife: string; // What does a typical day look like?
+  painNarrative: string; // Their pain story in FIRST PERSON (their words)
+  turningPointMoment: string; // The exact moment they decide to buy
+  innerMonologue: string; // What they think but don't say out loud
+  purchaseJourney: string; // How they'd actually find and buy this product
+  socialInfluence: string; // What friends/family/spouse think about the purchase
+  failedSolutions: string[]; // Specific things they tried + why each failed
+  languagePatterns: string[]; // How they talk about the problem (verbatim)
+  deepDesire: string; // Their deepest desire
+  biggestFear: string; // What they're most afraid of if they DON'T act
 }
 
 export interface ResearchFindings {
   deepDesires: DeepDesire[];
   objections: Objection[];
-  avatarLanguage: string[];
+  avatarLanguage: string[]; // Verbatim phrases from real people, not brand language
   whereAudienceCongregates: string[];
-  whatTheyTriedBefore: string[];
+  whatTheyTriedBefore: string[]; // Failed solutions + WHY they failed
   competitorWeaknesses: string[];
+  marketSophistication?: MarketSophisticationLevel; // 1-4 determines messaging strategy
+  rootCauseMechanism?: RootCauseMechanism; // The belief-building chain
+  verbatimQuotes?: string[]; // Raw customer quotes from Reddit, Trustpilot, forums
+  persona?: AvatarPersona; // Detailed sub-avatar persona synthesis
 }
 
 export interface StageData {

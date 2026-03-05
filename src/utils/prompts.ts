@@ -233,7 +233,8 @@ Show exact evidence for each insight.`,
 };
 
 export function getSystemPrompt(stage: string): string {
-  return systemPrompts[stage as keyof typeof systemPrompts] || '';
+  const base = systemPrompts[stage as keyof typeof systemPrompts] || '';
+  return base;
 }
 
 // Question generation prompts for interactive mode checkpoints

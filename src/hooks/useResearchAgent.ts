@@ -1,5 +1,6 @@
 import { useOllama } from './useOllama';
-import type { Campaign, DeepDesire, Objection, ResearchFindings } from '../types';
+import { DESIRE_INTENSITY_GUIDE, MARKET_SOPHISTICATION, ROOT_CAUSE_MECHANISM } from '../utils/desireFramework';
+import type { Campaign, DeepDesire, Objection, ResearchFindings, RootCauseMechanism, MarketSophisticationLevel, AvatarPersona } from '../types';
 
 interface ResearchResult {
   processedOutput: string;
@@ -11,58 +12,112 @@ interface ResearchResult {
 }
 
 /**
- * Desire-Driven Research Agent
- * Maps deep customer desires, not just surface problems
- * Identifies objections and positioning gaps
- * Works standalone for research/concepting or within full cycle
+ * Desire-Driven Research Agent (4-Layer Framework)
+ * Layer 1: Avatar — WHO are they? Sub-avatars, desires, turning points
+ * Layer 2: Problem — Root cause + mechanism (WHY nothing else worked)
+ * Layer 3: Solution — Theory of the fix (not the product)
+ * Layer 4: Product — Feature → Desire mapping + market sophistication
  */
 export function useResearchAgent() {
   const { generate } = useOllama();
 
+  /** Helper: Robust JSON extraction with cleanup + retry */
+  const extractJSON = async (
+    result: string,
+    type: 'array' | 'object',
+    retryPrompt: string | null,
+    brainModel: string,
+    signal?: AbortSignal,
+    onProgress?: (msg: string) => void
+  ): Promise<any> => {
+    const pattern = type === 'array' ? /\[[\s\S]*\]/ : /\{[\s\S]*\}/;
+    const jsonMatch = result.match(pattern);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch {
+        // Clean common JSON issues
+        const cleaned = jsonMatch[0]
+          .replace(/,\s*([}\]])/g, '$1') // trailing commas
+          .replace(/'/g, '"') // single quotes
+          .replace(/[\x00-\x1f]/g, ' '); // control chars
+        try {
+          return JSON.parse(cleaned);
+        } catch {
+          console.warn('JSON parse failed after cleanup');
+        }
+      }
+    }
+    // Retry with simpler prompt
+    if (retryPrompt) {
+      onProgress?.('  Retrying with simpler prompt...\n');
+      const retry = await generate(retryPrompt, '', { model: brainModel, signal });
+      const retryMatch = retry.match(pattern);
+      if (retryMatch) {
+        try { return JSON.parse(retryMatch[0]); } catch { /* give up */ }
+      }
+    }
+    return type === 'array' ? [] : {};
+  };
+
   /**
-   * Step 1: Map Deep Desires for audience
-   * Surface Problem → Layers → Deep Desire
-   * Example: "Back pain" → "Can't work" → "Can't provide for family"
+   * LAYER 1: Avatar + Deep Desire Mapping
+   * Surface Problem → Layers → Deep Desire → Turning Point
+   * Identifies NARROW sub-avatars with amplified desires
    */
   const mapDeepDesires = async (campaign: Campaign, brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<DeepDesire[]> => {
     const prompt = `You are a consumer psychology expert specializing in desire mapping.
 
+${DESIRE_INTENSITY_GUIDE}
+
 Campaign:
 - Brand: ${campaign.brand}
 - Target Audience: ${campaign.targetAudience}
+- Product: ${campaign.productDescription}
 - Marketing Goal: ${campaign.marketingGoal}
 
-For the target audience, identify 3-4 DEEP DESIRES. Map each from surface problem to deep desire.
+TASK: Identify 3-4 DEEP DESIRES. For each, map from surface problem down to the deepest desire.
+
+CRITICAL: Go NARROW with sub-avatars. Don't say "women who want better skin" — say "mothers 30-40 who noticed aging after pregnancy and feel they've 'let themselves go'".
+
+CRITICAL: Identify the TURNING POINT — the moment where pain becomes unbearable and they MUST buy.
 
 Structure for EACH desire:
 {
-  "surfaceProblem": "What they say they want to solve",
+  "surfaceProblem": "What they SAY they want to solve",
   "layers": [
-    { "level": 1, "description": "Immediate consequence", "example": "..." },
-    { "level": 2, "description": "Secondary impact", "example": "..." },
-    { "level": 3, "description": "Life impact", "example": "..." }
+    { "level": 1, "description": "Immediate consequence", "example": "Real example in their words" },
+    { "level": 2, "description": "What this means for their life", "example": "..." },
+    { "level": 3, "description": "Identity/relationship/survival impact", "example": "..." }
   ],
   "deepestDesire": "What they REALLY want (identity, status, loved ones, survival)",
   "desireIntensity": "low|moderate|high|extreme",
-  "targetSegment": "Who has this desire most intensely"
+  "turningPoint": "The specific moment/event where this desire becomes unbearable and they MUST act",
+  "amplifiedDesireType": "loved_ones|identity_status|survival|other",
+  "targetSegment": "NARROW sub-avatar with specific demographics and psychographics"
 }
 
-Example for skincare (Mother):
-Surface: "Clean ingredients"
-Layer 2: "Products that won't harm kids' skin"
-Layer 3: "Being a good, protective mother"
-Deep: "Peace of mind that I'm doing right by my kids"
+Example for skincare:
+{
+  "surfaceProblem": "Want anti-aging skincare",
+  "layers": [
+    { "level": 1, "description": "Noticing wrinkles and dull skin", "example": "I look tired even when I slept well" },
+    { "level": 2, "description": "Feeling invisible/older than peers", "example": "My husband doesn't compliment me anymore" },
+    { "level": 3, "description": "Identity crisis — no longer recognizes herself", "example": "I used to be the pretty one in my friend group" }
+  ],
+  "deepestDesire": "Feel attractive and desired again — reclaim her identity as a beautiful woman",
+  "desireIntensity": "extreme",
+  "turningPoint": "Sees a photo of herself at a family event and doesn't recognize who she's become",
+  "amplifiedDesireType": "identity_status",
+  "targetSegment": "Women 35-45 who were attractive in their 20s, now post-kids, feeling invisible to partners"
+}
 
 Return ONLY valid JSON array, no other text.`;
 
     try {
-      onProgress?.('  Generating desire map...\n');
+      onProgress?.('  [Layer 1] Mapping deep desires + turning points...\n');
       const result = await generate(prompt, '', { model: brainModel, signal });
-      const jsonMatch = result.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-      return [];
+      return await extractJSON(result, 'array', null, brainModel, signal);
     } catch (err) {
       console.error('Error mapping deep desires:', err);
       return [];
@@ -70,64 +125,117 @@ Return ONLY valid JSON array, no other text.`;
   };
 
   /**
-   * Step 2: Identify Objections
-   * What stops the deep desire from converting to purchase?
+   * LAYER 2: Root Cause + Mechanism
+   * Why does the problem exist? What's the "aha" explanation?
+   * Builds the belief chain that makes the product feel inevitable
    */
-  const identifyObjections = async (campaign: Campaign, desires: DeepDesire[], brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<Objection[]> => {
-    const desiresText = desires.map(d => `${d.targetSegment}: ${d.deepestDesire}`).join('\n');
+  const analyzeRootCauseMechanism = async (
+    campaign: Campaign,
+    desires: DeepDesire[],
+    brainModel: string = 'glm-4.7-flash:q4_K_M',
+    signal?: AbortSignal,
+    onProgress?: (msg: string) => void
+  ): Promise<RootCauseMechanism> => {
+    const desiresText = desires.map(d =>
+      `- ${d.targetSegment}: Surface="${d.surfaceProblem}" → Deep="${d.deepestDesire}" (${d.desireIntensity})`
+    ).join('\n');
 
-    const prompt = `You are a sales psychology expert. Given these customer desires, what objections prevent purchase?
+    const prompt = `You are a persuasion scientist. Build the BELIEF CHAIN for this product.
 
-Campaign: ${campaign.brand}
-Desires:
+${ROOT_CAUSE_MECHANISM}
+
+Campaign:
+- Brand: ${campaign.brand}
+- Product: ${campaign.productDescription}
+- Features: ${campaign.productFeatures.join(', ')}
+- Target: ${campaign.targetAudience}
+
+Customer Desires:
 ${desiresText}
 
-Identify 5-7 SPECIFIC objections. For each, rank by:
-- How often it comes up (common|moderate|rare)
-- How much it blocks sales (high|medium|low)
-- How to handle it
+TASK: Build the Root Cause + Mechanism that makes this product feel INEVITABLE.
+
+Return JSON:
+{
+  "rootCause": "What's ACTUALLY wrong beneath the symptoms — the explanation that makes them say 'THAT'S why nothing else worked!'",
+  "mechanism": "HOW to fix it (the theory of the solution, not the product features)",
+  "chainOfYes": [
+    "Statement 1 they'd agree with (obvious truth)",
+    "Statement 2 that builds on it",
+    "Statement 3 that introduces the root cause",
+    "Statement 4 that presents the mechanism",
+    "Statement 5 that makes the product the inevitable answer"
+  ],
+  "ahaInsight": "The single reframe that changes everything — the 'wait, THAT'S the real problem?' moment"
+}
+
+The product should feel like the INEVITABLE conclusion, not a sales pitch.
+Return ONLY valid JSON.`;
+
+    try {
+      onProgress?.('  [Layer 2] Analyzing root cause + building belief chain...\n');
+      const result = await generate(prompt, '', { model: brainModel, signal });
+      const parsed = await extractJSON(result, 'object', null, brainModel, signal);
+      if (parsed.rootCause) return parsed as RootCauseMechanism;
+      return { rootCause: '', mechanism: '', chainOfYes: [], ahaInsight: '' };
+    } catch (err) {
+      console.error('Error analyzing root cause:', err);
+      return { rootCause: '', mechanism: '', chainOfYes: [], ahaInsight: '' };
+    }
+  };
+
+  /**
+   * LAYER 3: Objections + What They've Tried
+   * What stops the deep desire from converting to purchase?
+   * Why did previous solutions fail? What's different here?
+   */
+  const identifyObjections = async (campaign: Campaign, desires: DeepDesire[], rootCause: RootCauseMechanism, brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<Objection[]> => {
+    const desiresText = desires.map(d =>
+      `${d.targetSegment}: "${d.deepestDesire}" (turning point: ${d.turningPoint})`
+    ).join('\n');
+
+    const prompt = `You are a sales psychology expert. Given these customer desires and the root cause mechanism, what objections prevent purchase?
+
+Campaign: ${campaign.brand}
+Product: ${campaign.productDescription}
+
+Customer Desires:
+${desiresText}
+
+Root Cause Insight: "${rootCause.ahaInsight}"
+Mechanism: "${rootCause.mechanism}"
+
+TASK: Identify 5-7 SPECIFIC objections. Think about:
+- What they've TRIED BEFORE that failed (and why they're skeptical now)
+- What they've HEARD from competitors that made them doubt
+- What their SPOUSE/FRIENDS would say if they bought this
+- What makes them feel STUPID for trying yet another product
+- The MONEY objection (is it worth it given past failures?)
+
+For each objection, explain how the root cause mechanism addresses it.
 
 JSON format:
 {
-  "objection": "The specific objection/doubt",
+  "objection": "The specific objection/doubt in THEIR language",
   "frequency": "common|moderate|rare",
   "impact": "high|medium|low",
   "handlingApproach": "How to address this in messaging/creative",
-  "requiredProof": ["type of proof needed - testimonial|before-after|mechanism|data|video"]
+  "requiredProof": ["type of proof needed - testimonial|before-after|mechanism|data|video"],
+  "rootCauseAnswer": "How the root cause mechanism specifically dissolves this objection"
 }
 
 Think deeply about what's REALLY stopping purchase, not generic objections.
 Return ONLY valid JSON array.`;
 
     try {
-      onProgress?.('  Analyzing purchase objections...\n');
+      onProgress?.('  [Layer 3] Identifying purchase objections...\n');
       const result = await generate(prompt, '', { model: brainModel, signal });
-      // Try multiple JSON extraction strategies
-      const jsonMatch = result.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        try {
-          return JSON.parse(jsonMatch[0]);
-        } catch {
-          // Try cleaning common JSON issues
-          const cleaned = jsonMatch[0].replace(/,\s*]/g, ']').replace(/'/g, '"');
-          try {
-            return JSON.parse(cleaned);
-          } catch {
-            console.warn('Objection JSON parse failed after cleanup');
-          }
-        }
-      }
-      // Last resort: retry once with a simpler prompt
-      onProgress?.('  Retrying objection analysis...\n');
-      const retry = await generate(
-        `List 5 purchase objections for ${campaign.brand} targeting ${campaign.targetAudience}. Return ONLY a JSON array of objects with keys: objection, frequency (common/moderate/rare), impact (high/medium/low), handlingApproach, requiredProof (array of strings).`,
-        '', { model: brainModel, signal }
+      const parsed = await extractJSON(
+        result, 'array',
+        `List 5 purchase objections for ${campaign.brand} targeting ${campaign.targetAudience}. Product: ${campaign.productDescription}. Return ONLY a JSON array of objects with keys: objection, frequency (common/moderate/rare), impact (high/medium/low), handlingApproach, requiredProof (array of strings), rootCauseAnswer (string).`,
+        brainModel, signal, onProgress
       );
-      const retryMatch = retry.match(/\[[\s\S]*\]/);
-      if (retryMatch) {
-        try { return JSON.parse(retryMatch[0]); } catch { /* give up */ }
-      }
-      return [];
+      return parsed;
     } catch (err) {
       console.error('Error identifying objections:', err);
       return [];
@@ -135,41 +243,82 @@ Return ONLY valid JSON array.`;
   };
 
   /**
-   * Step 3: Research Audience Behavior
-   * Where do they congregate? What have they tried? What language do they use?
+   * LAYER 4: Avatar Behavior + Market Sophistication
+   * Where do they congregate? What language do they use?
+   * How sophisticated is this market? (determines messaging strategy)
    */
-  const researchAudienceBehavior = async (campaign: Campaign, brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void) => {
-    // Note: competitorWeaknesses is populated here and also enriched in Step 4
-    const prompt = `You are a market researcher. Research the ${campaign.targetAudience} audience for ${campaign.brand}.
+  const researchAvatarAndMarket = async (
+    campaign: Campaign,
+    desires: DeepDesire[],
+    brainModel: string = 'glm-4.7-flash:q4_K_M',
+    signal?: AbortSignal,
+    onProgress?: (msg: string) => void
+  ) => {
+    const subAvatars = desires.map(d => d.targetSegment).join(', ');
+
+    const prompt = `You are a market researcher specializing in avatar deep-dives.
+
+${MARKET_SOPHISTICATION}
+
+Campaign:
+- Brand: ${campaign.brand}
+- Product: ${campaign.productDescription}
+- Sub-Avatars: ${subAvatars}
+
+TASK: Research these specific sub-avatars deeply.
 
 Return JSON with:
 {
-  "avatarLanguage": ["buzzword1", "phrase2", "how they describe problems"],
-  "whereAudienceCongregates": ["reddit communities", "facebook groups", "forums", "platforms"],
-  "whatTheyTriedBefore": ["failed solution 1", "product they abandoned", "approach they discarded"],
-  "competitorWeaknesses": ["positioning no one claims", "gap in market", "audience frustration with competitors"]
+  "avatarLanguage": [
+    "exact phrase they use on Reddit/forums",
+    "how they describe the problem (NOT brand language)",
+    "slang, abbreviations, insider terms",
+    "emotional phrases from reviews/complaints"
+  ],
+  "whereAudienceCongregates": [
+    "specific subreddits (r/xyz)",
+    "specific Facebook groups",
+    "specific forums or communities",
+    "specific YouTube channels/TikTok creators they follow"
+  ],
+  "whatTheyTriedBefore": [
+    "specific product/brand they tried + WHY it failed",
+    "approach they tried + WHY it didn't work",
+    "DIY solution they attempted + what went wrong"
+  ],
+  "competitorWeaknesses": [
+    "what competitors OWN that TRAPS them",
+    "positioning gap no one claims",
+    "audience frustration with competitors (from reviews)",
+    "the ONE THING competitors can never claim"
+  ],
+  "marketSophistication": 1-4,
+  "sophisticationReason": "Why this level — what has the audience been exposed to?"
 }
 
-Be specific - not generic.
+For avatarLanguage: Think about how they'd post on Reddit, NOT how a brand would describe them.
+BAD: "consumers seeking anti-aging solutions"
+GOOD: "I've tried literally everything and my skin still looks like sh*t"
+
 Return ONLY valid JSON.`;
 
     try {
-      onProgress?.('  Researching audience behavior...\n');
+      onProgress?.('  [Layer 4] Deep-diving avatar behavior + market sophistication...\n');
       const result = await generate(prompt, '', { model: brainModel, signal });
-      const jsonMatch = result.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-      return { avatarLanguage: [], whereAudienceCongregates: [], whatTheyTriedBefore: [], competitorWeaknesses: [] };
+      return await extractJSON(result, 'object', null, brainModel, signal);
     } catch (err) {
-      console.error('Error researching audience behavior:', err);
-      return { avatarLanguage: [], whereAudienceCongregates: [], whatTheyTriedBefore: [], competitorWeaknesses: [] };
+      console.error('Error researching avatar and market:', err);
+      return {
+        avatarLanguage: [], whereAudienceCongregates: [],
+        whatTheyTriedBefore: [], competitorWeaknesses: [],
+        marketSophistication: 3, sophisticationReason: 'Unknown'
+      };
     }
   };
 
   /**
-   * Step 4: Map Competitor Landscape
-   * Who owns what positioning? What claims are unclaimed? Where are the gaps?
+   * NEW: Competitor Landscape + Positioning Map
+   * Who owns what? What's trapped? What's unclaimed?
    */
   const mapCompetitorLandscape = async (campaign: Campaign, brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<string[]> => {
     const prompt = `You are a competitive strategist. Map the competitor landscape for ${campaign.brand} targeting ${campaign.targetAudience}.
@@ -178,26 +327,23 @@ Product: ${campaign.productDescription}
 Marketing goal: ${campaign.marketingGoal}
 
 For 3-4 main competitors in this space, identify:
-- What they OWN (their core positioning claim)
-- What they're TRAPPED by (can't change without breaking their brand)
-- What question always HANGS over them (the doubt they can't shake)
+- What they OWN (their core positioning claim that defines them)
+- What they're TRAPPED by (can't change without breaking their brand/audience)
+- What question always HANGS over them (the doubt customers have but competitors can't address)
+- What they're DOING in advertising (hooks, visuals, messaging style)
 
-Then identify the UNCLAIMED TERRITORY — the positioning gap none of them can claim.
+Then identify the UNCLAIMED TERRITORY — the positioning gap none of them can claim because of their structural constraints.
 
 Return JSON array of positioning gaps / competitor weaknesses:
-["Gap or weakness 1", "Gap or weakness 2", "Gap or weakness 3", "Gap or weakness 4", "Gap or weakness 5"]
+["Specific gap 1 — why no one claims it", "Specific gap 2 — structural reason", "Specific gap 3", "Specific gap 4", "Specific gap 5"]
 
-Each entry should be a specific, actionable positioning opportunity.
+Each entry should be a specific, actionable positioning opportunity with the WHY.
 Return ONLY valid JSON array.`;
 
     try {
-      onProgress?.('  Mapping competitor landscape...\n');
+      onProgress?.('  [Layer 4] Mapping competitor positioning landscape...\n');
       const result = await generate(prompt, '', { model: brainModel, signal });
-      const jsonMatch = result.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-      return [];
+      return await extractJSON(result, 'array', null, brainModel, signal);
     } catch (err) {
       console.error('Error mapping competitor landscape:', err);
       return [];
@@ -205,8 +351,121 @@ Return ONLY valid JSON array.`;
   };
 
   /**
-   * Main Research Flow: Desire Mapping + Objections + Audience Research
-   * Outputs structured ResearchFindings for use in Objections and Taste stages
+   * PERSONA SYNTHESIS: Create a rich, detailed avatar persona
+   * Synthesizes all 4 layers into a living, breathing character profile
+   * This persona gets passed to EVERY downstream stage
+   */
+  const synthesizePersona = async (
+    campaign: Campaign,
+    desires: DeepDesire[],
+    rootCause: RootCauseMechanism,
+    objections: Objection[],
+    avatarData: any,
+    brainModel: string = 'glm-4.7-flash:q4_K_M',
+    signal?: AbortSignal,
+    onProgress?: (msg: string) => void
+  ): Promise<AvatarPersona> => {
+    // Pick the highest-intensity desire to build the primary persona around
+    const primaryDesire = desires.sort((a, b) => {
+      const order = { extreme: 4, high: 3, moderate: 2, low: 1 };
+      return (order[b.desireIntensity] || 0) - (order[a.desireIntensity] || 0);
+    })[0];
+
+    const prompt = `You are a consumer psychologist creating a DETAILED avatar persona.
+
+You have deep research on this audience. Now synthesize it into ONE vivid, specific person — NOT a broad demographic, but a REAL character you can picture.
+
+RESEARCH DATA:
+Campaign: ${campaign.brand} — ${campaign.productDescription}
+
+Primary Sub-Avatar: ${primaryDesire.targetSegment}
+Deep Desire: "${primaryDesire.deepestDesire}" (${primaryDesire.desireIntensity})
+Turning Point: ${primaryDesire.turningPoint || 'Not identified'}
+Surface Problem: "${primaryDesire.surfaceProblem}"
+Amplified Desire: ${primaryDesire.amplifiedDesireType}
+
+Root Cause: "${rootCause.rootCause || 'Not identified'}"
+AHA Insight: "${rootCause.ahaInsight || 'Not identified'}"
+
+Top Objections:
+${objections.slice(0, 3).map(o => `- "${o.objection}"`).join('\n')}
+
+Failed Solutions: ${(avatarData.whatTheyTriedBefore || []).join(', ')}
+Their Language: ${(avatarData.avatarLanguage || []).slice(0, 5).join(', ')}
+Where They Hang Out: ${(avatarData.whereAudienceCongregates || []).join(', ')}
+
+TASK: Create a VIVID persona. Write it like you're describing someone you know personally.
+
+Return JSON:
+{
+  "name": "A realistic first name for this persona",
+  "age": "Specific age or narrow range (e.g., '34' or '32-36')",
+  "situation": "Life situation in 1-2 sentences (family, career, living situation)",
+  "identity": "How they see themselves — their self-image and values (1-2 sentences)",
+  "dailyLife": "What a typical day looks like — morning routine, work, evening (2-3 sentences)",
+  "painNarrative": "Their pain story in FIRST PERSON — how THEY would describe the problem to a close friend. Use their language, not brand speak. (3-4 sentences)",
+  "turningPointMoment": "The specific moment/event that makes them say 'I HAVE to do something about this NOW' (2 sentences)",
+  "innerMonologue": "What they think but never say out loud — their private fears and hopes about this problem (2-3 sentences)",
+  "purchaseJourney": "How they'd actually find and evaluate this product — what they'd Google, who they'd ask, what would convince them (2-3 sentences)",
+  "socialInfluence": "What their friends/family/spouse would say if they bought this — supportive? Skeptical? Judgmental? (1-2 sentences)",
+  "failedSolutions": ["Specific product/approach #1 they tried + why it failed", "Product #2 + why it failed", "Product #3 + why it failed"],
+  "languagePatterns": ["Exact phrase they'd use on Reddit", "How they'd Google this", "How they'd describe the problem to a friend", "Slang/insider term they use"],
+  "deepDesire": "What they REALLY want in one powerful sentence",
+  "biggestFear": "What they're most afraid of if they DON'T act — the consequence of doing nothing"
+}
+
+Make this person REAL. Give them quirks, specific details, emotional texture.
+Return ONLY valid JSON.`;
+
+    try {
+      onProgress?.('  Synthesizing avatar persona...\n');
+      const result = await generate(prompt, '', { model: brainModel, signal });
+      const parsed = await extractJSON(result, 'object', null, brainModel, signal);
+      if (parsed.name) return parsed as AvatarPersona;
+      return {
+        name: primaryDesire.targetSegment.split(' ')[0] || 'Unknown',
+        age: '30-40',
+        situation: primaryDesire.targetSegment,
+        identity: '',
+        dailyLife: '',
+        painNarrative: primaryDesire.surfaceProblem,
+        turningPointMoment: primaryDesire.turningPoint || '',
+        innerMonologue: '',
+        purchaseJourney: '',
+        socialInfluence: '',
+        failedSolutions: avatarData.whatTheyTriedBefore || [],
+        languagePatterns: avatarData.avatarLanguage || [],
+        deepDesire: primaryDesire.deepestDesire,
+        biggestFear: '',
+      };
+    } catch (err) {
+      console.error('Error synthesizing persona:', err);
+      return {
+        name: 'Unknown',
+        age: '',
+        situation: '',
+        identity: '',
+        dailyLife: '',
+        painNarrative: '',
+        turningPointMoment: '',
+        innerMonologue: '',
+        purchaseJourney: '',
+        socialInfluence: '',
+        failedSolutions: [],
+        languagePatterns: [],
+        deepDesire: primaryDesire?.deepestDesire || '',
+        biggestFear: '',
+      };
+    }
+  };
+
+  /**
+   * Main Research Flow: 4-Layer Desire-Driven Analysis + Persona Synthesis
+   * Layer 1: Avatar + Deep Desires + Turning Points
+   * Layer 2: Root Cause + Mechanism (Belief Building)
+   * Layer 3: Objections + Failed Solutions
+   * Layer 4: Avatar Behavior + Market Sophistication + Competitor Map
+   * Synthesis: Detailed Avatar Persona
    */
   const executeResearch = async (
     campaign: Campaign,
@@ -216,15 +475,18 @@ Return ONLY valid JSON array.`;
   ): Promise<ResearchResult> => {
     const startTime = Date.now();
     onProgress?.(`\n────────────────────────────────────────────────\n`);
-    onProgress?.(`RESEARCH PHASE: Desire-Driven Analysis\n`);
+    onProgress?.(`RESEARCH PHASE: 4-Layer Desire-Driven Analysis\n`);
     onProgress?.(`────────────────────────────────────────────────\n\n`);
     onProgress?.(`[CAMPAIGN_DATA]\n`);
     onProgress?.(`Brand: ${campaign.brand}\n`);
     onProgress?.(`Target Audience: ${campaign.targetAudience}\n`);
+    onProgress?.(`Product: ${campaign.productDescription}\n`);
     onProgress?.(`Marketing Goal: ${campaign.marketingGoal}\n\n`);
 
-    // Step 1: Map Deep Desires
-    onProgress?.(`STEP 1: Mapping deep customer desires...\n`);
+    // ──────────────────────────────────────────
+    // LAYER 1: Avatar + Deep Desire Mapping
+    // ──────────────────────────────────────────
+    onProgress?.(`LAYER 1: Avatar — Mapping deep desires + turning points...\n`);
     const deepDesires = await mapDeepDesires(campaign, brainModel, signal, onProgress);
 
     if (deepDesires.length === 0) {
@@ -237,70 +499,182 @@ Return ONLY valid JSON array.`;
       };
     }
 
-    onProgress?.(`Identified ${deepDesires.length} deep desire hierarchies:\n`);
+    onProgress?.(`Found ${deepDesires.length} desire hierarchies:\n`);
     deepDesires.forEach((d, i) => {
-      onProgress?.(`  [${i + 1}] ${d.targetSegment}: ${d.deepestDesire}\n`);
-      onProgress?.(`       Surface: "${d.surfaceProblem}" (Intensity: ${d.desireIntensity})\n`);
+      onProgress?.(`  [${i + 1}] ${d.targetSegment}\n`);
+      onProgress?.(`       "${d.surfaceProblem}" → "${d.deepestDesire}"\n`);
+      onProgress?.(`       Intensity: ${d.desireIntensity} | Type: ${d.amplifiedDesireType || 'other'}\n`);
+      if (d.turningPoint) onProgress?.(`       Turning Point: ${d.turningPoint}\n`);
     });
 
-    // Step 2: Identify Objections
-    onProgress?.(`\nSTEP 2: Identifying purchase objections...\n`);
-    const objections = await identifyObjections(campaign, deepDesires, brainModel, signal, onProgress);
+    // ──────────────────────────────────────────
+    // LAYER 2: Root Cause + Mechanism
+    // ──────────────────────────────────────────
+    onProgress?.(`\nLAYER 2: Problem — Root cause + belief chain...\n`);
+    const rootCauseMechanism = await analyzeRootCauseMechanism(campaign, deepDesires, brainModel, signal, onProgress);
+
+    if (rootCauseMechanism.ahaInsight) {
+      onProgress?.(`  AHA Insight: "${rootCauseMechanism.ahaInsight}"\n`);
+      onProgress?.(`  Root Cause: ${rootCauseMechanism.rootCause}\n`);
+      onProgress?.(`  Mechanism: ${rootCauseMechanism.mechanism}\n`);
+      if (rootCauseMechanism.chainOfYes.length > 0) {
+        onProgress?.(`  Belief Chain (${rootCauseMechanism.chainOfYes.length} steps):\n`);
+        rootCauseMechanism.chainOfYes.forEach((step, i) => {
+          onProgress?.(`    ${i + 1}. "${step}"\n`);
+        });
+      }
+    }
+
+    // ──────────────────────────────────────────
+    // LAYER 3: Objections + Failed Solutions
+    // ──────────────────────────────────────────
+    onProgress?.(`\nLAYER 3: Objections — What stops purchase...\n`);
+    const objections = await identifyObjections(campaign, deepDesires, rootCauseMechanism, brainModel, signal, onProgress);
 
     onProgress?.(`Found ${objections.length} key objections:\n`);
-    objections.slice(0, 3).forEach((o, i) => {
+    objections.slice(0, 4).forEach((o, i) => {
       onProgress?.(`  [${i + 1}] "${o.objection}" (${o.frequency}, impact: ${o.impact})\n`);
+      if (o.rootCauseAnswer) onProgress?.(`       Mechanism answer: ${o.rootCauseAnswer.slice(0, 80)}...\n`);
     });
 
-    // Step 3: Researching audience behavior & market gaps
-    onProgress?.(`\nSTEP 3: Researching audience behavior & market gaps...\n`);
-    const audienceBehavior = await researchAudienceBehavior(campaign, brainModel, signal, onProgress);
+    // ──────────────────────────────────────────
+    // LAYER 4: Avatar Behavior + Market Sophistication + Competitors
+    // ──────────────────────────────────────────
+    onProgress?.(`\nLAYER 4: Market — Avatar behavior + sophistication + competitors...\n`);
 
-    onProgress?.(`Audience congregates: ${audienceBehavior.whereAudienceCongregates.slice(0, 2).join(', ')}\n`);
-    onProgress?.(`Key language: "${audienceBehavior.avatarLanguage.slice(0, 3).join('", "')}"...\n`);
+    // Run avatar research and competitor landscape in parallel
+    const [avatarAndMarket, competitorGaps] = await Promise.all([
+      researchAvatarAndMarket(campaign, deepDesires, brainModel, signal, onProgress),
+      mapCompetitorLandscape(campaign, brainModel, signal, onProgress),
+    ]);
 
-    // Step 4: Competitor Landscape
-    onProgress?.(`\nSTEP 4: Mapping competitor landscape & positioning gaps...\n`);
-    const competitorGaps = await mapCompetitorLandscape(campaign, brainModel, signal, onProgress);
+    const marketSoph = (avatarAndMarket.marketSophistication || 3) as MarketSophisticationLevel;
+    onProgress?.(`  Market Sophistication: Level ${marketSoph}`);
+    if (avatarAndMarket.sophisticationReason) {
+      onProgress?.(` — ${avatarAndMarket.sophisticationReason}`);
+    }
+    onProgress?.('\n');
 
-    // Merge competitor gaps with audience behavior insights
+    if (avatarAndMarket.avatarLanguage?.length > 0) {
+      onProgress?.(`  Avatar language: "${avatarAndMarket.avatarLanguage.slice(0, 3).join('", "')}"\n`);
+    }
+    if (avatarAndMarket.whereAudienceCongregates?.length > 0) {
+      onProgress?.(`  Congregates: ${avatarAndMarket.whereAudienceCongregates.slice(0, 3).join(', ')}\n`);
+    }
+    if (avatarAndMarket.whatTheyTriedBefore?.length > 0) {
+      onProgress?.(`  Failed solutions: ${avatarAndMarket.whatTheyTriedBefore.slice(0, 2).join('; ')}\n`);
+    }
+
+    // Merge competitor gaps
     const allCompetitorWeaknesses = [
-      ...audienceBehavior.competitorWeaknesses,
+      ...(avatarAndMarket.competitorWeaknesses || []),
       ...competitorGaps,
-    ].filter((v, i, arr) => arr.indexOf(v) === i); // dedupe
+    ].filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i);
 
-    onProgress?.(`Found ${competitorGaps.length} positioning gaps:\n`);
-    competitorGaps.slice(0, 3).forEach((gap, i) => {
-      onProgress?.(`  [${i + 1}] ${gap}\n`);
+    onProgress?.(`  Positioning gaps: ${competitorGaps.length} found\n`);
+    competitorGaps.slice(0, 3).forEach((gap: string, i: number) => {
+      onProgress?.(`    [${i + 1}] ${gap}\n`);
     });
 
-    // Synthesize Findings
+    // ──────────────────────────────────────────
+    // PERSONA SYNTHESIS: Create rich avatar persona
+    // ──────────────────────────────────────────
+    onProgress?.(`\nSYNTHESIS: Building detailed avatar persona...\n`);
+    const persona = await synthesizePersona(
+      campaign, deepDesires, rootCauseMechanism, objections, avatarAndMarket,
+      brainModel, signal, onProgress
+    );
+
+    if (persona.name) {
+      onProgress?.(`  PERSONA: "${persona.name}" — ${persona.age}\n`);
+      onProgress?.(`  Situation: ${persona.situation}\n`);
+      onProgress?.(`  Identity: ${persona.identity}\n`);
+      onProgress?.(`  Deep Desire: "${persona.deepDesire}"\n`);
+      onProgress?.(`  Biggest Fear: "${persona.biggestFear}"\n`);
+      onProgress?.(`  Turning Point: "${persona.turningPointMoment}"\n`);
+      if (persona.innerMonologue) {
+        onProgress?.(`  Inner Monologue: "${persona.innerMonologue.slice(0, 120)}..."\n`);
+      }
+    }
+
+    // ──────────────────────────────────────────
+    // Synthesize all 4 layers + persona into ResearchFindings
+    // ──────────────────────────────────────────
     const researchFindings: ResearchFindings = {
       deepDesires,
       objections,
-      avatarLanguage: audienceBehavior.avatarLanguage,
-      whereAudienceCongregates: audienceBehavior.whereAudienceCongregates,
-      whatTheyTriedBefore: audienceBehavior.whatTheyTriedBefore,
+      avatarLanguage: avatarAndMarket.avatarLanguage || [],
+      whereAudienceCongregates: avatarAndMarket.whereAudienceCongregates || [],
+      whatTheyTriedBefore: avatarAndMarket.whatTheyTriedBefore || [],
       competitorWeaknesses: allCompetitorWeaknesses,
+      marketSophistication: marketSoph,
+      rootCauseMechanism,
+      persona,
     };
 
-    const output = `RESEARCH FINDINGS: Desire-Driven Intelligence
+    const sophisticationStrategy = marketSoph === 1
+      ? 'INTRODUCE the mechanism (virgin market)'
+      : marketSoph === 2
+      ? 'Make BIGGER claims (early competition)'
+      : marketSoph === 3
+      ? 'Introduce NEW MECHANISM (crowded market)'
+      : 'OVERWHELMING PROOF + personal identification (skeptical market)';
 
-DEEP DESIRES (What customers REALLY want):
-${deepDesires.map(d => `- ${d.targetSegment}: "${d.deepestDesire}"\n  Surface problem: "${d.surfaceProblem}"\n  Intensity: ${d.desireIntensity}`).join('\n\n')}
+    const output = `RESEARCH FINDINGS: 4-Layer Desire-Driven Intelligence
 
-KEY OBJECTIONS (What stops purchase):
-${objections.slice(0, 5).map(o => `- "${o.objection}" (${o.frequency}, high impact: ${o.impact === 'high' ? 'YES' : 'no'})\n  Handle via: ${o.handlingApproach}`).join('\n\n')}
+AVATAR PERSONA — "${persona.name || 'Unknown'}"
+Age: ${persona.age || 'N/A'} | ${persona.situation || ''}
+Identity: ${persona.identity || 'N/A'}
+Daily Life: ${persona.dailyLife || 'N/A'}
 
-AUDIENCE BEHAVIOR:
-- Where they gather: ${audienceBehavior.whereAudienceCongregates.join(', ')}
-- Language they use: ${audienceBehavior.avatarLanguage.join(', ')}
-- What they tried before: ${audienceBehavior.whatTheyTriedBefore.join(', ')}
-- Market gap: ${audienceBehavior.competitorWeaknesses.join(', ')}
+Pain Narrative (in their words):
+"${persona.painNarrative || 'N/A'}"
 
-Ready for: Objection Handling → Creative Direction (Taste)`;
+Inner Monologue (what they think but don't say):
+"${persona.innerMonologue || 'N/A'}"
 
-    onProgress?.(`\nRESEARCH COMPLETE\n`);
+Turning Point: ${persona.turningPointMoment || 'N/A'}
+Purchase Journey: ${persona.purchaseJourney || 'N/A'}
+Social Influence: ${persona.socialInfluence || 'N/A'}
+
+Failed Solutions:
+${persona.failedSolutions?.map(s => `- ${s}`).join('\n') || '- N/A'}
+
+How they talk: ${persona.languagePatterns?.map(l => `"${l}"`).join(', ') || 'N/A'}
+
+Deep Desire: "${persona.deepDesire || 'N/A'}"
+Biggest Fear: "${persona.biggestFear || 'N/A'}"
+
+════════════════════════════════════════════════════════════════════
+
+LAYER 1 — DEEP DESIRES:
+${deepDesires.map(d => `- SUB-AVATAR: ${d.targetSegment}
+  Surface: "${d.surfaceProblem}"
+  Deep Desire: "${d.deepestDesire}" (${d.desireIntensity})
+  Turning Point: ${d.turningPoint || 'Not identified'}
+  Amplified Type: ${d.amplifiedDesireType || 'other'}`).join('\n\n')}
+
+LAYER 2 — ROOT CAUSE + MECHANISM:
+- Root Cause: ${rootCauseMechanism.rootCause || 'Not identified'}
+- Mechanism: ${rootCauseMechanism.mechanism || 'Not identified'}
+- AHA Insight: "${rootCauseMechanism.ahaInsight || 'Not identified'}"
+- Belief Chain: ${rootCauseMechanism.chainOfYes?.map((s, i) => `${i + 1}. "${s}"`).join(' → ') || 'None'}
+
+LAYER 3 — KEY OBJECTIONS:
+${objections.slice(0, 5).map(o => `- "${o.objection}" (${o.frequency}, impact: ${o.impact})
+  Handle via: ${o.handlingApproach}
+  Mechanism answer: ${o.rootCauseAnswer || 'N/A'}`).join('\n\n')}
+
+LAYER 4 — MARKET INTELLIGENCE:
+- Market Sophistication: Level ${marketSoph} — ${sophisticationStrategy}
+- Where they gather: ${(avatarAndMarket.whereAudienceCongregates || []).join(', ')}
+- Their language: ${(avatarAndMarket.avatarLanguage || []).join(', ')}
+- What they tried before: ${(avatarAndMarket.whatTheyTriedBefore || []).join(', ')}
+- Positioning gaps: ${allCompetitorWeaknesses.join(', ')}
+
+Ready for: Web Research Orchestration → Objection Handling → Creative Direction`;
+
+    onProgress?.(`\n4-LAYER RESEARCH + PERSONA COMPLETE\n`);
     onProgress?.(`────────────────────────────────────────────────\n\n`);
 
     const processingTime = Date.now() - startTime;
