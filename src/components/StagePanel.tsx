@@ -5,6 +5,8 @@ import { ResearchOutput } from './ResearchOutput';
 import { ModelOutputDebug } from './ModelOutputDebug';
 import { MakeTestPanel } from './MakeTestPanel';
 import { tokenTracker, type TokenInfo } from '../utils/tokenStats';
+import { ShineText } from './ShineText';
+import { WordCycler } from './WordCycler';
 
 const STAGE_DESCRIPTIONS: Record<StageName, string> = {
   research: 'Market & audience research',
@@ -169,7 +171,9 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
                       <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.15s'}} />
                       <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.3s'}} />
                     </div>
-                    <span className={secondaryTextClass}>awaiting output</span>
+                    <ShineText variant={isDarkMode ? 'dark' : 'light'} className="text-[10px] font-mono" speed={2.5}>
+                      awaiting output
+                    </ShineText>
                   </div>
                 ) : (
                   <span className={`font-mono text-[10px] ${isDarkMode ? 'text-zinc-800' : 'text-zinc-300'}`}>no output yet</span>
@@ -189,9 +193,23 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
               <div className={`w-1 h-1 ${tokenInfo.isModelLoading ? (isDarkMode ? 'bg-amber-400' : 'bg-amber-500') : tokenInfo.isThinking ? (isDarkMode ? 'bg-violet-400' : 'bg-violet-500') : dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.15s'}} />
               <div className={`w-1 h-1 ${tokenInfo.isModelLoading ? (isDarkMode ? 'bg-amber-400' : 'bg-amber-500') : tokenInfo.isThinking ? (isDarkMode ? 'bg-violet-400' : 'bg-violet-500') : dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.3s'}} />
             </div>
-            <span className={`font-mono text-[10px] ${tokenInfo.isModelLoading ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : tokenInfo.isThinking ? (isDarkMode ? 'text-violet-400' : 'text-violet-600') : secondaryTextClass}`}>
-              {tokenInfo.isModelLoading ? 'loading model' : tokenInfo.isThinking ? 'thinking' : tokenInfo.isGenerating ? 'generating' : 'processing'}
-            </span>
+            {tokenInfo.isModelLoading ? (
+              <WordCycler
+                prefix="loading"
+                words={['model', 'weights', 'context', 'layers', 'model']}
+                color={isDarkMode ? '#fbbf24' : '#d97706'}
+                speed={3}
+                className="text-[10px] font-mono"
+              />
+            ) : (
+              <ShineText
+                variant={isDarkMode ? 'dark' : 'light'}
+                className={`font-mono text-[10px] ${tokenInfo.isThinking ? (isDarkMode ? 'text-violet-400' : 'text-violet-600') : tokenInfo.isGenerating ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : secondaryTextClass}`}
+                speed={2.5}
+              >
+                {tokenInfo.isThinking ? 'thinking' : tokenInfo.isGenerating ? 'generating' : 'processing'}
+              </ShineText>
+            )}
           </div>
 
           {/* Live token stats */}

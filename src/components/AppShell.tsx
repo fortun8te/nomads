@@ -14,6 +14,8 @@ import { useCampaign } from '../context/CampaignContext';
 import { MakeStudio } from './MakeStudio';
 import { Dashboard } from './Dashboard';
 import { SettingsModal } from './SettingsModal';
+import { NomadIcon } from './NomadIcon';
+import { ShineText } from './ShineText';
 
 export type AppView = 'make' | 'research' | 'test';
 
@@ -55,11 +57,16 @@ export function AppShell() {
         <div className="max-w-7xl mx-auto flex items-center justify-between h-14">
           {/* Left: Logo + Status */}
           <div className="flex items-center gap-4">
-            <span className="text-sm font-bold tracking-wide text-zinc-900">NOMAD</span>
+            <div className="flex items-center gap-2">
+              <NomadIcon size={20} animated={isRunning} className="text-zinc-900" />
+              <span className="text-sm font-bold tracking-wide text-zinc-900">NOMAD</span>
+            </div>
             <div className="flex items-center gap-2">
               <div className={`w-1.5 h-1.5 rounded-full ${statusColor} ${isRunning ? 'animate-pulse' : ''}`} />
               <span className="text-xs text-zinc-400 uppercase tracking-wider">
-                {isRunning ? 'Running' : isPaused ? 'Paused' : 'Idle'}
+                {isRunning ? (
+                  <ShineText className="text-xs uppercase tracking-wider" speed={2.5}>Running</ShineText>
+                ) : isPaused ? 'Paused' : 'Idle'}
               </span>
             </div>
             {campaign && (
@@ -182,9 +189,7 @@ function TestView() {
       ) : (
         <div className="text-center">
           <div className="w-16 h-16 mx-auto rounded-2xl bg-white shadow-sm border border-dashed border-zinc-200 flex items-center justify-center mb-4">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-300">
-              <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <NomadIcon size={24} className="text-zinc-300" />
           </div>
           <p className="text-sm text-zinc-500">No test results yet</p>
           <p className="text-xs text-zinc-400 mt-1">Run the full pipeline to evaluate ad concepts</p>

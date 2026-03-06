@@ -14,6 +14,12 @@ dist-ssr
 .env
 .env.local
 
+# Playwright
+.cache/ms-playwright/
+
+# Freepik browser profile (login cookies)
+.freepik-profile/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

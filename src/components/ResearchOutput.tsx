@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { ShineText } from './ShineText';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -666,7 +667,11 @@ function SectionBlock({
         {/* Badge */}
         {section.badge && (
           <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded-sm ${s.badgeBg} ${s.badgeText} shrink-0`}>
-            {section.badge}
+            {section.badge.includes('...') || section.badge === 'live' ? (
+              <ShineText variant={dark ? 'dark' : 'light'} className="text-[9px] font-mono" speed={2}>
+                {section.badge}
+              </ShineText>
+            ) : section.badge}
           </span>
         )}
 
