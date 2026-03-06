@@ -763,7 +763,7 @@ Make it look like a real, professional ad creative.`;
         <div className="absolute inset-0 nomad-grid-bg" />
 
         {/* ── Main Content Area ── */}
-        <div ref={galleryScrollRef} className="flex-1 h-full overflow-y-auto px-6 py-6 relative z-10">
+        <div ref={galleryScrollRef} className="flex-1 h-full overflow-y-auto px-6 py-6 relative z-10 bg-transparent">
 
           {/* ── Full Loading Screen (no images yet) ── */}
           {isGenerating && storedImages.length === 0 && (
