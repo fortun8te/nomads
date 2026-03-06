@@ -159,23 +159,31 @@ export function MakeStudio() {
       }
 
       @keyframes nomad-grid-pulse {
-        0%, 100% { opacity: 0.18; }
-        50% { opacity: 0.28; }
+        0%, 100% { opacity: 0.25; }
+        50% { opacity: 0.45; }
       }
 
       @keyframes nomad-grid-drift {
         0% { transform: translate(0, 0); }
-        100% { transform: translate(20px, 20px); }
+        100% { transform: translate(15px, 15px); }
+      }
+
+      @keyframes nomad-grid-spotlight {
+        0% { background-position: 0% 0%, 0 0, 7.5px 7.5px; }
+        100% { background-position: 100% 100%, 15px 15px, 22.5px 22.5px; }
       }
 
       .nomad-grid-bg {
         background-image:
-          radial-gradient(circle, rgba(113, 113, 122, 0.4) 1px, transparent 1px),
-          radial-gradient(circle, rgba(113, 113, 122, 0.2) 0.5px, transparent 0.5px);
-        background-size: 30px 30px, 60px 60px;
-        background-position: 0 0, 15px 15px;
-        animation: nomad-grid-drift 25s linear infinite, nomad-grid-pulse 9s ease-in-out infinite;
+          radial-gradient(circle at 30% 40%, rgba(99, 102, 241, 0.15) 20%, transparent 50%),
+          radial-gradient(circle at 70% 60%, rgba(99, 102, 241, 0.12) 25%, transparent 55%),
+          radial-gradient(circle, rgba(113, 113, 122, 0.5) 1px, transparent 1px),
+          radial-gradient(circle, rgba(113, 113, 122, 0.25) 0.5px, transparent 0.5px);
+        background-size: 100% 100%, 100% 100%, 15px 15px, 30px 30px;
+        background-position: 0 0, 0 0, 0 0, 7.5px 7.5px;
+        animation: nomad-grid-drift 30s linear infinite, nomad-grid-pulse 10s ease-in-out infinite;
         pointer-events: none;
+        filter: blur(0.3px);
       }
     `;
     document.head.appendChild(style);
