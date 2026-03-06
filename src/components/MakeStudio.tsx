@@ -77,6 +77,7 @@ export function MakeStudio() {
   const popoverRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryScrollRef = useRef<HTMLDivElement>(null);
   const imageCountRef = useRef(0); // Track total images for labeling inside async loops
   const [popoverPos, setPopoverPos] = useState({ bottom: 0, right: 0 });
 
@@ -571,6 +572,11 @@ Make it look like a real, professional ad creative.`;
     setBatchCurrent(0);
     setBatchSuccesses(0);
 
+    // Auto-scroll gallery to top so placeholder is visible
+    requestAnimationFrame(() => {
+      galleryScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
     let successes = 0;
     try {
       for (let i = 0; i < count; i++) {
@@ -684,7 +690,7 @@ Make it look like a real, professional ad creative.`;
       <div className="flex-1 min-h-0 flex overflow-hidden">
 
         {/* ── Main Content Area ── */}
-        <div className="flex-1 h-full overflow-y-auto px-6 py-6">
+        <div ref={galleryScrollRef} className="flex-1 h-full overflow-y-auto px-6 py-6">
 
           {/* ── Full Loading Screen (no images yet) ── */}
           {isGenerating && storedImages.length === 0 && (
@@ -725,6 +731,46 @@ Make it look like a real, professional ad creative.`;
           {/* ── Image Gallery ── */}
           {storedImages.length > 0 ? (
             <div>
+              {/* ── Sticky Generation Banner (always visible when generating + images exist) ── */}
+              {isGenerating && generatingForPrompt && (
+                <div className="sticky top-0 z-20 -mx-6 px-6 pt-1 pb-3 mb-4 bg-gradient-to-b from-[#f7f7f8] via-[#f7f7f8] to-transparent">
+                  <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.06),0_4px_16px_rgba(0,0,0,0.04)] p-4 flex items-center gap-4">
+                    <div className="flex-shrink-0">
+                      <NomadIcon size={36} animated className="text-zinc-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <ShineText className="text-sm font-medium truncate" speed={2.5}>
+                          {generationProgress || 'Starting generation...'}
+                        </ShineText>
+                        {batchCount > 1 && batchCurrent > 0 && (
+                          <span className="text-xs font-semibold text-zinc-500 flex-shrink-0">{batchCurrent}/{batchCount}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-zinc-600 rounded-full transition-all duration-500 ease-out"
+                            style={{ width: `${Math.min((generationElapsed / (generationEta || 30)) * 100, 95)}%` }}
+                          />
+                        </div>
+                        <span className="text-[11px] text-zinc-400 flex-shrink-0 tabular-nums">
+                          {generationElapsed < (generationEta || 30) ? `~${Math.max((generationEta || 30) - generationElapsed, 1)}s` : `${generationElapsed}s`}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 text-[10px] text-zinc-400 bg-zinc-50 px-2 py-1 rounded-lg font-medium">
+                      {aspectRatio} · {imageModel === 'nano-banana-2' ? 'NB2' : 'SD5'}
+                    </div>
+                  </div>
+                  {serverWarning && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-amber-600 mt-2 ml-1">
+                      <span>&#9888;</span><span>{serverWarning}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Header + filter */}
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
@@ -814,10 +860,10 @@ Make it look like a real, professional ad creative.`;
                         <button
                           key={img.id}
                           onClick={() => !deletingIds.has(img.id) && setSelectedImage(selectedImage?.id === img.id ? null : img)}
-                          className={`group relative rounded-lg overflow-hidden border text-left transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 ${
+                          className={`group relative rounded-lg overflow-hidden border text-left transition-all duration-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.1),0_2px_4px_rgba(0,0,0,0.06)] hover:-translate-y-1 ${
                             selectedImage?.id === img.id
-                              ? 'border-zinc-900 ring-1 ring-zinc-900/10 shadow-lg -translate-y-0.5'
-                              : 'border-zinc-200/80 shadow-sm hover:border-zinc-300'
+                              ? 'border-zinc-900 ring-1 ring-zinc-900/10 shadow-[0_4px_12px_rgba(0,0,0,0.12),0_2px_4px_rgba(0,0,0,0.06)] -translate-y-1'
+                              : 'border-zinc-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_1px_1px_rgba(0,0,0,0.03)] hover:border-zinc-300'
                           }`}
                           style={deletingIds.has(img.id) ? { animation: 'nomad-card-delete 0.35s ease-out forwards', pointerEvents: 'none' } : undefined}
                         >
@@ -871,7 +917,7 @@ Make it look like a real, professional ad creative.`;
           ) : !isGenerating ? (
             /* ── Empty State ── */
             <div className="flex flex-col items-center justify-center h-full gap-4 text-center min-h-[400px]">
-              <div className="w-20 h-20 rounded-2xl bg-white shadow-sm border border-dashed border-zinc-200 flex items-center justify-center">
+              <div className="w-20 h-20 rounded-2xl bg-white shadow-[0_2px_8px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.04)] border border-dashed border-zinc-200 flex items-center justify-center">
                 <NomadIcon size={32} className="text-zinc-300" />
               </div>
               <div>
@@ -887,17 +933,17 @@ Make it look like a real, professional ad creative.`;
       </div>
 
       {/* ── Bottom Bar ── */}
-      <div className="flex-shrink-0 border-t border-zinc-200 bg-white px-6 py-4 shadow-[0_-2px_12px_rgba(0,0,0,0.04)]">
+      <div className="flex-shrink-0 border-t border-zinc-200/80 bg-white px-6 py-4 shadow-[0_-2px_8px_rgba(0,0,0,0.03),0_-4px_16px_rgba(0,0,0,0.04)]">
         {/* Mode Tabs */}
         <div className="flex justify-center gap-2 mb-4">
           {modes.map((mode) => (
             <button
               key={mode.key}
               onClick={() => setActiveMode(mode.key)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
                 activeMode === mode.key
-                  ? 'bg-zinc-900 text-white shadow-sm'
-                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                  ? 'bg-zinc-900 text-white shadow-[0_1px_3px_rgba(0,0,0,0.2),0_2px_6px_rgba(0,0,0,0.1)] -translate-y-px'
+                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.08)] hover:-translate-y-px'
               }`}
             >
               <span className="text-xs">{mode.icon}</span>
@@ -908,7 +954,7 @@ Make it look like a real, professional ad creative.`;
 
         {/* Prompt Input Area */}
         <div className="max-w-3xl mx-auto">
-          <div className="bg-zinc-50 rounded-2xl border border-zinc-200 overflow-hidden shadow-sm" onDragOver={handleImageDragOver} onDrop={handleImageDrop}>
+          <div className="bg-zinc-50 rounded-2xl border border-zinc-200/80 overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04),0_2px_8px_rgba(0,0,0,0.03)] focus-within:shadow-[0_2px_6px_rgba(0,0,0,0.06),0_4px_12px_rgba(0,0,0,0.04)] transition-shadow duration-200" onDragOver={handleImageDragOver} onDrop={handleImageDrop}>
             <textarea
               ref={promptRef}
               value={prompt}
@@ -1006,7 +1052,7 @@ Make it look like a real, professional ad creative.`;
                   createPortal(
                     <div
                       ref={popoverRef}
-                      className="fixed w-80 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-5 z-[9999] flex flex-col max-h-[70vh] overflow-y-auto"
+                      className="fixed w-80 bg-white rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.12),0_4px_12px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.04)] p-5 z-[9999] flex flex-col max-h-[70vh] overflow-y-auto"
                       style={{
                         bottom: `${popoverPos.bottom}px`,
                         right: `${popoverPos.right}px`,
@@ -1173,12 +1219,12 @@ Make it look like a real, professional ad creative.`;
                   <button
                     onClick={handleGenerate}
                     disabled={isGenerating || !prompt.trim()}
-                    className={`h-10 rounded-full flex items-center justify-center gap-1.5 transition-all ${
+                    className={`h-10 rounded-full flex items-center justify-center gap-1.5 transition-all duration-200 ${
                       batchCount > 1 ? 'px-4' : 'w-10'
                     } ${
                       isGenerating || !prompt.trim()
                         ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
-                        : 'bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm hover:shadow-md'
+                        : 'bg-zinc-900 text-white hover:bg-zinc-800 shadow-[0_1px_3px_rgba(0,0,0,0.2),0_2px_6px_rgba(0,0,0,0.1)] hover:shadow-[0_2px_6px_rgba(0,0,0,0.25),0_4px_12px_rgba(0,0,0,0.12)] hover:-translate-y-px active:translate-y-0 active:shadow-[0_1px_2px_rgba(0,0,0,0.15)]'
                     }`}
                   >
                     {isGenerating ? (
@@ -1218,7 +1264,7 @@ Make it look like a real, professional ad creative.`;
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onClick={() => setSelectedImage(null)}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
           <div
-            className="relative z-10 bg-white rounded-2xl shadow-2xl ring-1 ring-black/5 max-w-5xl w-full max-h-[90vh] overflow-hidden flex"
+            className="relative z-10 bg-white rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.12),0_4px_12px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] max-w-5xl w-full max-h-[90vh] overflow-hidden flex"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Image */}

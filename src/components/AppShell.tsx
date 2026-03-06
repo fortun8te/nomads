@@ -53,13 +53,15 @@ export function AppShell() {
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       {/* ── Top Navigation Bar ── */}
-      <nav className="bg-white border-b border-zinc-200 px-6 py-0 flex-shrink-0">
-        <div className="max-w-7xl mx-auto flex items-center justify-between h-14">
+      <nav className="bg-white border-b border-zinc-200/80 px-6 py-0 flex-shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+        <div className="max-w-7xl mx-auto flex items-center justify-between h-14 relative">
           {/* Left: Logo + Status */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <NomadIcon size={20} animated={isRunning} className="text-zinc-900" />
-              <span className="text-sm font-bold tracking-wide text-zinc-900">NOMAD</span>
+          <div className="flex items-center gap-4 z-10">
+            <div className="flex items-center gap-2.5 group cursor-default">
+              <div className="transition-transform duration-300 group-hover:-translate-y-px">
+                <NomadIcon size={22} animated={isRunning} className="text-zinc-900" />
+              </div>
+              <span className="text-sm font-bold tracking-wide text-zinc-900" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>NOMAD</span>
             </div>
             <div className="flex items-center gap-2">
               <div className={`w-1.5 h-1.5 rounded-full ${statusColor} ${isRunning ? 'animate-pulse' : ''}`} />
@@ -74,8 +76,8 @@ export function AppShell() {
             )}
           </div>
 
-          {/* Center: View Tabs */}
-          <div className="flex items-center gap-1 bg-zinc-100 rounded-lg p-1">
+          {/* Center: View Tabs — absolute positioned for true centering */}
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 bg-zinc-100/80 rounded-xl p-1 shadow-inner">
             {([
               { key: 'research' as AppView, label: 'Research', badge: researchStatus || tasteStatus },
               { key: 'make' as AppView, label: 'Make', badge: makeStatus },
@@ -84,10 +86,10 @@ export function AppShell() {
               <button
                 key={key}
                 onClick={() => setActiveView(key)}
-                className={`relative flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                className={`relative flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                   activeView === key
-                    ? 'bg-white text-zinc-900 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-700'
+                    ? 'bg-white text-zinc-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_1px_rgba(0,0,0,0.06)]'
+                    : 'text-zinc-500 hover:text-zinc-700 hover:bg-white/40'
                 }`}
               >
                 {getStageBadge(badge)}
@@ -97,12 +99,12 @@ export function AppShell() {
           </div>
 
           {/* Right: Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 z-10">
             {/* Pipeline controls */}
             {!isRunning && !isPaused && campaign && (
               <button
                 onClick={handleStartPipeline}
-                className="px-3.5 py-1.5 bg-zinc-900 text-white text-xs font-medium rounded-lg hover:bg-zinc-800 transition-all"
+                className="px-3.5 py-1.5 bg-zinc-900 text-white text-xs font-medium rounded-lg hover:bg-zinc-800 transition-all shadow-[0_1px_3px_rgba(0,0,0,0.2),0_2px_6px_rgba(0,0,0,0.1)] hover:shadow-[0_2px_6px_rgba(0,0,0,0.25),0_4px_12px_rgba(0,0,0,0.12)] hover:-translate-y-px active:translate-y-0 active:shadow-[0_1px_2px_rgba(0,0,0,0.15)]"
               >
                 Run Pipeline
               </button>
