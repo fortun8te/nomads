@@ -54,9 +54,9 @@ export function AppShell() {
     <div className="h-screen flex flex-col overflow-hidden">
       {/* ── Top Navigation Bar ── */}
       <nav className="bg-white border-b border-zinc-200/80 px-6 py-0 flex-shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-        <div className="max-w-7xl mx-auto flex items-center justify-between h-14 relative">
+        <div className="max-w-7xl mx-auto flex items-center h-14 relative">
           {/* Left: Logo + Status */}
-          <div className="flex items-center gap-4 z-10">
+          <div className="flex items-center gap-4 z-10 flex-1">
             <div className="flex items-center gap-2.5 group cursor-default">
               <div className="transition-transform duration-300 group-hover:-translate-y-px">
                 <NomadIcon size={22} animated={isRunning} className="text-zinc-900" />
@@ -99,7 +99,7 @@ export function AppShell() {
           </div>
 
           {/* Right: Actions */}
-          <div className="flex items-center gap-2 z-10">
+          <div className="flex items-center gap-2 z-10 flex-1 justify-end">
             {/* Pipeline controls */}
             {!isRunning && !isPaused && campaign && (
               <button
