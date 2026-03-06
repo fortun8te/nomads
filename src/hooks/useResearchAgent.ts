@@ -128,20 +128,49 @@ Example for skincare:
 
 Return ONLY valid JSON array, no other text.`;
 
-    try {
-      onProgress?.('  [Layer 1] Mapping deep desires + turning points...\n');
-      const result = await generate(prompt, '', {
-        model: brainModel,
-        signal,
-        // Stream raw tokens — dim mono in ResearchOutput, also drives token counter in footer
-        onChunk: (chunk) => onProgress?.(chunk),
-      });
-      onProgress?.('\n');
-      return await extractJSON(result, 'array', null, brainModel, signal, onProgress);
-    } catch (err) {
-      console.error('Error mapping deep desires:', err);
-      return [];
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          onProgress?.(`  [Layer 1] Retry ${attempt}/${maxRetries} — model returned too little, trying again...\n`);
+        } else {
+          onProgress?.('  [Layer 1] Mapping deep desires + turning points...\n');
+        }
+
+        const result = await generate(
+          attempt === 0 ? prompt : `${prompt}\n\nIMPORTANT: You MUST output a valid JSON array with 3-4 desire objects. Start with [ and end with ]. No other text.`,
+          attempt === 0 ? '' : 'You are a consumer psychology expert. Output ONLY a JSON array of desire objects.',
+          {
+            model: brainModel,
+            signal,
+            onChunk: (chunk) => onProgress?.(chunk),
+          }
+        );
+        onProgress?.('\n');
+
+        // Check if response is too short (model likely returned error/refusal)
+        if (result.trim().length < 50) {
+          onProgress?.(`  [Layer 1] Model returned only ${result.trim().length} chars — too short for valid JSON\n`);
+          if (attempt < maxRetries) continue; // Retry
+          return [];
+        }
+
+        const parsed = await extractJSON(result, 'array', null, brainModel, signal, onProgress);
+        if (parsed.length > 0) return parsed;
+
+        // Parsed empty — retry if we have attempts left
+        if (attempt < maxRetries) {
+          onProgress?.(`  [Layer 1] JSON parsing returned empty — retrying...\n`);
+          continue;
+        }
+        return [];
+      } catch (err) {
+        console.error(`Error mapping deep desires (attempt ${attempt}):`, err);
+        if (attempt < maxRetries) continue;
+        return [];
+      }
     }
+    return [];
   };
 
   /**

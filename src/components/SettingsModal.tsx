@@ -20,7 +20,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
   const [wayfarerHost, setWayfarerHost] = useState('');
   const [maxResearchTime, setMaxResearchTime] = useState('10');
   const [maxIterations, setMaxIterations] = useState('3');
-  const [pipelineMode, setPipelineMode] = useState<'auto' | 'interactive'>('auto');
+  const [pipelineMode, setPipelineMode] = useState<'auto' | 'interactive'>('interactive');
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [debugTests, setDebugTests] = useState<DebugTest[]>([
@@ -40,7 +40,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
     const savedIter = localStorage.getItem('max_research_iterations');
     setMaxIterations(savedIter || '15');
     const savedMode = localStorage.getItem('pipeline_mode');
-    setPipelineMode((savedMode as 'auto' | 'interactive') || 'auto');
+    setPipelineMode((savedMode as 'auto' | 'interactive') || 'interactive');
   }, []);
 
   const fetchWithTimeout = (url: string, timeout = 10000) => {

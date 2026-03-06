@@ -397,6 +397,7 @@ const FORM_SECTIONS = [
       { name: 'musicSoundStyle', label: 'Music / Sound Style', placeholder: 'What audio works? (e.g., trending sounds, upbeat music, voiceover style, no background music required)', type: 'textarea' },
       { name: 'editingPacingStyle', label: 'Editing Pacing Style', placeholder: 'Pacing preferences? (e.g., fast cuts for TikTok, slower pacing for YouTube, 3-second scene changes max)', type: 'textarea' },
       { name: 'ugcVsPolishedSplit', label: 'UGC vs Polished Split', placeholder: 'What ratio? (e.g., 60% authentic UGC, 40% polished brand content OR 30/70)', type: 'textarea' },
+      { name: 'adDimensions', label: 'Ad Aspect Ratios To Generate', placeholder: 'Which ad dimensions do you want? (e.g., 1:1 (square), 9:16 (vertical), 16:9 (landscape), 4:5 (Pinterest) — select all that apply)', type: 'textarea' },
     ],
   },
   {
@@ -665,7 +666,7 @@ Ready? Tell me about your brand or product: What do you sell, and who are you tr
     },
   ]);
 
-  const handlePresetSelect = (preset: typeof DEFAULT_PRESET) => {
+  const handlePresetSelect = (preset: typeof SIMPLETICS_PRESET) => {
     const growth = (preset as any).growth || { goal: '', budget: '', timeline: [], kpis: {} };
     const goalStr = `${growth.goal} | Budget: ${growth.budget} | Timeline: ${Array.isArray(growth.timeline) ? growth.timeline[0] : ''}`;
 
@@ -684,7 +685,13 @@ Ready? Tell me about your brand or product: What do you sell, and who are you tr
       preset.product.description,
       productFeaturesArray,
       preset.product.pricing,
-      researchMode
+      researchMode,
+      undefined, // maxResearchIterations
+      undefined, // maxResearchTimeMinutes
+      preset.brand.colors, // brandColors
+      preset.brand.fonts, // brandFonts
+      undefined, // brandDNA
+      preset as unknown as Record<string, any> // presetData — full preset object
     );
     message.success('Preset campaign created!');
   };
@@ -697,6 +704,16 @@ Ready? Tell me about your brand or product: What do you sell, and who are you tr
 
     const pipelineMode2 = localStorage.getItem('pipeline_mode');
     const researchMode2 = pipelineMode2 === 'interactive' ? 'interactive' as const : 'autonomous' as const;
+
+    // Collect all extra form fields as brandDNA
+    const excludeKeys = ['brandName', 'personaName', 'marketingGoal', 'productName', 'productCategory', 'primaryPlatforms', 'productDescription', 'keyFeatures', 'pricing'];
+    const brandDNA: Record<string, string> = {};
+    for (const [key, val] of Object.entries(values)) {
+      if (!excludeKeys.includes(key) && val && typeof val === 'string' && val.trim()) {
+        brandDNA[key] = val as string;
+      }
+    }
+
     createCampaign(
       values.brandName,
       values.personaName,
@@ -704,7 +721,12 @@ Ready? Tell me about your brand or product: What do you sell, and who are you tr
       values.productDescription,
       productFeatures,
       values.pricing,
-      researchMode2
+      researchMode2,
+      undefined, // maxResearchIterations
+      undefined, // maxResearchTimeMinutes
+      values.brandColors || undefined,
+      values.typography || undefined,
+      Object.keys(brandDNA).length > 0 ? brandDNA : undefined
     );
     message.success('Detailed campaign created!');
   };

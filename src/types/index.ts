@@ -5,6 +5,49 @@ export type CampaignStatus = 'active' | 'paused' | 'archived';
 export type CycleStatus = 'in-progress' | 'complete';
 export type SystemStatus = 'idle' | 'running' | 'paused' | 'error';
 
+// ─ Product page analysis (screenshot + vision + GLM) ─
+export interface ProductPageAnalysis {
+  url: string;
+  productName: string;
+  description?: string;
+  ingredients?: string[];
+  pricing?: { tier: string; price: string; discount?: string }[];
+  testimonials?: { text: string; author: string; rating?: number }[];
+  guarantees?: string[];
+  features?: string[];
+  scents?: string[];
+  brand_messaging?: string;
+  socialProof?: { metric: string; value: string }[];
+  visionRawOutput?: string; // Full minicpm-v output for inspection
+  error?: string;
+}
+
+// ─ Competitor product intelligence (autonomous multi-product analysis) ─
+export interface CrawledProduct {
+  url: string;
+  name: string;       // Inferred from URL or link text
+}
+
+export interface CompetitorProductIntelligence {
+  brand: string;
+  domain: string;
+  products: ProductPageAnalysis[];
+  summary: {
+    totalProducts: number;
+    avgPrice?: string;
+    priceRange?: string;
+    commonIngredients?: string[];
+    commonFeatures?: string[];
+    brandPositioning?: string;
+    guarantees?: string[];
+    socialProofHighlights?: string[];
+  };
+  crawledUrls: string[];
+  visionAnalyzed: number;
+  elapsed: number;      // ms
+  error?: string;
+}
+
 // Desire-driven selling framework
 export interface DesireLayer {
   level: number; // 1 = surface problem, 2+ = deeper layers
@@ -112,6 +155,41 @@ export interface CompetitorAdIntelligence {
   visionAnalyzed: number;
 }
 
+// ─ Taste Stage: Creative Direction ─
+export interface TasteFindings {
+  brandVoice: string;                    // How the brand speaks (e.g., "authority + friendly")
+  recommendedColors: string[];           // e.g., ["deep navy", "gold", "white"]
+  brandTone: string;                     // e.g., "premium clinical" or "warm lifestyle"
+  positioning: string;                   // Market position statement
+  recommendedCopyAngles: string[];       // e.g., ["transformation", "social proof", "exclusivity"]
+  visualStyle: string;                   // e.g., "minimalist + bold typography"
+  adFormats: string[];                   // e.g., ["static image", "carousel", "video testimonial"]
+  unusedEmotionalSpace: string[];        // What emotions competitors don't target
+}
+
+// ─ Make Stage: Ad Concepts ─
+export interface AdConcept {
+  conceptNumber: number;                 // 1, 2, or 3
+  hookAngle: string;                     // from unusedAngles (e.g., "before-after")
+  emotionalDriver: string;               // from validated emotions
+  headline: string;
+  body: string;                          // 2-3 sentences
+  cta: string;                           // button text
+  offer?: string;                        // if applicable
+  adFormat: string;                      // e.g., "static image" or "carousel"
+  visualDirection: string;               // e.g., "lifestyle hero + product detail"
+  colors: string[];                      // from taste
+  mjml: string;                          // MJML markup for layout
+  html?: string;                         // Compiled HTML (generated later)
+  rationale: string;                     // Why this angle + emotion combo works
+}
+
+export interface MakeOutput {
+  concepts: AdConcept[];
+  adDimensions: string[];                // aspect ratios used (e.g., ["1:1", "9:16"])
+  processingTime: number;
+}
+
 export interface ResearchFindings {
   deepDesires: DeepDesire[];
   objections: Objection[];
@@ -202,6 +280,11 @@ export interface Campaign {
   createdAt: number;
   updatedAt: number;
   status: CampaignStatus;
+  adDimensions?: string[];               // e.g., ["1:1", "9:16", "16:9"] — defaults to ["1:1", "9:16"]
+  brandColors?: string;                  // Brand color palette + psychology (e.g., "Sage green (trust), charcoal (authority)")
+  brandFonts?: string;                   // Brand fonts + usage (e.g., "Inter for body, Playfair for headlines")
+  brandDNA?: Record<string, string>;     // All extra form fields from detailed campaign setup
+  presetData?: Record<string, any>;      // Full preset object (brand, audience, product, competitive, messaging, platforms, etc.)
 }
 
 export interface OllamaResponse {
@@ -223,6 +306,11 @@ export interface CampaignContextType {
   questionAnswers: UserQuestionAnswer[];
   answerQuestion: (answer: string) => void;
 
+  // Research review system (interactive mode)
+  reviewingStage: StageName | null;
+  reviewFindings: ResearchFindings | null;
+  resumeAfterReview: (updatedFindings?: ResearchFindings) => void;
+
   // Actions
   createCampaign: (
     brand: string,
@@ -233,7 +321,10 @@ export interface CampaignContextType {
     productPrice?: string,
     researchMode?: 'interactive' | 'autonomous',
     maxResearchIterations?: number,
-    maxResearchTimeMinutes?: number
+    maxResearchTimeMinutes?: number,
+    brandColors?: string,
+    brandFonts?: string,
+    brandDNA?: Record<string, string>
   ) => Promise<void>;
   startCycle: () => Promise<void>;
   pauseCycle: () => void;

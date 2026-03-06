@@ -45,10 +45,13 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     isPaused,
     currentCycle: cycleLoopCycle,
     error: cycleError,
+    reviewingStage,
+    reviewFindings,
     start,
     pause,
     resume,
     stop,
+    resumeAfterReview,
   } = useCycleLoop(askUser);
 
   const { saveCampaign, saveCycle, getCyclesByCampaign } = useStorage();
@@ -68,7 +71,11 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
       productPrice?: string,
       researchMode: 'interactive' | 'autonomous' = 'autonomous',
       maxResearchIterations?: number,
-      maxResearchTimeMinutes?: number
+      maxResearchTimeMinutes?: number,
+      brandColors?: string,
+      brandFonts?: string,
+      brandDNA?: Record<string, string>,
+      presetData?: Record<string, any>
     ) => {
       // Pull defaults from localStorage (set in Settings), fallback to hardcoded
       const savedIter = localStorage.getItem('max_research_iterations');
@@ -94,6 +101,10 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         status: 'active',
+        brandColors,
+        brandFonts,
+        brandDNA,
+        presetData,
       };
 
       await saveCampaign(newCampaign);
@@ -162,6 +173,9 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     pendingQuestion,
     questionAnswers,
     answerQuestion,
+    reviewingStage,
+    reviewFindings,
+    resumeAfterReview,
     createCampaign,
     startCycle,
     pauseCycle,

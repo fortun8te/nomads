@@ -3,6 +3,7 @@ import type { Cycle, StageName } from '../types';
 import { useTheme } from '../context/ThemeContext';
 import { ResearchOutput } from './ResearchOutput';
 import { ModelOutputDebug } from './ModelOutputDebug';
+import { MakeTestPanel } from './MakeTestPanel';
 import { tokenTracker, type TokenInfo } from '../utils/tokenStats';
 
 const STAGE_DESCRIPTIONS: Record<StageName, string> = {
@@ -156,20 +157,26 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
             />
           </div>
         ) : (
-          <div className={`${placeholderTextClass} flex items-center justify-center h-full`}>
-            {isRunning ? (
-              <div className="flex items-center gap-2.5 text-[10px] font-mono">
-                <div className="flex gap-1">
-                  <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} />
-                  <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.15s'}} />
-                  <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.3s'}} />
-                </div>
-                <span className={secondaryTextClass}>awaiting output</span>
-              </div>
+          <>
+            {currentStage === 'make' && !isRunning ? (
+              <MakeTestPanel isDarkMode={isDarkMode} />
             ) : (
-              <span className={`font-mono text-[10px] ${isDarkMode ? 'text-zinc-800' : 'text-zinc-300'}`}>no output yet</span>
+              <div className={`${placeholderTextClass} flex items-center justify-center h-full`}>
+                {isRunning ? (
+                  <div className="flex items-center gap-2.5 text-[10px] font-mono">
+                    <div className="flex gap-1">
+                      <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} />
+                      <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.15s'}} />
+                      <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.3s'}} />
+                    </div>
+                    <span className={secondaryTextClass}>awaiting output</span>
+                  </div>
+                ) : (
+                  <span className={`font-mono text-[10px] ${isDarkMode ? 'text-zinc-800' : 'text-zinc-300'}`}>no output yet</span>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
 

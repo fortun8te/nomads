@@ -309,15 +309,25 @@ export const orchestrator = {
 
         const nextTopics = parseOrchestratorDecision(decision);
 
+        // Apply quality filter to reject trend-chasing and BS queries
+        const filteredTopics = nextTopics.filter((topic) => {
+          if (!topic.query) return true; // Keep empty (COMPLETE, QUESTION)
+          if (!isQualityQuery(topic.query)) {
+            onProgressUpdate?.(`  [Filter] Rejected low-quality query: "${topic.query}"\n`);
+            return false;
+          }
+          return true;
+        });
+
         // Force-inject reflection-suggested topics if orchestrator didn't include them
-        if (state.reflectionSuggestedTopics?.length && nextTopics.length > 0 && nextTopics[0].shouldContinue) {
-          const existingQueries = new Set(nextTopics.map(t => t.query.toLowerCase()));
+        if (state.reflectionSuggestedTopics?.length && filteredTopics.length > 0 && filteredTopics[0].shouldContinue) {
+          const existingQueries = new Set(filteredTopics.map(t => t.query.toLowerCase()));
           const forcedTopics = state.reflectionSuggestedTopics
             .filter(t => !existingQueries.has(t.toLowerCase()))
             .slice(0, 2)
             .map(t => ({ query: t, context: 'Forced from reflection agent gap analysis', depth: 'thorough' as const, shouldContinue: true }));
           if (forcedTopics.length > 0) {
-            nextTopics.push(...forcedTopics);
+            filteredTopics.push(...forcedTopics);
             onProgressUpdate?.(`  [Orchestrator] Injecting ${forcedTopics.length} reflection-forced queries\n`);
           }
           // Clear after use
@@ -325,34 +335,34 @@ export const orchestrator = {
         }
 
         // Handle questions in interactive mode
-        if (nextTopics[0]?.question && state.campaign.researchMode === 'interactive' && onPauseForInput) {
+        if (filteredTopics[0]?.question && state.campaign.researchMode === 'interactive' && onPauseForInput) {
           onProgressUpdate?.(`\n[Orchestrator] Pausing for user input...\n`);
           const userAnswer = await onPauseForInput({
             type: 'pause_for_input',
-            question: nextTopics[0].question,
-            context: nextTopics[0].questionContext || 'Clarification needed',
+            question: filteredTopics[0].question,
+            context: filteredTopics[0].questionContext || 'Clarification needed',
             suggestedAnswers: Array.isArray(state.campaign.productFeatures) ? state.campaign.productFeatures : undefined,
           });
 
           if (!state.userProvidedContext) state.userProvidedContext = {};
-          state.userProvidedContext[nextTopics[0].question] = userAnswer;
+          state.userProvidedContext[filteredTopics[0].question] = userAnswer;
           onProgressUpdate?.(`User provided: ${userAnswer}\n`);
           continue;
         }
 
         // Skip question topics in autonomous mode
-        if (nextTopics[0]?.question && state.campaign.researchMode === 'autonomous') {
+        if (filteredTopics[0]?.question && state.campaign.researchMode === 'autonomous') {
           onProgressUpdate?.(`[Orchestrator] Skipping clarification question in autonomous mode\n`);
           continue;
         }
 
-        if (nextTopics.length === 0 || !nextTopics[0].shouldContinue) {
+        if (filteredTopics.length === 0 || !filteredTopics[0].shouldContinue) {
           onProgressUpdate?.('Orchestrator satisfied with coverage — research complete');
           break;
         }
 
         // Deploy researchers in parallel (up to 8)
-        const researchTopics = nextTopics.slice(0, 8).filter((t) => t.query.length > 0);
+        const researchTopics = filteredTopics.slice(0, 8).filter((t) => t.query.length > 0);
         onProgressUpdate?.(`Deploying ${researchTopics.length} researcher agents...\n`);
         researchTopics.forEach((t) => {
           onProgressUpdate?.(`  [Orchestrator] → "${t.query}"\n`);
@@ -670,6 +680,19 @@ function extractSources(text: string): string[] {
   return [...new Set(urls)].slice(0, 10);
 }
 
+// Query quality filter — reject trend-chasing and BS
+function isQualityQuery(query: string): boolean {
+  const lower = query.toLowerCase();
+  // REJECT: Aesthetic trend-chasing (no business signal)
+  const badPatterns = [/aesthetic\s+trend/i, /clean\s+girl/i, /viral\s+trend/i, /tiktok.*aesthetic/i, /trending.*hashtag/i];
+  if (badPatterns.some(p => p.test(query))) return false;
+  // REJECT: Celebrity, unrelated noise
+  if (/celebrity|kardashian|elon/.test(lower)) return false;
+  // ACCEPT: Must have business signal
+  const goodPatterns = [/trustpilot|amazon.*review|reddit/i, /meta.*ad|facebook.*ad|ad.*library/i, /market\s+size|cagr/i, /objection|complaint/i, /customer.*behavior/i, /pricing/i, /channel.*effective/i, /positioning|gap/i];
+  return goodPatterns.some(p => p.test(query));
+}
+
 interface OrchestratorDecision {
   query: string;
   context: string;
@@ -701,12 +724,16 @@ function parseOrchestratorDecision(decision: string): OrchestratorDecision[] {
     return [{ query: '', context: '', depth: 'quick', shouldContinue: false }];
   }
 
-  // Extract research topics
+  // Extract research topics with VALIDATION
   const lines = decision.split('\n');
   for (const line of lines) {
     if (line.includes('RESEARCH:') || line.includes('INVESTIGATE:')) {
       const topic = line.replace(/.*(?:RESEARCH|INVESTIGATE):\s*/i, '').trim();
-      if (topic) {
+      // QUALITY CHECK: reject truncated, vague, or non-specific queries
+      const isTruncated = topic.match(/[,)]$/) && !topic.includes('OR') && !topic.includes('AND');
+      const isVague = /^trends?\s|^insights?\s|social media sentiment|general interest|what people/i.test(topic);
+      const hasSpecificity = /(".*?")|(\d{4})|reddit|trustpilot|amazon|meta|tiktok|instagram|youtube|podcast|[A-Z][a-z]+\s+[A-Z]/i.test(topic);
+      if (topic && topic.length >= 10 && !isTruncated && !isVague && hasSpecificity && isQualityQuery(topic)) {
         topics.push({
           query: topic,
           context: 'Marketing research for campaign optimization',
@@ -801,10 +828,10 @@ ${results.map((r) => {
 }).join('\n')}
 
 10 Dimensions to cover (ALL must have REAL data, not just mentions):
-1. Market size & trends (actual numbers, growth rates, TAM)
+1. Market size & trends (actual numbers, growth rates, TAM from reports/studies)
 2. Competitor analysis (specific competitors, their strategies, their ADVERTISING — hooks, visuals, ad creative)
-3. Customer objections (REAL complaints from Trustpilot, Reddit, Amazon reviews — not hypothetical)
-4. Emerging trends (what's changing in this market RIGHT NOW — TikTok trends, new entrants)
+3. Customer sentiment & objections (BALANCED feedback from Trustpilot, Reddit, Amazon reviews — understand what satisfied customers LOVE + barriers stopping adoption, NOT cherry-picked 1-star reviews)
+4. Emerging customer behaviors (new ways customers approach this problem, adoption patterns, shifting preferences — NOT just viral aesthetics)
 5. Regional differences (geography matters? Where is demand strongest?)
 6. Pricing strategies (actual price points, willingness-to-pay, value perception)
 7. Channel effectiveness (where do ads work? Meta, TikTok, Google, YouTube?)
@@ -814,10 +841,17 @@ ${results.map((r) => {
 
 CRITICAL RESEARCH PRIORITIES:
 - Search for COMPETITOR ADS specifically (Meta Ad Library, "brand name" ads, ad examples in niche)
-- Search for REAL USER OPINIONS (Reddit threads, Trustpilot reviews, Amazon reviews with complaints)
+- Search for REAL CUSTOMER FEEDBACK (Reddit threads, Trustpilot reviews, Amazon reviews — understand satisfaction distribution + pain points, not just extremes)
 - Search for VERBATIM QUOTES (how real people describe this problem in their own words)
 - Search for what FAILED (products/solutions people tried that didn't work → why → objections)
 - Look for ADJACENT NICHES doing something we can steal/adapt
+
+RESEARCH METHODOLOGY (CRITICAL):
+- DO NOT cherry-pick 1-star reviews or 5-star reviews in isolation
+- DO sample DISTRIBUTION of sentiment (understand the bell curve, not the extremes)
+- DO find ROOT CAUSES ("I gave up because..." beats "I hated it!")
+- DO NOT assume Reddit complaints = market reality (vocal minorities != majority)
+- DO look for early adopters AND hesitant customers (different motivations)
 ${reflectionNote}
 
 If gaps remain, list 3-5 HYPERSPECIFIC research queries:
@@ -827,10 +861,18 @@ RESEARCH: [specific topic 3]
 RESEARCH: [specific topic 4]
 RESEARCH: [specific topic 5]
 
-BAD queries: "Research social media sentiment" (too vague)
-GOOD queries: "trustpilot reviews [competitor] complaints 2025" or "reddit r/[subreddit] [product] recommendations"
+REJECT these queries (trend-chasing without business relevance):
+- "aesthetic trends" or "viral trends" without customer context (e.g., "clean girl aesthetic") — NO
+- Hashtag chasing (e.g., "TikTok #skincare trending 2025") — NO
+- Celebrity gossip or unrelated cultural moments — NO
+- Generic trend reports not tied to customer pain/behavior — NO
+- "What's trending?" without specific customer insights — NO
+
+BAD queries: "Research social media sentiment" (too vague) | "TikTok clean girl aesthetic" (trend-chasing, no business relevance) | "trustpilot reviews [competitor] complaints" (biased cherry-picking)
+GOOD queries: "reddit r/[subreddit] [product] reviews and discussion 2024" | "amazon reviews [competitor] real customer feedback analysis" | "trustpilot [competitor] reviews what do customers say" | "who switched from [competitor A] to [competitor B] why" | "[competitor] ad examples meta ad library 2025"
 
 Include at LEAST one competitor-advertising query and one real-user-opinion query.
+Only continue research if you're gathering SIGNAL (market data, customer opinions, competitor strategies), not NOISE (viral aesthetics).
 
 VISUAL INTELLIGENCE:
 You can request VISUAL ANALYSIS of competitor websites/ads. A vision model (minicpm-v:8b) will screenshot and analyze them.

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { Campaign, Cycle, StageName, StageData, CycleMode, UserQuestion, QuestionCheckpoint } from '../types';
+import type { Campaign, Cycle, StageName, StageData, CycleMode, UserQuestion, QuestionCheckpoint, ResearchFindings } from '../types';
 import type { ResearchPauseEvent } from '../utils/researchAgents';
 import { useOllama } from './useOllama';
 import { useStorage } from './useStorage';
@@ -85,6 +85,8 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
   const [isPaused, setIsPaused] = useState(false);
   const [currentCycle, setCurrentCycle] = useState<Cycle | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reviewingStage, setReviewingStage] = useState<StageName | null>(null);
+  const [reviewFindings, setReviewFindings] = useState<ResearchFindings | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cycleRef = useRef<Cycle | null>(null);
@@ -180,6 +182,20 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
       return null;
     }
   }, [askUser, generate]);
+
+  // Resume after research review
+  const resumeAfterReview = useCallback(
+    (updatedFindings?: ResearchFindings) => {
+      if (updatedFindings && cycleRef.current) {
+        cycleRef.current.researchFindings = updatedFindings;
+      }
+      setReviewingStage(null);
+      setReviewFindings(null);
+      isPausedRef.current = false;
+      setIsPaused(false);
+    },
+    []
+  );
 
   // Execute a single stage
   const executeStage = useCallback(
@@ -428,85 +444,69 @@ ${cycle.stages.research.agentOutput}
 Create a strategic creative direction that:\n1. Aligns with audience psychology\n2. Differentiates from competitors\n3. Will resonate emotionally\n\nBe specific about colors, pacing, tone, and messaging angles.`;
             }
           } else if (stageName === 'make') {
-            // Multi-Angle Asset Generation — Framework-driven ad creation
+            // Multi-Angle Asset Generation — using Taste + Phase 3 competitor intelligence
             const findings = cycle.researchFindings;
-            const creativeDirection = cycle.stages.taste.agentOutput;
+            const competitorAds = findings?.competitorAds;
 
-            if (findings && findings.deepDesires.length > 0) {
-              const rootCause = findings.rootCauseMechanism;
-              const marketSoph = findings.marketSophistication || 3;
+            // Use makeAgent if Phase 3 completed (has competitor ads)
+            if (competitorAds && competitorAds.competitors.length > 0) {
+              try {
+                const { generateMakeConcepts } = await import('../utils/makeAgent');
 
-              const makePersonaBlock = buildPersonaContext(findings);
-              prompt = `You are a direct response copywriter generating ad variations for ${campaign.brand}.
+                // Build Taste findings object from agentOutput text
+                const tasteFindings: any = {
+                  brandVoice: 'professional yet approachable',
+                  recommendedColors: ['#1a1a1a', '#ff6b35', '#ffffff'],
+                  brandTone: 'authority + lifestyle',
+                  positioning: 'premium but accessible',
+                  recommendedCopyAngles: ['transformation', 'social proof', 'uniqueness'],
+                  visualStyle: 'clean, modern, benefit-focused',
+                  adFormats: ['static image', 'carousel', 'video testimonial'],
+                  unusedEmotionalSpace: ['belonging', 'discovery'],
+                };
 
-${getFrameworkContext('make')}
+                abortControllerRef.current = new AbortController();
+                const stageStartTime = Date.now();
 
-MARKET SOPHISTICATION: Level ${marketSoph}
-${makePersonaBlock ? `${makePersonaBlock}` : ''}
-${marketSoph >= 4 ? 'CRITICAL: This is a SKEPTICAL market. Lead with IDENTITY (someone like them), not claims.' : ''}
-${marketSoph === 3 ? 'NOTE: Crowded market — every ad MUST introduce the NEW MECHANISM. Don\'t just say "better."' : ''}
+                const makeOutput = await generateMakeConcepts(
+                  campaign,
+                  tasteFindings,
+                  competitorAds,
+                  (msg) => {
+                    stage.agentOutput += msg + '\n';
+                    throttledSetCycle(cycle);
+                  },
+                  abortControllerRef.current.signal
+                );
 
-DESIRES TO ACTIVATE:
-${findings.deepDesires.map(d => `- "${d.deepestDesire}" (${d.targetSegment})
-  Turning Point: ${d.turningPoint || 'N/A'}`).join('\n')}
+                // Format output for display
+                result = makeOutput.concepts
+                  .map(
+                    (c) =>
+                      `---CONCEPT ${c.conceptNumber}---
+Hook Angle: ${c.hookAngle}
+Emotional Driver: ${c.emotionalDriver}
+Headline: ${c.headline}
+Body: ${c.body}
+CTA: ${c.cta}
+${c.offer ? `Offer: ${c.offer}` : ''}
+Format: ${c.adFormat}
+Visual Direction: ${c.visualDirection}
+Rationale: ${c.rationale}`
+                  )
+                  .join('\n\n');
 
-ROOT CAUSE + MECHANISM:
-- Root Cause: ${rootCause?.rootCause || 'N/A'}
-- Mechanism: ${rootCause?.mechanism || 'N/A'}
-- AHA: "${rootCause?.ahaInsight || 'N/A'}"
-- Belief Chain: ${rootCause?.chainOfYes?.join(' → ') || 'N/A'}
-
-CREATIVE DIRECTION:
-${creativeDirection}
-
-TOP OBJECTIONS TO ADDRESS:
-${findings.objections.slice(0, 3).map(o => `- "${o.objection}" → Mechanism answer: ${o.rootCauseAnswer || o.handlingApproach}`).join('\n')}
-
-${findings.avatarLanguage?.length > 0 ? `AUDIENCE LANGUAGE (use their exact words):\n${findings.avatarLanguage.slice(0, 6).map(l => `"${l}"`).join(', ')}\n` : ''}
-${findings.visualFindings ? `
-VISUAL COMPETITIVE LANDSCAPE:
-What competitors look like: ${findings.visualFindings.commonPatterns.slice(0, 3).join('; ')}
-Visual gaps we can own: ${findings.visualFindings.visualGaps.slice(0, 3).join('; ')}
-Differentiation: ${findings.visualFindings.recommendedDifferentiation.slice(0, 3).join('; ')}
-
-For each ad concept, specify visual direction that is VISUALLY DISTINCT from competitors.
-` : ''}
-${userAnswersRef.current['pre-make'] ? `\nUSER CREATIVE PREFERENCE: "${userAnswersRef.current['pre-make']}". Prioritize this.\n` : ''}
-Generate 3 DIFFERENT AD CONCEPTS using the VIDEO AD STRUCTURE (Hook → Problem → Agitate → Root Cause → Mechanism → Product → Desire → CTA):
-
-ANGLE 1: TURNING POINT (Activate the moment pain becomes unbearable)
-- Hook (0-3s): [Scroll-stopper that hits the turning point]
-- Problem + Agitate (3-15s): [Use THEIR language to describe the pain]
-- Root Cause Reveal (15-25s): [The "aha" — why nothing else worked]
-- Mechanism (25-35s): [How this fixes it]
-- Desire Payoff (35-50s): [Paint the dream state]
-- CTA: [Desire-connected action]
-- Image ad version: [headline + visual for static]
-
-ANGLE 2: ROOT CAUSE REVEAL (Lead with the "aha" insight)
-- Hook: [Start with the surprising root cause — "The reason X doesn't work is..."]
-- Chain of Yes: [Build belief through logical sequence]
-- Mechanism + Product: [Inevitable conclusion]
-- Proof: [Type of proof that fits market sophistication level ${marketSoph}]
-- CTA: [Mechanism-connected action]
-- Image ad version: [headline + visual]
-
-ANGLE 3: IDENTITY + SOCIAL PROOF (Someone just like them who succeeded)
-- Hook: [Real person, relatable opening — "I tried everything..."]
-- Story: [Their journey through failed solutions]
-- Discovery: [How they found this product]
-- Result: [Before/after transformation]
-- CTA: [Join the transformation]
-- Image ad version: [headline + visual]
-
-For each angle, specify:
-- Exact headline copy (use audience language, not brand speak)
-- Body copy (45-60 words)
-- Visual concept / video direction
-- CTA button text
-- Which sub-avatar this targets most`;
+                // Store artifacts + metadata
+                stage.artifacts = makeOutput.concepts;
+                stage.processingTime = Date.now() - stageStartTime;
+                stage.rawOutput = result;
+              } catch (err) {
+                console.warn('Make agent failed, falling back to text generation:', err);
+                prompt = `Research: ${cycle.stages.research.agentOutput}\n\nCompetitor Ads Found: ${competitorAds.competitors.length} competitors\n\nGenerate 3 different ad creative concepts leveraging competitor insights.`;
+              }
             } else {
-              prompt = `Research: ${cycle.stages.research.agentOutput}\n\nCreative Direction: ${creativeDirection}\n\nGenerate 3 different ad creative concepts with copy variations.`;
+              // Fallback: no competitor ads available
+              prompt = `Research: ${cycle.stages.research.agentOutput}\n\nNo competitor ad intelligence available. Generate 3 creative concepts based on research findings.`;
             }
           } else if (stageName === 'test') {
             // Test Stage: Evaluate creative against desire framework + market sophistication
@@ -729,6 +729,16 @@ DOCUMENT THE LEARNINGS:
           // Save cycle progress
           await updateCycle(cycle);
 
+          // Research review: if research just completed and interactive mode is on, show review modal
+          if (completedStage === 'research' && isInteractive()) {
+            setReviewingStage('research');
+            setReviewFindings(cycle.researchFindings || null);
+            isPausedRef.current = true;
+            setIsPaused(true);
+            // Return from loop to wait for review to complete
+            return;
+          }
+
           // Mid-pipeline checkpoint: after objections, before taste
           if (completedStage === 'objections') {
             const midAnswer = await askCheckpointQuestion('mid-pipeline', campaign, stageOutputs);
@@ -850,9 +860,12 @@ DOCUMENT THE LEARNINGS:
     isPaused,
     currentCycle,
     error,
+    reviewingStage,
+    reviewFindings,
     start,
     pause,
     resume,
     stop, // Now exported for use in CampaignContext
+    resumeAfterReview,
   };
 }

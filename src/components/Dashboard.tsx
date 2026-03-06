@@ -2,15 +2,18 @@ import { useState, useEffect } from 'react';
 import { useCampaign } from '../context/CampaignContext';
 import { useTheme } from '../context/ThemeContext';
 import { CampaignSelector } from './CampaignSelector';
+import { BrandDetailsPanel } from './BrandDetailsPanel';
+import { PresetDetailsPanel } from './PresetDetailsPanel';
 import { ControlPanel } from './ControlPanel';
 import { CycleTimeline } from './CycleTimeline';
 import { StagePanel } from './StagePanel';
 import { CycleHistory } from './CycleHistory';
 import { QuestionModal } from './QuestionModal';
+import { ResearchReviewModal } from './ResearchReviewModal';
 import type { StageName } from '../types';
 
 export function Dashboard() {
-  const { systemStatus, error, currentCycle, cycles, campaign, pendingQuestion, answerQuestion } = useCampaign();
+  const { systemStatus, error, currentCycle, cycles, campaign, pendingQuestion, answerQuestion, reviewingStage, reviewFindings, resumeAfterReview } = useCampaign();
   const { isDarkMode } = useTheme();
   const isRunning = systemStatus === 'running';
   const [selectedStage, setSelectedStage] = useState<StageName | null>(null);
@@ -50,23 +53,46 @@ export function Dashboard() {
           {/* Left — Campaign info */}
           <div className="col-span-3 space-y-3">
             <CampaignSelector />
+            {campaign && campaign.presetData && <PresetDetailsPanel campaign={campaign} isDarkMode={isDarkMode} />}
+            {campaign && !campaign.presetData && <BrandDetailsPanel campaign={campaign} isDarkMode={isDarkMode} />}
             <CycleHistory cycles={cycles} />
 
-            {/* Stage legend */}
+            {/* Stage legend — clickable to navigate */}
             <div className={`border ${borderClass} p-3`}>
-              <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${secondaryTextClass} block mb-2`}>Stages</span>
+              <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${secondaryTextClass} block mb-2`}>Stages (click to view)</span>
               <div className="space-y-1.5">
                 {[
-                  { name: 'Research', desc: 'Desires & objections' },
-                  { name: 'Taste', desc: 'Creative direction' },
-                  { name: 'Make', desc: 'Assets' },
-                  { name: 'Test', desc: 'Eval' },
-                  { name: 'Memories', desc: 'Insights' },
+                  { name: 'research', label: 'Research', desc: 'Desires & objections' },
+                  { name: 'taste', label: 'Taste', desc: 'Creative direction' },
+                  { name: 'make', label: 'Make', desc: 'Assets' },
+                  { name: 'test', label: 'Test', desc: 'Eval' },
+                  { name: 'memories', label: 'Memories', desc: 'Insights' },
                 ].map((s) => (
-                  <div key={s.name} className="flex items-center justify-between gap-2">
-                    <span className={`font-mono text-[10px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-zinc-400' : 'text-zinc-700'}`}>{s.name}</span>
+                  <button
+                    key={s.name}
+                    onClick={() => {
+                      if (campaign && currentCycle) {
+                        setSelectedStage(s.name as StageName);
+                      }
+                    }}
+                    disabled={!campaign || !currentCycle}
+                    className={`w-full flex items-center justify-between gap-2 p-1.5 rounded transition-colors ${
+                      campaign && currentCycle
+                        ? isDarkMode
+                          ? 'hover:bg-zinc-900/60 cursor-pointer'
+                          : 'hover:bg-zinc-100/60 cursor-pointer'
+                        : 'opacity-50 cursor-not-allowed'
+                    } ${
+                      selectedStage === s.name
+                        ? isDarkMode
+                          ? 'bg-zinc-800/80'
+                          : 'bg-zinc-200/60'
+                        : ''
+                    }`}
+                  >
+                    <span className={`font-mono text-[10px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-zinc-400' : 'text-zinc-700'}`}>{s.label}</span>
                     <span className={`font-mono text-[10px] ${secondaryTextClass}`}>{s.desc}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -97,6 +123,18 @@ export function Dashboard() {
           question={pendingQuestion}
           onAnswer={answerQuestion}
           isDarkMode={isDarkMode}
+        />
+      )}
+
+      {/* Research review modal — shown after research completes in interactive mode */}
+      {reviewingStage === 'research' && reviewFindings && (
+        <ResearchReviewModal
+          isOpen={true}
+          findings={reviewFindings}
+          isDarkMode={isDarkMode}
+          onApprove={async (updatedFindings) => {
+            resumeAfterReview(updatedFindings);
+          }}
         />
       )}
     </div>

@@ -2,11 +2,15 @@ import { useState, useCallback } from 'react';
 import { useCampaign } from '../context/CampaignContext';
 import { useTheme } from '../context/ThemeContext';
 import { SettingsModal } from './SettingsModal';
+import { PresetDetailsModal } from './PresetDetailsModal';
+import { MakeTestPanel } from './MakeTestPanel';
 
 export function ControlPanel() {
   const { systemStatus, currentCycle, campaign, startCycle, pauseCycle, resumeCycle, stopCycle, clearCampaign } = useCampaign() as any;
   const { isDarkMode } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
+  const [showTestMake, setShowTestMake] = useState(false);
+  const [showPresetDetails, setShowPresetDetails] = useState(false);
   const [exporting, setExporting] = useState(false);
   const isRunning = systemStatus === 'running';
   const isPaused = systemStatus === 'paused';
@@ -148,6 +152,32 @@ export function ControlPanel() {
             </button>
           )}
 
+          {campaign?.presetData && (
+            <button
+              onClick={() => setShowPresetDetails(true)}
+              className={`border px-3 py-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.15em] transition-all duration-150 ${
+                isDarkMode
+                  ? 'border-purple-800 text-purple-400 hover:border-purple-600 hover:text-purple-300 hover:bg-purple-950/30'
+                  : 'border-purple-300 text-purple-600 hover:border-purple-500'
+              }`}
+              title="View all preset details"
+            >
+              Details
+            </button>
+          )}
+
+          <button
+            onClick={() => setShowTestMake(true)}
+            className={`border px-3 py-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.15em] transition-all duration-150 ${
+              isDarkMode
+                ? 'border-blue-800 text-blue-400 hover:border-blue-600 hover:text-blue-300 hover:bg-blue-950/30'
+                : 'border-blue-300 text-blue-600 hover:border-blue-500'
+            }`}
+            title="Test layout generation"
+          >
+            Test Make
+          </button>
+
           <button
             onClick={() => setShowSettings(true)}
             className={`border px-2.5 py-1.5 text-[10px] font-mono transition-all duration-150 ${
@@ -161,6 +191,33 @@ export function ControlPanel() {
           </button>
         </div>
       </div>
+
+      {showTestMake && (
+        <div className={`fixed inset-0 z-50 flex items-center justify-center ${isDarkMode ? 'bg-black/70' : 'bg-white/70'}`}>
+          <div className={`max-h-[90vh] overflow-y-auto rounded border ${isDarkMode ? 'bg-[#0b0b0b] border-zinc-700' : 'bg-white border-zinc-300'}`}>
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className={`font-mono text-sm font-bold uppercase tracking-wide ${isDarkMode ? 'text-white' : 'text-black'}`}>Test Layout Generator</h2>
+              <button
+                onClick={() => setShowTestMake(false)}
+                className={`px-3 py-1 text-xs font-mono ${isDarkMode ? 'hover:bg-zinc-900' : 'hover:bg-zinc-100'}`}
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-6 min-w-[600px]">
+              <MakeTestPanel isDarkMode={isDarkMode} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPresetDetails && campaign && (
+        <PresetDetailsModal
+          campaign={campaign}
+          isDarkMode={isDarkMode}
+          onClose={() => setShowPresetDetails(false)}
+        />
+      )}
 
       <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} isRunning={isRunning} />
     </div>
