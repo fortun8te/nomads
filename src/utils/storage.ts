@@ -20,6 +20,7 @@ export interface StoredImage {
   campaignId?: string;          // Which campaign this was for
   campaignBrand?: string;       // Brand name for display
   favorite?: boolean;           // User favorited this image
+  heroImageBase64?: string;     // Optional hero image generated via Freepik Pikaso (Phase 10)
 }
 
 export const storage = {

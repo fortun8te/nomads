@@ -73,6 +73,10 @@ export function MakeStudio() {
   // Image uploads
   const [uploadedImages, setUploadedImages] = useState<string[]>([]); // base64 images
 
+  // Hero image generation (Phase 10)
+  const [generateHeroImage, setGenerateHeroImage] = useState(false);
+  const [heroImageStyle, setHeroImageStyle] = useState('');
+
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -312,6 +316,31 @@ export function MakeStudio() {
     return uploadedImages.map((_, i) => `@img${i + 1}`).join(', ') + ' attached as reference images';
   }, [uploadedImages]);
 
+  // ── Generate hero image (Phase 10) ──
+  const generateHeroImageForAd = useCallback(async (): Promise<string | null> => {
+    if (!generateHeroImage || !campaign) return null;
+
+    try {
+      setGenerationProgress('Generating hero image...');
+      const heroPrompt = `Hero image for: ${prompt.slice(0, 100)}`;
+      const result = await generateImage({
+        prompt: heroPrompt,
+        model: 'nano-banana-2',
+        aspectRatio: aspectRatio,
+        signal: undefined,
+        onProgress: (msg) => setGenerationProgress(`Hero image: ${msg}`),
+      });
+
+      if (result.success && result.imageBase64) {
+        return result.imageBase64;
+      }
+      return null;
+    } catch (err) {
+      console.warn('Hero image generation failed:', err);
+      return null;
+    }
+  }, [generateHeroImage, campaign, prompt, aspectRatio]);
+
   // ── Save image to IndexedDB + update local state ──
   const persistImage = useCallback(async (image: StoredImage) => {
     await storage.saveImage(image);
@@ -374,6 +403,13 @@ export function MakeStudio() {
 
       setGenerationProgress(`Sending to ${modelName}...`);
 
+      // Start hero image generation in parallel if enabled
+      let heroImageBase64: string | null = null;
+      let heroPromise: Promise<string | null> | null = null;
+      if (generateHeroImage) {
+        heroPromise = generateHeroImageForAd();
+      }
+
       const result = await generateImage({
         prompt: finalImagePrompt,
         model: imageModel,
@@ -383,6 +419,15 @@ export function MakeStudio() {
         onWarning: (msg) => setServerWarning(msg),
         onEtaUpdate: (secs) => setGenerationEta(secs),
       });
+
+      // Wait for hero image if it was started
+      if (heroPromise) {
+        try {
+          heroImageBase64 = await heroPromise;
+        } catch (err) {
+          console.warn('Hero image generation failed:', err);
+        }
+      }
 
       if (result.success && result.imageBase64) {
         const stored: StoredImage = {
@@ -398,6 +443,7 @@ export function MakeStudio() {
           referenceImageCount: uploadedImages.length,
           campaignId: campaign?.id,
           campaignBrand: campaign?.brand,
+          heroImageBase64: heroImageBase64 || undefined,
         };
         await persistImage(stored);
         return true;
@@ -1122,6 +1168,45 @@ Make it look like a real, professional ad creative.`;
                               <option value="16:9">16:9 Wide</option>
                             </select>
                           </div>
+                        </div>
+
+                        {/* HERO IMAGE GENERATION */}
+                        <div className="border-t border-zinc-100 pt-4">
+                          <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold mb-3">Hero Image</p>
+
+                          {/* Generate hero image toggle */}
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-sm text-zinc-600">Auto-generate hero</span>
+                            <button
+                              onClick={() => setGenerateHeroImage(!generateHeroImage)}
+                              className={`relative w-10 h-6 rounded-full transition-colors ${generateHeroImage ? 'bg-blue-500' : 'bg-zinc-300'}`}
+                            >
+                              <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${generateHeroImage ? 'left-5' : 'left-1'}`} />
+                            </button>
+                          </div>
+
+                          {/* Hero image style (only if toggle ON) */}
+                          {generateHeroImage && (
+                            <div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm text-zinc-600">Style</span>
+                                <select
+                                  value={heroImageStyle}
+                                  onChange={(e) => setHeroImageStyle(e.target.value)}
+                                  className="text-xs font-medium text-zinc-800 bg-white border border-zinc-300 rounded-lg px-2 py-1.5 focus:outline-none focus:border-zinc-500 cursor-pointer"
+                                >
+                                  <option value="">Auto-detect</option>
+                                  <option value="photorealistic">Photorealistic</option>
+                                  <option value="illustration">Illustration</option>
+                                  <option value="3d">3D Render</option>
+                                  <option value="minimalist">Minimalist</option>
+                                  <option value="watercolor">Watercolor</option>
+                                  <option value="lifestyle">Lifestyle</option>
+                                </select>
+                              </div>
+                              <p className="text-[10px] text-zinc-400 mt-2">Hero image generation adds ~30-60 seconds per ad</p>
+                            </div>
+                          )}
                         </div>
 
                         {/* RESEARCH PIPELINE */}
