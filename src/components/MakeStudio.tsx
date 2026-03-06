@@ -495,7 +495,7 @@ Output ONLY the complete HTML document. No explanation. Start with <!DOCTYPE htm
                 <div className="relative" ref={settingsRef}>
                   <button
                     onClick={() => setShowSettings(!showSettings)}
-                    className="p-2 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-all"
+                    className="p-2 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-all relative z-40"
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M12 3v1m0 16v1m-8-9H3m18 0h-1M5.636 5.636l.707.707m11.314 11.314l.707.707M5.636 18.364l.707-.707m11.314-11.314l.707-.707" />
@@ -505,20 +505,20 @@ Output ONLY the complete HTML document. No explanation. Start with <!DOCTYPE htm
 
                   {/* Settings Popover */}
                   {showSettings && (
-                    <div className="absolute bottom-full right-0 mb-2 w-64 bg-white rounded-xl shadow-xl border border-zinc-200 p-4 z-50">
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-semibold text-zinc-800">Settings</h3>
+                    <div className="absolute bottom-full right-0 mb-3 w-72 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-5 z-[9999] flex flex-col">
+                      <div className="flex items-center justify-between mb-5 pb-4 border-b border-zinc-200">
+                        <h3 className="text-sm font-bold text-zinc-900">Settings</h3>
                         <button
                           onClick={() => setShowSettings(false)}
-                          className="p-1 text-zinc-400 hover:text-zinc-600 rounded-md hover:bg-zinc-100"
+                          className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <path d="M18 6L6 18M6 6l12 12" />
                           </svg>
                         </button>
                       </div>
 
-                      <div className="border-t border-dashed border-zinc-200 pt-4 space-y-4">
+                      <div className="space-y-5">
                         {/* Image Model */}
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-zinc-600">Model</span>
