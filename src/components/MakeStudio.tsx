@@ -159,8 +159,8 @@ export function MakeStudio() {
       }
 
       @keyframes nomad-grid-pulse {
-        0%, 100% { opacity: 0.15; }
-        50% { opacity: 0.25; }
+        0%, 100% { opacity: 0.45; }
+        50% { opacity: 0.65; }
       }
 
       @keyframes nomad-grid-drift {
@@ -169,14 +169,12 @@ export function MakeStudio() {
       }
 
       .nomad-grid-bg {
-        background:
-          linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.3) 50%, rgba(99,102,241,0.08) 100%),
-          radial-gradient(circle, rgba(113, 113, 122, 0.4) 1.5px, transparent 1.5px),
-          radial-gradient(circle, rgba(113, 113, 122, 0.2) 1px, transparent 1px);
-        background-size: 100% 100%, 80px 80px, 160px 160px;
-        background-position: 0 0, 0 0, 40px 40px;
-        background-attachment: fixed;
-        animation: nomad-grid-drift 18s linear infinite, nomad-grid-pulse 7s ease-in-out infinite;
+        background-image:
+          radial-gradient(circle, rgba(100, 116, 139, 0.5) 2px, transparent 2px),
+          radial-gradient(circle, rgba(100, 116, 139, 0.25) 1px, transparent 1px);
+        background-size: 100px 100px, 200px 200px;
+        background-position: 0 0, 50px 50px;
+        animation: nomad-grid-drift 20s linear infinite, nomad-grid-pulse 8s ease-in-out infinite;
         pointer-events: none;
       }
     `;
