@@ -51,7 +51,7 @@ export function AppShell() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       {/* ── Top Navigation Bar ── */}
       <nav className="bg-white border-b border-zinc-200 px-6 py-0 flex-shrink-0">
         <div className="max-w-7xl mx-auto flex items-center justify-between h-14">
@@ -178,7 +178,7 @@ function TestView() {
   const testComplete = currentCycle?.stages?.test?.status === 'complete';
 
   return (
-    <div className="min-h-screen bg-[#f7f7f8] flex items-center justify-center p-8">
+    <div className="h-full bg-[#f7f7f8] flex items-center justify-center p-8 overflow-y-auto">
       {testComplete && testOutput ? (
         <div className="max-w-3xl w-full bg-white rounded-2xl shadow-sm border border-zinc-100 p-8">
           <h2 className="text-lg font-semibold text-zinc-800 mb-4">Test Results</h2>

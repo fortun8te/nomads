@@ -317,6 +317,22 @@ async def generate(req: GenerateRequest):
                 if req.reference_images:
                     yield _ndjson('progress', message=f'Uploading {len(req.reference_images)} reference image(s)...')
                     import tempfile
+
+                    # First, try to find and click a "Reference" or "Image" button to reveal upload area
+                    try:
+                        ref_btn = None
+                        for text_pattern in ['Reference', 'Image reference', 'Style', 'Upload image', 'Add image']:
+                            btn = page.locator('button').filter(has_text=re.compile(re.escape(text_pattern), re.IGNORECASE)).first
+                            if await btn.count() > 0:
+                                ref_btn = btn
+                                break
+                        if ref_btn:
+                            await ref_btn.click()
+                            await page.wait_for_timeout(1500)
+                            yield _ndjson('progress', message='Opened reference image panel')
+                    except Exception as e:
+                        yield _ndjson('progress', message=f'Could not find reference panel button: {e}')
+
                     for idx, img_b64 in enumerate(req.reference_images):
                         try:
                             # Strip data URL prefix if present
@@ -329,22 +345,49 @@ async def generate(req: GenerateRequest):
                             tmp_path = tmp.name
                             tmp.close()
 
-                            # Try to find file input for reference/style images
+                            uploaded = False
+
+                            # Strategy 1: find file inputs that accept images
                             file_inputs = page.locator('input[type="file"][accept*="image"]')
                             input_count = await file_inputs.count()
+
+                            # Strategy 2: any file input
                             if input_count == 0:
-                                # Fallback: any file input
                                 file_inputs = page.locator('input[type="file"]')
                                 input_count = await file_inputs.count()
 
                             if input_count > 0:
-                                # Use the last file input (often the reference image one)
-                                target_input = file_inputs.last
-                                await target_input.set_input_files(tmp_path)
-                                await page.wait_for_timeout(2000)
-                                yield _ndjson('progress', message=f'Reference image {idx+1}/{len(req.reference_images)} uploaded')
-                            else:
-                                yield _ndjson('progress', message=f'No file input found — reference image {idx+1} skipped')
+                                # Try each file input (some might be for other purposes)
+                                for fi_idx in range(input_count):
+                                    try:
+                                        target_input = file_inputs.nth(fi_idx)
+                                        await target_input.set_input_files(tmp_path)
+                                        await page.wait_for_timeout(2000)
+                                        uploaded = True
+                                        yield _ndjson('progress', message=f'Reference image {idx+1}/{len(req.reference_images)} uploaded')
+                                        break
+                                    except Exception:
+                                        continue
+
+                            # Strategy 3: drag and drop onto the page
+                            if not uploaded:
+                                try:
+                                    # Look for a drop zone
+                                    drop_zone = page.locator('[class*="drop"], [class*="upload"], [data-testid*="drop"]').first
+                                    if await drop_zone.count() > 0:
+                                        # Use Playwright's file chooser
+                                        async with page.expect_file_chooser(timeout=5000) as fc_info:
+                                            await drop_zone.click()
+                                        file_chooser = await fc_info.value
+                                        await file_chooser.set_files(tmp_path)
+                                        await page.wait_for_timeout(2000)
+                                        uploaded = True
+                                        yield _ndjson('progress', message=f'Reference image {idx+1}/{len(req.reference_images)} uploaded via drop zone')
+                                except Exception:
+                                    pass
+
+                            if not uploaded:
+                                yield _ndjson('progress', message=f'Could not upload reference image {idx+1} — no upload target found')
 
                             # Clean up temp file
                             try:
@@ -385,15 +428,55 @@ async def generate(req: GenerateRequest):
                 '''))
 
                 # ── 8. Fill prompt ──
-                yield _ndjson('progress', message='Filling prompt...')
+                yield _ndjson('progress', message=f'Filling prompt: "{req.prompt[:60]}..."' if len(req.prompt) > 60 else f'Filling prompt: "{req.prompt}"')
+
+                # Clear existing text via JS (more reliable than keyboard shortcuts)
+                await page.evaluate('''() => {
+                    // Clear textarea
+                    const ta = document.querySelector('textarea');
+                    if (ta) {
+                        ta.value = '';
+                        ta.dispatchEvent(new Event('input', {bubbles: true}));
+                        ta.dispatchEvent(new Event('change', {bubbles: true}));
+                    }
+                    // Clear contenteditable
+                    const ce = document.querySelector('[contenteditable="true"]');
+                    if (ce) {
+                        ce.textContent = '';
+                        ce.innerHTML = '';
+                        ce.dispatchEvent(new Event('input', {bubbles: true}));
+                    }
+                }''')
+                await page.wait_for_timeout(300)
+
+                # Click, select all, delete as backup
                 await prompt_el.click()
                 await page.wait_for_timeout(200)
-                # Select all + delete to clear any existing text
+                await page.keyboard.press('Meta+a')
+                await page.wait_for_timeout(100)
+                await page.keyboard.press('Backspace')
+                await page.wait_for_timeout(100)
                 await page.keyboard.press('Meta+a')
                 await page.keyboard.press('Backspace')
                 await page.wait_for_timeout(200)
+
+                # Type the actual prompt
                 await page.keyboard.type(req.prompt, delay=15)
                 await page.wait_for_timeout(300)
+
+                # Verify prompt was entered correctly
+                try:
+                    actual_text = await page.evaluate('''() => {
+                        const ta = document.querySelector('textarea');
+                        if (ta) return ta.value;
+                        const ce = document.querySelector('[contenteditable="true"]');
+                        if (ce) return ce.textContent;
+                        return null;
+                    }''')
+                    if actual_text and req.prompt not in actual_text:
+                        yield _ndjson('progress', message=f'Warning: prompt may not have been set correctly. Got: "{(actual_text or "")[:50]}"')
+                except Exception:
+                    pass
 
                 # ── 9. Click Generate ──
                 yield _ndjson('progress', message='Clicking Generate...')

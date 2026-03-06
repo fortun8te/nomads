@@ -332,7 +332,20 @@ export function MakeStudio() {
 
     // ── PATH 3 (Default): User prompt → Image model ──
     if (!useResearch) {
-      setGenerationProgress('Building image prompt...');
+      // Quick health check before wasting time
+      try {
+        const healthOk = await checkServerStatus();
+        if (!healthOk) {
+          setGenerationProgress('Freepik server not running — start it first');
+          setServerWarning('Server at localhost:8890 is not responding');
+          await new Promise(r => setTimeout(r, 3000));
+          imageCountRef.current -= 1;
+          return false;
+        }
+      } catch {
+        // Continue anyway — the generateImage call will handle retries
+      }
+      setGenerationProgress('Sending to image model...');
       setServerWarning('');
 
       const finalImagePrompt = prompt;
@@ -665,7 +678,7 @@ Make it look like a real, professional ad creative.`;
 
   // ── Render ──
   return (
-    <div className="h-screen bg-[#f7f7f8] flex flex-col overflow-hidden">
+    <div className="h-full bg-[#f7f7f8] flex flex-col overflow-hidden">
 
       {/* ── Gallery / Canvas Area ── */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
@@ -676,10 +689,10 @@ Make it look like a real, professional ad creative.`;
           {/* ── Full Loading Screen (no images yet) ── */}
           {isGenerating && storedImages.length === 0 && (
             <div className="flex flex-col items-center justify-center min-h-[60vh]">
-              <div className="flex flex-col items-center gap-6 max-w-sm mx-auto text-center">
-                <NomadIcon size={56} animated className="text-zinc-700" />
-                <div className="h-8 flex items-center justify-center">
-                  <RandomWordCycler interval={3000} className="text-lg text-zinc-500" />
+              <div className="flex flex-col items-center gap-8 max-w-sm mx-auto text-center">
+                <NomadIcon size={80} animated className="text-zinc-700" />
+                <div className="h-10 flex items-center justify-center">
+                  <RandomWordCycler interval={3000} className="text-xl text-zinc-500" />
                 </div>
                 <div className="w-64">
                   {batchCount > 1 && batchCurrent > 0 && (
@@ -735,22 +748,6 @@ Make it look like a real, professional ad creative.`;
                 </div>
               </div>
 
-              {/* Generating progress bar (when images exist) */}
-              {isGenerating && (
-                <div className="mb-4 flex items-center gap-3 px-3 py-2.5 bg-zinc-50 rounded-xl border border-zinc-200">
-                  <NomadIcon size={18} animated className="text-zinc-500 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <RandomWordCycler interval={2500} className="text-[11px] text-zinc-500" />
-                    <div className="w-full h-0.5 bg-zinc-200 rounded-full overflow-hidden mt-1">
-                      <div className="h-full bg-zinc-500 rounded-full transition-all duration-500" style={{ width: `${Math.min((generationElapsed / generationEta) * 100, 95)}%` }} />
-                    </div>
-                  </div>
-                  <span className="text-[10px] text-zinc-400 tabular-nums flex-shrink-0">
-                    ~{Math.max((generationEta || 30) - generationElapsed, 1)}s
-                  </span>
-                </div>
-              )}
-
               {/* Placeholder group (when generating for a NEW prompt not in gallery yet) */}
               {isGenerating && generatingForPrompt && !groupedImages.some(([p]) => p === generatingForPrompt) && (
                 <div className="mb-6">
@@ -765,12 +762,15 @@ Make it look like a real, professional ad creative.`;
                     </div>
                   </div>
                   <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 gap-1 items-start">
-                    <div className={`${getAspectClass(aspectRatio)} relative rounded-lg overflow-hidden border-2 border-dashed border-zinc-300 bg-gradient-to-br from-zinc-50 to-zinc-100/80 flex flex-col items-center justify-center gap-1`}>
-                      <NomadIcon size={16} animated className="text-zinc-400" />
-                      <RandomWordCycler interval={2500} className="text-[7px] text-zinc-400 text-center px-1 leading-tight" />
-                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-200 overflow-hidden">
+                    <div className={`col-span-2 ${getAspectClass(aspectRatio)} relative rounded-xl overflow-hidden border-2 border-dashed border-zinc-300 bg-gradient-to-br from-zinc-50 via-white to-zinc-100 flex flex-col items-center justify-center gap-2 shadow-inner`}>
+                      <NomadIcon size={28} animated className="text-zinc-400" />
+                      <RandomWordCycler interval={2500} className="text-[10px] text-zinc-400 text-center px-2 leading-tight" />
+                      <div className="absolute bottom-0 left-0 right-0 h-1 bg-zinc-200 overflow-hidden">
                         <div className="h-full bg-zinc-500 rounded-full transition-all duration-500" style={{ width: `${Math.min((generationElapsed / (generationEta || 30)) * 100, 95)}%` }} />
                       </div>
+                      <span className="text-[9px] text-zinc-400 tabular-nums">
+                        ~{Math.max((generationEta || 30) - generationElapsed, 1)}s
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -798,12 +798,15 @@ Make it look like a real, professional ad creative.`;
                     <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 gap-1 items-start">
                       {/* Placeholder card (generating for this group) */}
                       {isGeneratingForThisGroup && (
-                        <div className={`${getAspectClass(aspectRatio)} relative rounded-lg overflow-hidden border-2 border-dashed border-zinc-300 bg-gradient-to-br from-zinc-50 to-zinc-100/80 flex flex-col items-center justify-center gap-1`}>
-                          <NomadIcon size={16} animated className="text-zinc-400" />
-                          <RandomWordCycler interval={2500} className="text-[7px] text-zinc-400 text-center px-1 leading-tight" />
-                          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-200 overflow-hidden">
+                        <div className={`col-span-2 ${getAspectClass(aspectRatio)} relative rounded-xl overflow-hidden border-2 border-dashed border-zinc-300 bg-gradient-to-br from-zinc-50 via-white to-zinc-100 flex flex-col items-center justify-center gap-2 shadow-inner`}>
+                          <NomadIcon size={28} animated className="text-zinc-400" />
+                          <RandomWordCycler interval={2500} className="text-[10px] text-zinc-400 text-center px-2 leading-tight" />
+                          <div className="absolute bottom-0 left-0 right-0 h-1 bg-zinc-200 overflow-hidden">
                             <div className="h-full bg-zinc-500 rounded-full transition-all duration-500" style={{ width: `${Math.min((generationElapsed / (generationEta || 30)) * 100, 95)}%` }} />
                           </div>
+                          <span className="text-[9px] text-zinc-400 tabular-nums">
+                            ~{Math.max((generationEta || 30) - generationElapsed, 1)}s
+                          </span>
                         </div>
                       )}
 
@@ -811,10 +814,10 @@ Make it look like a real, professional ad creative.`;
                         <button
                           key={img.id}
                           onClick={() => !deletingIds.has(img.id) && setSelectedImage(selectedImage?.id === img.id ? null : img)}
-                          className={`group relative rounded-lg overflow-hidden border text-left transition-all hover:shadow-md ${
+                          className={`group relative rounded-lg overflow-hidden border text-left transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 ${
                             selectedImage?.id === img.id
-                              ? 'border-zinc-900 ring-1 ring-zinc-900/10 shadow-md'
-                              : 'border-zinc-200 hover:border-zinc-300'
+                              ? 'border-zinc-900 ring-1 ring-zinc-900/10 shadow-lg -translate-y-0.5'
+                              : 'border-zinc-200/80 shadow-sm hover:border-zinc-300'
                           }`}
                           style={deletingIds.has(img.id) ? { animation: 'nomad-card-delete 0.35s ease-out forwards', pointerEvents: 'none' } : undefined}
                         >
@@ -884,7 +887,7 @@ Make it look like a real, professional ad creative.`;
       </div>
 
       {/* ── Bottom Bar ── */}
-      <div className="flex-shrink-0 border-t border-zinc-200 bg-white px-6 py-4">
+      <div className="flex-shrink-0 border-t border-zinc-200 bg-white px-6 py-4 shadow-[0_-2px_12px_rgba(0,0,0,0.04)]">
         {/* Mode Tabs */}
         <div className="flex justify-center gap-2 mb-4">
           {modes.map((mode) => (
@@ -905,7 +908,7 @@ Make it look like a real, professional ad creative.`;
 
         {/* Prompt Input Area */}
         <div className="max-w-3xl mx-auto">
-          <div className="bg-zinc-50 rounded-2xl border border-zinc-200 overflow-hidden" onDragOver={handleImageDragOver} onDrop={handleImageDrop}>
+          <div className="bg-zinc-50 rounded-2xl border border-zinc-200 overflow-hidden shadow-sm" onDragOver={handleImageDragOver} onDrop={handleImageDrop}>
             <textarea
               ref={promptRef}
               value={prompt}
@@ -1215,7 +1218,7 @@ Make it look like a real, professional ad creative.`;
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onClick={() => setSelectedImage(null)}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
           <div
-            className="relative z-10 bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex"
+            className="relative z-10 bg-white rounded-2xl shadow-2xl ring-1 ring-black/5 max-w-5xl w-full max-h-[90vh] overflow-hidden flex"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Image */}
