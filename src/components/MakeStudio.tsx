@@ -322,7 +322,10 @@ export function MakeStudio() {
 
     try {
       setGenerationProgress('Generating hero image...');
-      const heroPrompt = `Hero image for: ${prompt.slice(0, 100)}`;
+      let heroPrompt = `Hero image for: ${prompt.slice(0, 100)}`;
+      if (heroImageStyle) {
+        heroPrompt += ` in ${heroImageStyle} style`;
+      }
       const result = await generateImage({
         prompt: heroPrompt,
         model: 'nano-banana-2',
@@ -339,7 +342,7 @@ export function MakeStudio() {
       console.warn('Hero image generation failed:', err);
       return null;
     }
-  }, [generateHeroImage, campaign, prompt, aspectRatio]);
+  }, [generateHeroImage, campaign, prompt, aspectRatio, heroImageStyle]);
 
   // ── Save image to IndexedDB + update local state ──
   const persistImage = useCallback(async (image: StoredImage) => {
