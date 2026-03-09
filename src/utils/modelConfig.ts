@@ -22,8 +22,8 @@ export const MODEL_CONFIG = {
   // Creative direction — competitive positioning
   taste: 'glm-4.7-flash:q4_K_M',
 
-  // Ad generation — creative writing + concepts
-  make: 'qwen3.5:9b',
+  // Ad generation — creative writing + concepts (GLM for better brand understanding)
+  make: 'glm-4.7-flash:q4_K_M',
 
   // Evaluation — analytical reasoning
   test: 'qwen3.5:9b',

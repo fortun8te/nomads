@@ -5,6 +5,15 @@ export type CampaignStatus = 'active' | 'paused' | 'archived';
 export type CycleStatus = 'in-progress' | 'complete';
 export type SystemStatus = 'idle' | 'running' | 'paused' | 'error';
 
+// ─ Ad Library ─
+export interface AdLibraryImage {
+  filename: string;
+  category: string;
+  path: string;  // relative path from /ad-library/
+  aspectRatio?: string;  // e.g., "1:1", "9:16", "16:9"
+  base64?: string;  // loaded on demand
+}
+
 // ─ Product page analysis (screenshot + vision + GLM) ─
 export interface ProductPageAnalysis {
   url: string;
@@ -265,6 +274,14 @@ export interface Cycle {
 
 export type ResearchMode = 'interactive' | 'autonomous';
 
+// Labeled reference image with metadata for LLM context
+export interface ReferenceImage {
+  base64: string;
+  label: string;       // e.g. "Product bottle", "Lifestyle shot", "Brand guideline"
+  description: string; // e.g. "White spray bottle with brown branding, front angle"
+  type: 'product' | 'layout';
+}
+
 export interface Campaign {
   id: string;
   brand: string;
@@ -285,6 +302,7 @@ export interface Campaign {
   brandFonts?: string;                   // Brand fonts + usage (e.g., "Inter for body, Playfair for headlines")
   brandDNA?: Record<string, string>;     // All extra form fields from detailed campaign setup
   presetData?: Record<string, any>;      // Full preset object (brand, audience, product, competitive, messaging, platforms, etc.)
+  referenceImages?: ReferenceImage[];    // Labeled reference images with descriptions for generation
 }
 
 export interface OllamaResponse {
@@ -300,6 +318,7 @@ export interface CampaignContextType {
   currentCycle: Cycle | null;
   systemStatus: SystemStatus;
   error: string | null;
+  isLoaded: boolean;
 
   // Interactive question system
   pendingQuestion: UserQuestion | null;
@@ -324,8 +343,10 @@ export interface CampaignContextType {
     maxResearchTimeMinutes?: number,
     brandColors?: string,
     brandFonts?: string,
-    brandDNA?: Record<string, string>
+    brandDNA?: Record<string, string>,
+    presetData?: Record<string, any>
   ) => Promise<void>;
+  updateCampaign: (updates: Partial<Campaign>) => Promise<void>;
   startCycle: () => Promise<void>;
   pauseCycle: () => void;
   resumeCycle: () => void;

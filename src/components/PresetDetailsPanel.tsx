@@ -13,177 +13,121 @@ export function PresetDetailsPanel({ campaign, isDarkMode }: PresetDetailsPanelP
     product: false,
     competitive: false,
     messaging: false,
+    creative: false,
+    platforms: false,
   });
 
   const preset = campaign.presetData;
   if (!preset) return null;
 
-  const borderClass = isDarkMode ? 'border-zinc-800/70' : 'border-zinc-200';
-  const bgClass = isDarkMode ? 'bg-zinc-900/30' : 'bg-zinc-50/50';
-  const hoverClass = isDarkMode ? 'hover:bg-zinc-800/50' : 'hover:bg-zinc-100/50';
-  const secondaryTextClass = isDarkMode ? 'text-zinc-600' : 'text-zinc-500';
-  const textClass = isDarkMode ? 'text-zinc-300' : 'text-zinc-700';
-  const headerClass = isDarkMode ? 'text-zinc-400' : 'text-zinc-700';
+  const borderCls = isDarkMode ? 'border-zinc-800' : 'border-zinc-200';
+  const bgCls = isDarkMode ? 'bg-zinc-800/50' : 'bg-zinc-50';
+  const hoverCls = isDarkMode ? 'hover:bg-zinc-800/50' : 'hover:bg-zinc-100/50';
+  const labelCls = isDarkMode ? 'text-zinc-500' : 'text-zinc-400';
+  const valCls = isDarkMode ? 'text-zinc-300' : 'text-zinc-700';
+  const headerCls = isDarkMode ? 'text-zinc-400' : 'text-zinc-600';
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const Field = ({ label, value }: { label: string; value: string | undefined }) => {
+    if (!value) return null;
+    return (
+      <div className={`${bgCls} p-2.5 rounded-lg`}>
+        <div className={`font-mono text-[9px] uppercase tracking-wider ${labelCls} mb-0.5`}>{label}</div>
+        <div className={`text-xs ${valCls} whitespace-pre-wrap`}>{value}</div>
+      </div>
+    );
+  };
+
+  const Section = ({ id, title, subtitle, children }: { id: string; title: string; subtitle?: string; children: React.ReactNode }) => (
+    <>
+      <button
+        onClick={() => toggleSection(id)}
+        className={`w-full flex items-center justify-between gap-2 px-4 py-3 ${hoverCls} transition-colors border-b ${borderCls}`}
+      >
+        <span className={`font-mono text-[10px] uppercase tracking-[0.15em] font-bold ${headerCls}`}>
+          {title}{subtitle && <span className={`ml-1.5 font-normal normal-case tracking-normal ${labelCls}`}>{subtitle}</span>}
+        </span>
+        <span className={`text-[10px] ${labelCls} shrink-0 transition-transform ${expandedSections[id] ? 'rotate-90' : ''}`}>
+          ▶
+        </span>
+      </button>
+      {expandedSections[id] && (
+        <div className={`px-4 py-3 space-y-2 border-b ${borderCls}`}>
+          {children}
+        </div>
+      )}
+    </>
+  );
+
   return (
-    <div className={`border ${borderClass} space-y-1`}>
-      {/* Brand Section */}
-      <button
-        onClick={() => toggleSection('brand')}
-        className={`w-full flex items-center justify-between gap-2 p-3 ${hoverClass} transition-colors`}
-      >
-        <span className={`font-mono text-[10px] uppercase tracking-[0.2em] font-bold ${headerClass}`}>
-          Brand Details
-        </span>
-        <span className={`text-[10px] ${secondaryTextClass} shrink-0 transition-transform ${expandedSections.brand ? 'rotate-90' : ''}`}>
-          ▶
-        </span>
-      </button>
-      {expandedSections.brand && preset.brand && (
-        <div className={`border-t ${borderClass} p-3 space-y-2 text-xs`}>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Name</div>
-            <div className={textClass}>{preset.brand.name}</div>
-          </div>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Positioning</div>
-            <div className={textClass}>{preset.brand.positioning}</div>
-          </div>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Brand Why</div>
-            <div className={textClass}>{preset.brand.brandWhy}</div>
-          </div>
-          {preset.brand.colors && (
-            <div className={`${bgClass} p-2 rounded`}>
-              <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Colors</div>
-              <div className={textClass}>{preset.brand.colors}</div>
-            </div>
-          )}
-        </div>
+    <div className={`rounded-xl border ${borderCls} overflow-hidden ${
+      isDarkMode
+        ? 'bg-zinc-900 border-zinc-800/60'
+        : 'bg-white border-zinc-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)]'
+    }`}>
+      {preset.brand && (
+        <Section id="brand" title="Brand" subtitle={preset.brand.name}>
+          <Field label="Name" value={preset.brand.name} />
+          <Field label="Positioning" value={preset.brand.positioning} />
+          <Field label="Brand Why" value={preset.brand.brandWhy} />
+          <Field label="Colors" value={preset.brand.colors} />
+          <Field label="Fonts" value={preset.brand.fonts} />
+          <Field label="Voice / Tone" value={preset.brand.voiceTone || preset.brand.tone} />
+        </Section>
       )}
-
-      {/* Audience Section */}
-      <button
-        onClick={() => toggleSection('audience')}
-        className={`w-full flex items-center justify-between gap-2 p-3 ${hoverClass} transition-colors border-t ${borderClass}`}
-      >
-        <span className={`font-mono text-[10px] uppercase tracking-[0.2em] font-bold ${headerClass}`}>
-          Audience ({preset.audience?.name})
-        </span>
-        <span className={`text-[10px] ${secondaryTextClass} shrink-0 transition-transform ${expandedSections.audience ? 'rotate-90' : ''}`}>
-          ▶
-        </span>
-      </button>
-      {expandedSections.audience && preset.audience && (
-        <div className={`border-t ${borderClass} p-3 space-y-2 text-xs`}>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Age Range</div>
-            <div className={textClass}>{preset.audience.ageRange}</div>
-          </div>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Job</div>
-            <div className={textClass}>{preset.audience.job}</div>
-          </div>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Primary Pain Point</div>
-            <div className={textClass}>{preset.audience.painPoints?.primary || 'N/A'}</div>
-          </div>
-        </div>
+      {preset.audience && (
+        <Section id="audience" title="Audience" subtitle={preset.audience.name}>
+          <Field label="Age Range" value={preset.audience.ageRange} />
+          <Field label="Job" value={preset.audience.job} />
+          <Field label="Primary Pain" value={preset.audience.painPoints?.primary} />
+          <Field label="Deep Desire" value={preset.audience.painPoints?.deepDesire || preset.audience.deepDesire} />
+          <Field label="Objections" value={preset.audience.painPoints?.objections || preset.audience.objections} />
+          <Field label="Desired Situation" value={preset.audience.desiredSituation} />
+          <Field label="Hobbies" value={preset.audience.hobbies} />
+        </Section>
       )}
-
-      {/* Product Section */}
-      <button
-        onClick={() => toggleSection('product')}
-        className={`w-full flex items-center justify-between gap-2 p-3 ${hoverClass} transition-colors border-t ${borderClass}`}
-      >
-        <span className={`font-mono text-[10px] uppercase tracking-[0.2em] font-bold ${headerClass}`}>
-          Product
-        </span>
-        <span className={`text-[10px] ${secondaryTextClass} shrink-0 transition-transform ${expandedSections.product ? 'rotate-90' : ''}`}>
-          ▶
-        </span>
-      </button>
-      {expandedSections.product && preset.product && (
-        <div className={`border-t ${borderClass} p-3 space-y-2 text-xs`}>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Name</div>
-            <div className={textClass}>{preset.product.name}</div>
-          </div>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>USP</div>
-            <div className={textClass}>{preset.product.usp?.substring(0, 150) || 'N/A'}...</div>
-          </div>
-          {preset.product.scents && (
-            <div className={`${bgClass} p-2 rounded`}>
-              <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Scents/Variants</div>
-              <div className={textClass}>
-                {Array.isArray(preset.product.scents)
-                  ? preset.product.scents.slice(0, 3).join(', ') + (preset.product.scents.length > 3 ? '...' : '')
-                  : String(preset.product.scents).substring(0, 100)}
-              </div>
-            </div>
-          )}
-        </div>
+      {preset.product && (
+        <Section id="product" title="Product" subtitle={preset.product.name}>
+          <Field label="One-Liner" value={preset.product.oneLiner} />
+          <Field label="USP" value={preset.product.usp} />
+          <Field label="Price" value={preset.product.price} />
+          <Field label="Key Benefits" value={Array.isArray(preset.product.keyBenefits) ? preset.product.keyBenefits.join(', ') : preset.product.keyBenefits} />
+          <Field label="Scents / Variants" value={Array.isArray(preset.product.scents) ? preset.product.scents.join(', ') : preset.product.scents} />
+          <Field label="Ingredients" value={preset.product.ingredients} />
+        </Section>
       )}
-
-      {/* Competitive Section */}
-      <button
-        onClick={() => toggleSection('competitive')}
-        className={`w-full flex items-center justify-between gap-2 p-3 ${hoverClass} transition-colors border-t ${borderClass}`}
-      >
-        <span className={`font-mono text-[10px] uppercase tracking-[0.2em] font-bold ${headerClass}`}>
-          Competitive
-        </span>
-        <span className={`text-[10px] ${secondaryTextClass} shrink-0 transition-transform ${expandedSections.competitive ? 'rotate-90' : ''}`}>
-          ▶
-        </span>
-      </button>
-      {expandedSections.competitive && preset.competitive && (
-        <div className={`border-t ${borderClass} p-3 space-y-2 text-xs`}>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Market Gap</div>
-            <div className={textClass}>{preset.competitive.marketGap?.substring(0, 150) || 'N/A'}</div>
-          </div>
-          {preset.competitive.mainCompetitors && (
-            <div className={`${bgClass} p-2 rounded`}>
-              <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Main Competitors</div>
-              <div className={textClass}>
-                {Array.isArray(preset.competitive.mainCompetitors)
-                  ? preset.competitive.mainCompetitors.length + ' competitors mapped'
-                  : 'N/A'}
-              </div>
-            </div>
-          )}
-        </div>
+      {preset.competitive && (
+        <Section id="competitive" title="Competitive">
+          <Field label="Market Gap" value={preset.competitive.marketGap} />
+          <Field label="Main Competitors" value={Array.isArray(preset.competitive.mainCompetitors) ? preset.competitive.mainCompetitors.map((c: any) => typeof c === 'string' ? c : `${c.name} — ${c.positioning || c.weakness || ''}`).join('\n') : undefined} />
+          <Field label="Positioning" value={preset.competitive.positioning} />
+        </Section>
       )}
-
-      {/* Messaging Section */}
-      <button
-        onClick={() => toggleSection('messaging')}
-        className={`w-full flex items-center justify-between gap-2 p-3 ${hoverClass} transition-colors border-t ${borderClass}`}
-      >
-        <span className={`font-mono text-[10px] uppercase tracking-[0.2em] font-bold ${headerClass}`}>
-          Messaging
-        </span>
-        <span className={`text-[10px] ${secondaryTextClass} shrink-0 transition-transform ${expandedSections.messaging ? 'rotate-90' : ''}`}>
-          ▶
-        </span>
-      </button>
-      {expandedSections.messaging && preset.messaging && (
-        <div className={`border-t ${borderClass} p-3 space-y-2 text-xs`}>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Core Message</div>
-            <div className={textClass}>{preset.messaging.mainMessage?.substring(0, 150) || 'N/A'}</div>
-          </div>
-          <div className={`${bgClass} p-2 rounded`}>
-            <div className={`font-mono text-[9px] uppercase ${secondaryTextClass} mb-1`}>Brand Tagline</div>
-            <div className={textClass}>{preset.messaging.brandTagline || 'N/A'}</div>
-          </div>
-        </div>
+      {preset.creative && (
+        <Section id="creative" title="Creative">
+          <Field label="Top Performing Angles" value={preset.creative.topPerformingAngles} />
+          <Field label="Untested Angles" value={preset.creative.untestedAngles} />
+          <Field label="Contrarian Angles" value={preset.creative.contrarianAngles} />
+          <Field label="Hook Bank" value={preset.creative.hookBank} />
+          <Field label="Scroll-Stopping Visuals" value={preset.creative.scrollStoppingVisuals} />
+          <Field label="Emotional vs Rational" value={preset.creative.emotionalVsRational} />
+        </Section>
+      )}
+      {preset.messaging && (
+        <Section id="messaging" title="Messaging">
+          <Field label="Core Message" value={preset.messaging.mainMessage} />
+          <Field label="Tagline" value={preset.messaging.brandTagline} />
+          <Field label="Tone" value={preset.messaging.tone} />
+        </Section>
+      )}
+      {preset.platforms && (
+        <Section id="platforms" title="Platforms">
+          <Field label="Primary" value={preset.platforms.primaryPlatform || preset.platforms.primary} />
+          <Field label="Ad Formats" value={preset.platforms.adFormats} />
+        </Section>
       )}
     </div>
   );

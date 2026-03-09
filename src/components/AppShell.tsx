@@ -11,6 +11,7 @@
 
 import { useState, useCallback } from 'react';
 import { useCampaign } from '../context/CampaignContext';
+import { useTheme } from '../context/ThemeContext';
 import { MakeStudio } from './MakeStudio';
 import { Dashboard } from './Dashboard';
 import { SettingsModal } from './SettingsModal';
@@ -24,6 +25,7 @@ export function AppShell() {
   const [showSettings, setShowSettings] = useState(false);
   const { systemStatus, currentCycle, campaign } = useCampaign() as any;
   const { startCycle, pauseCycle, resumeCycle, stopCycle, clearCampaign } = useCampaign() as any;
+  const { theme } = useTheme();
 
   const isRunning = systemStatus === 'running';
   const isPaused = systemStatus === 'paused';
@@ -51,17 +53,17 @@ export function AppShell() {
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
+    <div className={`h-screen flex flex-col overflow-hidden ${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}`}>
       {/* ── Top Navigation Bar ── */}
-      <nav className="bg-white border-b border-zinc-200/80 px-6 py-0 flex-shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-        <div className="max-w-7xl mx-auto flex items-center h-14 relative">
+      <nav className={`${theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80'} border-b px-6 py-0 flex-shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.04)]`}>
+        <div className="flex items-center h-14">
           {/* Left: Logo + Status */}
           <div className="flex items-center gap-4 z-10 flex-1">
             <div className="flex items-center gap-2.5 group cursor-default">
               <div className="transition-transform duration-300 group-hover:-translate-y-px">
-                <NomadIcon size={22} animated={isRunning} className="text-zinc-900" />
+                <NomadIcon size={22} animated={isRunning} className={theme === 'dark' ? 'text-white' : 'text-zinc-900'} />
               </div>
-              <span className="text-sm font-bold tracking-wide text-zinc-900" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>NOMAD</span>
+              <span className={`text-sm font-bold tracking-wide ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`} style={{ textShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>NOMAD</span>
             </div>
             <div className="flex items-center gap-2">
               <div className={`w-1.5 h-1.5 rounded-full ${statusColor} ${isRunning ? 'animate-pulse' : ''}`} />
@@ -76,8 +78,9 @@ export function AppShell() {
             )}
           </div>
 
-          {/* Center: View Tabs — absolute positioned for true centering */}
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 bg-zinc-100/80 rounded-xl p-1 shadow-inner">
+          {/* Center: View Tabs — flex-1 with justify-center for true centering */}
+          <div className="flex-1 flex justify-center">
+          <div className={`flex items-center gap-1 ${theme === 'dark' ? 'bg-zinc-800/80' : 'bg-zinc-100/80'} rounded-xl p-1 shadow-inner`}>
             {([
               { key: 'research' as AppView, label: 'Research', badge: researchStatus || tasteStatus },
               { key: 'make' as AppView, label: 'Make', badge: makeStatus },
@@ -88,7 +91,11 @@ export function AppShell() {
                 onClick={() => setActiveView(key)}
                 className={`relative flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                   activeView === key
-                    ? 'bg-white text-zinc-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_1px_rgba(0,0,0,0.06)]'
+                    ? theme === 'dark'
+                      ? 'bg-zinc-700 text-white shadow-[0_1px_3px_rgba(0,0,0,0.3),0_1px_1px_rgba(0,0,0,0.2)]'
+                      : 'bg-white text-zinc-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_1px_rgba(0,0,0,0.06)]'
+                    : theme === 'dark'
+                    ? 'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-700/40'
                     : 'text-zinc-500 hover:text-zinc-700 hover:bg-white/40'
                 }`}
               >
@@ -96,6 +103,7 @@ export function AppShell() {
                 {label}
               </button>
             ))}
+          </div>
           </div>
 
           {/* Right: Actions */}
@@ -147,7 +155,7 @@ export function AppShell() {
             {/* Settings */}
             <button
               onClick={() => setShowSettings(true)}
-              className="p-2 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition-all"
+              className={`p-2 rounded-lg transition-all ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100'}`}
               title="Settings"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -176,25 +184,26 @@ export function AppShell() {
 
 function TestView() {
   const { currentCycle } = useCampaign();
+  const { theme } = useTheme();
   const testOutput = currentCycle?.stages?.test?.agentOutput;
   const testComplete = currentCycle?.stages?.test?.status === 'complete';
 
   return (
-    <div className="h-full bg-[#f7f7f8] flex items-center justify-center p-8 overflow-y-auto">
+    <div className={`h-full flex items-center justify-center p-8 overflow-y-auto ${theme === 'dark' ? 'bg-zinc-900' : 'bg-[#f7f7f8]'}`}>
       {testComplete && testOutput ? (
-        <div className="max-w-3xl w-full bg-white rounded-2xl shadow-sm border border-zinc-100 p-8">
-          <h2 className="text-lg font-semibold text-zinc-800 mb-4">Test Results</h2>
-          <div className="font-mono text-xs text-zinc-600 whitespace-pre-wrap leading-relaxed">
+        <div className={`max-w-3xl w-full rounded-2xl shadow-sm border p-8 ${theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-100'}`}>
+          <h2 className={`text-lg font-semibold mb-4 ${theme === 'dark' ? 'text-zinc-100' : 'text-zinc-800'}`}>Test Results</h2>
+          <div className={`font-mono text-xs whitespace-pre-wrap leading-relaxed ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>
             {testOutput}
           </div>
         </div>
       ) : (
         <div className="text-center">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-white shadow-sm border border-dashed border-zinc-200 flex items-center justify-center mb-4">
-            <NomadIcon size={24} className="text-zinc-300" />
+          <div className={`w-16 h-16 mx-auto rounded-2xl shadow-sm border border-dashed flex items-center justify-center mb-4 ${theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+            <NomadIcon size={24} className={theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'} />
           </div>
-          <p className="text-sm text-zinc-500">No test results yet</p>
-          <p className="text-xs text-zinc-400 mt-1">Run the full pipeline to evaluate ad concepts</p>
+          <p className={`text-sm ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>No test results yet</p>
+          <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>Run the full pipeline to evaluate ad concepts</p>
         </div>
       )}
     </div>

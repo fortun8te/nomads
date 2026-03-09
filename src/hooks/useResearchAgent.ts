@@ -74,12 +74,56 @@ export function useResearchAgent() {
     return type === 'array' ? [] : {};
   };
 
+  /** Build rich brand context from preset data + reference images */
+  const buildBrandContext = (campaign: Campaign): string => {
+    const parts: string[] = [];
+    const p = campaign.presetData;
+    if (p) {
+      const b = p.brand;
+      if (b) {
+        if (b.name) parts.push(`Brand: ${b.name}`);
+        if (b.tagline) parts.push(`Tagline: "${b.tagline}"`);
+        if (b.positioning) parts.push(`Positioning: ${b.positioning}`);
+        if (b.packagingDesign) parts.push(`Packaging: ${b.packagingDesign}`);
+        if (b.visualIdentity) parts.push(`Visual Identity: ${b.visualIdentity}`);
+        if (b.imageStyle) parts.push(`Image Style: ${b.imageStyle}`);
+        if (b.toneOfVoice) parts.push(`Tone: ${b.toneOfVoice}`);
+      }
+      const prod = p.product;
+      if (prod) {
+        if (prod.name) parts.push(`Product: ${prod.name}`);
+        if (prod.ingredients) parts.push(`Ingredients: ${prod.ingredients}`);
+        if (prod.packaging) parts.push(`Product Packaging: ${prod.packaging}`);
+        if (prod.variantVibe) parts.push(`Variant Vibe: ${prod.variantVibe}`);
+      }
+      const aud = p.audience;
+      if (aud) {
+        if (aud.primarySegment) parts.push(`Primary Segment: ${aud.primarySegment}`);
+        if (aud.secondarySegments) parts.push(`Secondary Segments: ${aud.secondarySegments}`);
+        if (aud.purchaseBarriers?.length) parts.push(`Purchase Barriers: ${aud.purchaseBarriers.join(', ')}`);
+      }
+    }
+    // Reference image descriptions
+    const imgs = campaign.referenceImages;
+    if (imgs?.length) {
+      const imgDescs = (imgs as any[]).map((img: any, i: number) => {
+        if (typeof img === 'string') return `Image ${i + 1}: (no description)`;
+        return `Image ${i + 1} [${img.type || 'other'}] "${img.label || ''}": ${img.description || '(no description)'}`;
+      }).filter((d: string) => !d.includes('(no description)'));
+      if (imgDescs.length > 0) {
+        parts.push(`Reference Images:\n${imgDescs.join('\n')}`);
+      }
+    }
+    return parts.length > 0 ? `\nBRAND CONTEXT:\n${parts.join('\n')}\n` : '';
+  };
+
   /**
    * LAYER 1: Avatar + Deep Desire Mapping
    * Surface Problem → Layers → Deep Desire → Turning Point
    * Identifies NARROW sub-avatars with amplified desires
    */
   const mapDeepDesires = async (campaign: Campaign, brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<DeepDesire[]> => {
+    const brandCtx = buildBrandContext(campaign);
     const prompt = `You are a consumer psychology expert specializing in desire mapping.
 
 ${DESIRE_INTENSITY_GUIDE}
@@ -89,7 +133,7 @@ Campaign:
 - Target Audience: ${campaign.targetAudience}
 - Product: ${campaign.productDescription}
 - Marketing Goal: ${campaign.marketingGoal}
-
+${brandCtx}
 TASK: Identify 3-4 DEEP DESIRES. For each, map from surface problem down to the deepest desire.
 
 CRITICAL: Go NARROW with sub-avatars. Don't say "women who want better skin" — say "mothers 30-40 who noticed aging after pregnancy and feel they've 'let themselves go'".
@@ -189,6 +233,7 @@ Return ONLY valid JSON array, no other text.`;
       `- ${d.targetSegment}: Surface="${d.surfaceProblem}" → Deep="${d.deepestDesire}" (${d.desireIntensity})`
     ).join('\n');
 
+    const brandCtx2 = buildBrandContext(campaign);
     const prompt = `You are a persuasion scientist. Build the BELIEF CHAIN for this product.
 
 ${ROOT_CAUSE_MECHANISM}
@@ -198,7 +243,7 @@ Campaign:
 - Product: ${campaign.productDescription}
 - Features: ${campaign.productFeatures.join(', ')}
 - Target: ${campaign.targetAudience}
-
+${brandCtx2}
 Customer Desires:
 ${desiresText}
 
@@ -244,11 +289,12 @@ Return ONLY valid JSON.`;
       `${d.targetSegment}: "${d.deepestDesire}" (turning point: ${d.turningPoint})`
     ).join('\n');
 
+    const brandCtx3 = buildBrandContext(campaign);
     const prompt = `You are a sales psychology expert. Given these customer desires and the root cause mechanism, what objections prevent purchase?
 
 Campaign: ${campaign.brand}
 Product: ${campaign.productDescription}
-
+${brandCtx3}
 Customer Desires:
 ${desiresText}
 
@@ -331,6 +377,7 @@ Example: [{"objection":"It is too expensive","frequency":"common","impact":"high
   ) => {
     const subAvatars = desires.map(d => d.targetSegment).join(', ');
 
+    const brandCtx4 = buildBrandContext(campaign);
     const prompt = `You are a market researcher specializing in avatar deep-dives.
 
 ${MARKET_SOPHISTICATION}
@@ -339,7 +386,7 @@ Campaign:
 - Brand: ${campaign.brand}
 - Product: ${campaign.productDescription}
 - Sub-Avatars: ${subAvatars}
-
+${brandCtx4}
 TASK: Research these specific sub-avatars deeply.
 
 Return JSON with:
@@ -397,11 +444,12 @@ Return ONLY valid JSON.`;
    * Who owns what? What's trapped? What's unclaimed?
    */
   const mapCompetitorLandscape = async (campaign: Campaign, brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<string[]> => {
+    const brandCtx5 = buildBrandContext(campaign);
     const prompt = `You are a competitive strategist. Map the competitor landscape for ${campaign.brand} targeting ${campaign.targetAudience}.
 
 Product: ${campaign.productDescription}
 Marketing goal: ${campaign.marketingGoal}
-
+${brandCtx5}
 For 3-4 main competitors in this space, identify:
 - What they OWN (their core positioning claim that defines them)
 - What they're TRAPPED by (can't change without breaking their brand/audience)
@@ -448,12 +496,14 @@ Return ONLY valid JSON array.`;
       return (order[b.desireIntensity] || 0) - (order[a.desireIntensity] || 0);
     })[0];
 
+    const brandCtx6 = buildBrandContext(campaign);
     const prompt = `You are a consumer psychologist creating a DETAILED avatar persona.
 
 You have deep research on this audience. Now synthesize it into ONE vivid, specific person — NOT a broad demographic, but a REAL character you can picture.
 
 RESEARCH DATA:
 Campaign: ${campaign.brand} — ${campaign.productDescription}
+${brandCtx6}
 
 Primary Sub-Avatar: ${primaryDesire.targetSegment}
 Deep Desire: "${primaryDesire.deepestDesire}" (${primaryDesire.desireIntensity})

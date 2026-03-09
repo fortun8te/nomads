@@ -4,6 +4,32 @@ import { wayfarerService } from './wayfarer';
 // import { DESIRE_INTENSITY_GUIDE, FOUR_LAYER_RESEARCH } from './desireFramework';
 import type { Campaign } from '../types';
 
+/** Build a compact brand context block from preset + reference images */
+function buildOrchestratorBrandContext(campaign: Campaign): string {
+  const parts: string[] = [];
+  const p = campaign.presetData;
+  if (p?.brand) {
+    const b = p.brand;
+    if (b.name) parts.push(`Brand: ${b.name}`);
+    if (b.positioning) parts.push(`Positioning: ${b.positioning}`);
+    if (b.packagingDesign) parts.push(`Packaging: ${b.packagingDesign}`);
+    if (b.toneOfVoice) parts.push(`Tone: ${b.toneOfVoice}`);
+  }
+  if (p?.product) {
+    if (p.product.name) parts.push(`Product: ${p.product.name}`);
+    if (p.product.ingredients) parts.push(`Ingredients: ${p.product.ingredients}`);
+  }
+  const imgs = campaign.referenceImages;
+  if (imgs?.length) {
+    const descs = (imgs as any[])
+      .filter((img: any) => typeof img !== 'string' && img.description)
+      .map((img: any) => `  ${img.label}: ${img.description}`)
+      .slice(0, 3);
+    if (descs.length) parts.push(`Ref Images:\n${descs.join('\n')}`);
+  }
+  return parts.length ? `\nBrand Context:\n${parts.join('\n')}\n` : '';
+}
+
 export interface ResearchQuery {
   topic: string;
   context: string;
@@ -576,7 +602,7 @@ We need research deep enough to find:
 - The STRUCTURAL WEAKNESS: What competitors can NEVER claim
 
 Campaign: ${state.campaign.brand} | ${state.campaign.productDescription} | Target: ${state.campaign.targetAudience}
-
+${buildOrchestratorBrandContext(state.campaign)}
 RESEARCH COMPLETED (${completedResults.length} queries):
 ${completedResults.map((r, i) => `${i + 1}. "${r.query}" → ${Object.values(r.coverage_graph).filter(Boolean).length}/10 dimensions`).join('\n')}
 
@@ -815,7 +841,7 @@ Campaign:
 - Features: ${Array.isArray(state.campaign.productFeatures) ? state.campaign.productFeatures.join(', ') : (state.campaign.productFeatures || 'Not specified')}
 - Target: ${state.campaign.targetAudience}
 - Goal: ${state.campaign.marketingGoal}
-${state.userProvidedContext ? `\nUser Context:\n${Object.entries(state.userProvidedContext).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
+${buildOrchestratorBrandContext(state.campaign)}${state.userProvidedContext ? `\nUser Context:\n${Object.entries(state.userProvidedContext).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
 
 Research Goals:
 ${state.researchGoals.map((g, i) => `${i + 1}. ${g}`).join('\n')}

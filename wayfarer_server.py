@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from wayfarer import research
 
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://100.74.135.83:11435")
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://100.74.135.83:11434")
 
 # ── Playwright browser singleton ──
 _browser = None

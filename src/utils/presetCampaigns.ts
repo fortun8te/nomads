@@ -658,8 +658,8 @@ export const ALTERNATIVE_PRESET_SAAS = {
 };
 
 export const SIMPLETICS_PRESET = {
-  id: 'simpletics-seasalt',
-  label: 'Simpletics Sea Salt Spray',
+  id: 'simpletics-seasalt-vanilla',
+  label: 'Simpletics Vanilla Voyage Sea Salt Spray',
 
   brand: {
     name: 'Simpletics',
@@ -908,11 +908,12 @@ export const SIMPLETICS_PRESET = {
   },
 
   product: {
-    name: 'Sea Salt Spray',
+    name: 'Vanilla Voyage Sea Salt Spray',
+    variant: 'Vanilla Voyage',
     category: 'Haircare → Styling Sprays',
-    description: 'The Simpletics Sea Salt Spray — effortless texture in one spray. Infused with real pink himalayan salt, it gives your hair natural body, volume, and a matte finish. No fluff. No unnecessary ingredients. Just results. Works on all hair types. Spray on damp or dry, work with fingers, done.',
-    format: '100ml spray bottle (recyclable aluminum)',
-    packaging: 'Minimalist white label with brand voice — "No unnecessary steps"',
+    description: 'The Simpletics Vanilla Voyage Sea Salt Spray — effortless texture in one spray. Infused with real pink himalayan salt and warm vanilla essential oil, it gives your hair natural body, volume, and a matte finish with a subtle, warm vanilla scent. No fluff. No unnecessary ingredients. Just results. Works on all hair types. Spray on damp or dry, work with fingers, done.',
+    format: '8oz / 237ml white plastic spray bottle',
+    packaging: 'Clean white bottle with brown Simpletics branding. Vertical "Simpletics" text in warm brown, "Vanilla Voyage" + "Paraben Free" at top, "Hair Texturizing Sea Salt Spray 8 oz/237 ml" at bottom. White spray actuator. Minimalist, premium feel.',
     shelfLife: '2 years unopened, 6 months after opening',
 
     // Product Line (from Google Doc strategic brief)
@@ -931,9 +932,12 @@ export const SIMPLETICS_PRESET = {
       repurchaseRate: '49% (strong product-market fit signal)',
       targetCarouselImages: '8-image maximum (Amazon)',
     },
+    activeVariant: 'Vanilla Voyage',
+    variantColor: '#8B6F47 (warm brown)',
+    variantVibe: 'Warm, approachable, classic vanilla. Subtle sweet scent — not overpowering. Comforting, like a warm cookie. Evokes coziness, softness, effortless style.',
     scents: [
       'Polar Pine Green (#2E5D2B) — Fresh, earthy, natural',
-      'Vanilla Voyage Brown (#8B6F47) — Warm, approachable, classic',
+      'Vanilla Voyage Brown (#8B6F47) — Warm, approachable, classic [THIS VARIANT]',
       'Woodern Waves Red (#A02B2B) — Bold, confident, passionate',
       'Pineapple Paradise Yellow (#D7AE13) — Optimistic, energetic, fun',
       'Tropical Tide Orange (#E67E22) — Vibrant, playful, energetic',

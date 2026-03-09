@@ -10,6 +10,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [currentCycle, setCurrentCycle] = useState<Cycle | null>(null);
   const [cycleMode] = useState<CycleMode>('full');
+  const [isLoaded, setIsLoaded] = useState(false); // true once initial load from IndexedDB is done
 
   // Interactive question system
   const [pendingQuestion, setPendingQuestion] = useState<UserQuestion | null>(null);
@@ -54,7 +55,26 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     resumeAfterReview,
   } = useCycleLoop(askUser);
 
-  const { saveCampaign, saveCycle, getCyclesByCampaign } = useStorage();
+  const { saveCampaign, saveCycle, getCyclesByCampaign, getAllCampaigns } = useStorage();
+
+  // Load the most recent campaign from IndexedDB on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const allCampaigns = await getAllCampaigns();
+        if (allCampaigns.length > 0) {
+          const sorted = allCampaigns.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          setCampaign(sorted[0]);
+          const campaignCycles = await getCyclesByCampaign(sorted[0].id);
+          setCycles(campaignCycles);
+        }
+      } catch (err) {
+        console.error('Failed to load campaign from storage:', err);
+      } finally {
+        setIsLoaded(true);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync cycle loop state to context
   useEffect(() => {
@@ -115,6 +135,13 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     [saveCampaign, stop]
   );
 
+  const updateCampaign = useCallback(async (updates: Partial<Campaign>) => {
+    if (!campaign) return;
+    const updated = { ...campaign, ...updates, updatedAt: Date.now() };
+    await saveCampaign(updated);
+    setCampaign(updated);
+  }, [campaign, saveCampaign]);
+
   const clearCampaign = useCallback(() => {
     stop();
     setCampaign(null);
@@ -168,6 +195,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     campaign,
     cycles,
     currentCycle,
+    isLoaded,
     systemStatus: isRunning ? 'running' : isPaused ? 'paused' : 'idle',
     error: cycleError,
     pendingQuestion,
@@ -177,6 +205,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     reviewFindings,
     resumeAfterReview,
     createCampaign,
+    updateCampaign,
     startCycle,
     pauseCycle,
     resumeCycle,

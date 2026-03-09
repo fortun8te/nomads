@@ -44,7 +44,6 @@ function parseOutput(text: string): Section[] {
 
   const push = () => {
     if (current) {
-      // Clean up empty trailing lines
       while (current.lines.length > 0 && current.lines[current.lines.length - 1].trim() === '') {
         current.lines.pop();
       }
@@ -60,60 +59,32 @@ function parseOutput(text: string): Section[] {
 
     // ── Phase headers ──
     if (t.startsWith('[PHASE 1]') || t.includes('ORCHESTRATED RESEARCH:') || t.includes('Desire-Driven') || t.startsWith('RESEARCH PHASE:')) {
-      // Don't create a duplicate Phase 1 if we already have one as current
-      if (!current || current.kind !== 'phase' || current.title !== 'Phase 1 — Desire-Driven Analysis') {
+      if (!current || current.kind !== 'phase' || current.title !== 'Desire-Driven Analysis') {
         push();
-        current = {
-          kind: 'phase',
-          title: 'Phase 1 — Desire-Driven Analysis',
-          icon: '🧠',
-          badge: 'GLM-4.7',
-          lines: [],
-        };
+        current = { kind: 'phase', title: 'Desire-Driven Analysis', badge: 'Phase 1', lines: [] };
       }
       continue;
     }
 
     if (t.startsWith('[PHASE 2]') || t.includes('Orchestrating Web Search')) {
       push();
-      current = {
-        kind: 'phase',
-        title: 'Phase 2 — Web Research Agents',
-        icon: '🌐',
-        badge: 'LFM-2.5 + Wayfayer',
-        lines: [],
-      };
+      current = { kind: 'phase', title: 'Web Research Agents', badge: 'Phase 2', lines: [] };
       continue;
     }
 
     if (t.startsWith('[PHASE 3]') || t.includes('Competitor Ad Intelligence')) {
       push();
-      current = {
-        kind: 'phase',
-        title: 'Phase 3 — Competitor Ad Intelligence',
-        badge: 'minicpm-v + GLM',
-        lines: [],
-      };
+      current = { kind: 'phase', title: 'Ad Intelligence', badge: 'Phase 3', lines: [] };
       continue;
     }
 
     // ── Competitor Ads [Ads] ──
     if (t.includes('[Ads]')) {
       const inner = t.replace(/.*\[Ads\]\s*/, '').trim();
-
-      // First [Ads] line after Phase 3 → create the section
       if (!current || current.kind !== 'ads') {
         push();
-        current = {
-          kind: 'ads',
-          title: 'Competitor Ad Intelligence',
-          icon: '📢',
-          badge: 'fetching...',
-          lines: [],
-        };
+        current = { kind: 'ads', title: 'Competitor Ads', badge: 'fetching', lines: [] };
       }
-
-      // Update badge with running counts
       const metaMatch = inner.match(/Meta API:\s*(\d+)\s*ads found for "(.+?)"/);
       if (metaMatch) {
         const prevCount = parseInt(current.badge?.match(/\d+/)?.[0] || '0') || 0;
@@ -121,24 +92,20 @@ function parseOutput(text: string): Section[] {
         current.badge = `${newCount} ads`;
       }
       const completeMatch = inner.match(/Complete:\s*(\d+)\s*ad examples.*?(\d+)\s*vision/);
-      if (completeMatch) {
-        current.badge = `${completeMatch[1]} ads · ${completeMatch[2]} vision`;
-      }
+      if (completeMatch) current.badge = `${completeMatch[1]} ads`;
       if (inner.includes('Creative opportunities found:')) {
-        const opps = inner.replace('Creative opportunities found:', '').trim();
-        current.lines.push(`Opportunities: ${opps}`);
+        current.lines.push(`Opportunities: ${inner.replace('Creative opportunities found:', '').trim()}`);
         continue;
       }
-
       if (inner) current.lines.push(inner);
       continue;
     }
 
     if (t.startsWith('[PHASE 1 COMPLETE]') || t.startsWith('[PHASE 2 COMPLETE]') || t.startsWith('[PHASE 3 COMPLETE]')) {
       if (current) {
-        if (t.includes('1')) current.lines.push('✓ Desire-driven analysis done');
-        else if (t.includes('2')) current.lines.push('✓ Web research orchestration done');
-        else current.lines.push(t.replace('[PHASE 3 COMPLETE]', '✓').trim());
+        if (t.includes('1')) current.lines.push('Analysis complete');
+        else if (t.includes('2')) current.lines.push('Research complete');
+        else current.lines.push(t.replace('[PHASE 3 COMPLETE]', '').trim() || 'Complete');
       }
       continue;
     }
@@ -146,37 +113,22 @@ function parseOutput(text: string): Section[] {
     // ── Campaign data ──
     if (t.startsWith('[CAMPAIGN_DATA]')) {
       push();
-      current = {
-        kind: 'campaign',
-        title: 'Campaign Brief',
-        icon: '📋',
-        lines: [],
-      };
+      current = { kind: 'campaign', title: 'Campaign Brief', lines: [] };
       continue;
     }
 
-    // ── Research Phase header — already handled above ──
-
-    // ── Steps (STEP 1, STEP 2, STEP 3) ──
+    // ── Steps ──
     const stepMatch = t.match(/^STEP\s+(\d+):\s*(.+)/i);
     if (stepMatch) {
       push();
-      const stepNum = stepMatch[1];
-      const stepTitle = stepMatch[2];
-      const stepIcons: Record<string, string> = { '1': '💡', '2': '🛡️', '3': '👥' };
-      current = {
-        kind: 'step',
-        title: `Step ${stepNum} — ${stepTitle}`,
-        icon: stepIcons[stepNum] || '📌',
-        lines: [],
-      };
+      current = { kind: 'step', title: stepMatch[2], badge: `Step ${stepMatch[1]}`, lines: [] };
       continue;
     }
 
     // ── Findings: desire hierarchies ──
     if (t.startsWith('Identified') && t.includes('desire hierarch')) {
       if (current?.kind === 'step') {
-        current.badge = t.match(/(\d+)/)?.[1] + ' desires';
+        current.badge = (current.badge || '') + ` · ${t.match(/(\d+)/)?.[1]} desires`;
         current.lines.push(t);
       }
       continue;
@@ -185,7 +137,7 @@ function parseOutput(text: string): Section[] {
     // ── Findings: objections ──
     if (t.startsWith('Found') && t.includes('objection')) {
       if (current?.kind === 'step') {
-        current.badge = t.match(/(\d+)/)?.[1] + ' objections';
+        current.badge = (current.badge || '') + ` · ${t.match(/(\d+)/)?.[1]} objections`;
         current.lines.push(t);
       }
       continue;
@@ -198,14 +150,11 @@ function parseOutput(text: string): Section[] {
       const timeMatch = t.match(/\((\d+)s elapsed\)/);
       current = {
         kind: 'orchestrator',
-        title: iterMatch ? `Orchestrator Iteration ${iterMatch[1]}/${iterMatch[2]}` : 'Orchestrator',
-        icon: '🎯',
-        badge: timeMatch ? `${timeMatch[1]}s` : 'GLM-4.7',
+        title: iterMatch ? `Iteration ${iterMatch[1]}/${iterMatch[2]}` : 'Orchestrator',
+        badge: timeMatch ? `${timeMatch[1]}s` : undefined,
         lines: [],
       };
-      if (t.includes('Pausing')) {
-        current.lines.push('Waiting for user input...');
-      }
+      if (t.includes('Pausing')) current.lines.push('Waiting for user input...');
       continue;
     }
 
@@ -214,12 +163,12 @@ function parseOutput(text: string): Section[] {
       const countMatch = t.match(/Deploying\s+(\d+)/);
       if (current?.kind === 'orchestrator') {
         current.badge = countMatch ? `${countMatch[1]} agents` : current.badge;
-        current.lines.push(`Deploying ${countMatch?.[1] || ''} researcher agents...`);
+        current.lines.push(`Deploying ${countMatch?.[1] || ''} agents`);
       }
       continue;
     }
 
-    // ── Orchestrator chosen queries (→ "query") ──
+    // ── Orchestrator chosen queries ──
     if (t.includes('[Orchestrator]') && t.includes('→')) {
       const queryMatch = t.match(/→\s*"(.+?)"/);
       if (queryMatch && current?.kind === 'orchestrator') {
@@ -231,84 +180,55 @@ function parseOutput(text: string): Section[] {
     // ── Orchestrator decision preview ──
     if (t.includes('[Orchestrator]') && t.includes('Decision:')) {
       const preview = t.replace(/.*\[Orchestrator\]\s*Decision:\s*/, '');
-      if (current?.kind === 'orchestrator') {
-        current.lines.push(`Decision: ${preview}`);
-      }
+      if (current?.kind === 'orchestrator') current.lines.push(preview);
       continue;
     }
 
     // ── Researcher activity ──
     if (t.includes('[Researcher]')) {
       const inner = t.replace(/.*\[Researcher\]\s*/, '').replace(/^[🔎📄⚠️]\s*/, '');
-
-      // New search = new section
       if (inner.includes('Searching:')) {
         push();
         const topicMatch = inner.match(/Searching:\s*"?(.+?)"?\s*\.{0,3}$/);
         current = {
           kind: 'researcher',
-          title: topicMatch ? topicMatch[1].slice(0, 60) : 'Web Search',
-          icon: '🔍',
-          badge: 'searching...',
+          title: topicMatch ? topicMatch[1].slice(0, 50) : 'Web Search',
+          badge: 'searching',
           lines: [],
         };
         continue;
       }
-
-      // Page fetch update
       if (inner.includes('Fetched')) {
         const fetchMatch = inner.match(/Fetched\s+(\d+)\/(\d+)\s+pages\s+\((.+?)s\)/);
         if (fetchMatch && current?.kind === 'researcher') {
-          current.badge = `${fetchMatch[1]}/${fetchMatch[2]} pages · ${fetchMatch[3]}s`;
+          current.badge = `${fetchMatch[1]}/${fetchMatch[2]} pages`;
         }
         if (current) current.lines.push(inner);
         continue;
       }
-
-      // Compression progress
-      if (inner.includes('Compress')) {
-        if (current) current.lines.push(inner);
-        continue;
-      }
-
-      // Synthesis / other researcher output
-      if (current) {
-        current.lines.push(inner);
-      }
+      if (inner.includes('Compress')) { if (current) current.lines.push(inner); continue; }
+      if (current) current.lines.push(inner);
       continue;
     }
 
     // ── Visual Scout ──
     if (t.includes('[Visual Scout]')) {
       const inner = t.replace(/.*\[Visual Scout\]\s*/, '');
-
-      // New visual scout section on major events
       if (inner.includes('Screenshotting') || inner.includes('Orchestrator requested') || inner.includes('Reflection agent requested')) {
         push();
         const countMatch = inner.match(/(\d+)/);
         current = {
           kind: 'visual',
-          title: inner.includes('Screenshotting') ? 'Visual Scout — Capturing' : inner.includes('Reflection') ? 'Visual Scout (Reflection)' : 'Visual Scout — Analyzing',
-          icon: '👁',
-          badge: countMatch ? `${countMatch[1]} pages` : 'minicpm-v',
+          title: inner.includes('Screenshotting') ? 'Capturing Screenshots' : 'Visual Analysis',
+          badge: countMatch ? `${countMatch[1]} pages` : undefined,
           lines: [],
         };
         continue;
       }
-
-      // Append to current visual section or create one
       if (!current || current.kind !== 'visual') {
         push();
-        current = {
-          kind: 'visual',
-          title: 'Visual Scout',
-          icon: '👁',
-          badge: 'minicpm-v:8b',
-          lines: [],
-        };
+        current = { kind: 'visual', title: 'Visual Scout', badge: undefined, lines: [] };
       }
-
-      // Update badge with analysis count
       if (inner.includes('Analyzed') && inner.includes('competitor')) {
         const countMatch = inner.match(/(\d+)/);
         if (countMatch) current.badge = `${countMatch[1]} analyzed`;
@@ -316,29 +236,22 @@ function parseOutput(text: string): Section[] {
       if (inner.includes('complete')) {
         current.badge = inner.match(/(\d+)\s+sites/)?.[0] || current.badge;
       }
-
       current.lines.push(inner);
       continue;
     }
 
-    // ── Orchestrator thinking (live reasoning stream) ──
+    // ── Orchestrator thinking ──
     if (t.startsWith('[Orchestrator thinking]') || t.startsWith('[Thinking]')) {
       const inner = t.replace(/.*\[(Orchestrator thinking|Thinking)\]\s*/, '');
       if (!current || current.kind !== 'thinking') {
         push();
-        current = {
-          kind: 'thinking',
-          title: 'Orchestrator Reasoning',
-          icon: '💭',
-          badge: 'live',
-          lines: [],
-        };
+        current = { kind: 'thinking', title: 'Reasoning', badge: 'live', lines: [] };
       }
       if (inner) current.lines.push(inner);
       continue;
     }
 
-    // ── Metrics (per-iteration stats) ──
+    // ── Metrics ──
     if (t.startsWith('[METRICS]')) {
       push();
       try {
@@ -348,19 +261,15 @@ function parseOutput(text: string): Section[] {
           : `${json.elapsedSec}s`;
         current = {
           kind: 'metrics',
-          title: `Iteration ${json.iteration}/${json.maxIterations} — ${elapsed} — ${json.coveragePct}% — ${json.totalSources || '?'} sources`,
-          icon: '📈',
-          badge: `${json.coveragePct}%`,
+          title: `${json.coveragePct}% Coverage`,
+          badge: elapsed,
           lines: [
-            `Coverage: ${json.coveragePct}% (${json.coveredDims}/${json.totalDims} dimensions)`,
-            `Sources: ${json.totalSources || 0} unique`,
-            `Queries this round: ${json.queriesThisIteration}`,
-            `Total queries: ${json.totalQueries}`,
-            `Elapsed: ${elapsed}`,
+            `${json.coveredDims}/${json.totalDims} dimensions covered`,
+            `${json.totalSources || 0} sources · ${json.totalQueries} queries`,
           ],
         };
       } catch {
-        current = { kind: 'raw', title: 'Metrics', icon: '📈', lines: [t] };
+        current = { kind: 'raw', title: 'Metrics', lines: [t] };
       }
       continue;
     }
@@ -368,36 +277,22 @@ function parseOutput(text: string): Section[] {
     // ── Reflection agent ──
     if (t.includes('Running reflection agent') || t.includes('150% bar mode')) {
       push();
-      current = {
-        kind: 'reflection',
-        title: 'Reflection Agent',
-        icon: '🔬',
-        badge: '150% bar',
-        lines: [],
-      };
+      current = { kind: 'reflection', title: 'Reflection', badge: '150% bar', lines: [] };
       continue;
     }
-
     if (t.includes('[Reflection]')) {
       const inner = t.replace(/.*\[Reflection\]\s*/, '');
       if (!current || current.kind !== 'reflection') {
         push();
-        current = {
-          kind: 'reflection',
-          title: 'Reflection Agent',
-          icon: '🔬',
-          badge: '150% bar',
-          lines: [],
-        };
+        current = { kind: 'reflection', title: 'Reflection', badge: '150% bar', lines: [] };
       }
       current.lines.push(inner);
       continue;
     }
-
     if (t.includes('Reflection found')) {
       const gapMatch = t.match(/found\s+(\d+)\s+gaps/);
       if (current?.kind === 'reflection') {
-        current.badge = gapMatch ? `${gapMatch[1]} gaps found` : current.badge;
+        current.badge = gapMatch ? `${gapMatch[1]} gaps` : current.badge;
         current.lines.push(t.replace(/^.*?🎯\s*/, ''));
       }
       continue;
@@ -410,10 +305,9 @@ function parseOutput(text: string): Section[] {
       const threshMatch = t.match(/threshold:\s*(\d+)%/);
       current = {
         kind: 'coverage',
-        title: covMatch ? `Coverage — ${covMatch[1]}%` : 'Coverage',
-        icon: '📊',
-        badge: covMatch ? `${covMatch[2]}/${covMatch[3]} dims` : undefined,
-        lines: threshMatch ? [`Target: ${threshMatch[1]}% threshold`] : [],
+        title: covMatch ? `${covMatch[1]}% Coverage` : 'Coverage',
+        badge: covMatch ? `${covMatch[2]}/${covMatch[3]}` : undefined,
+        lines: threshMatch ? [`Target: ${threshMatch[1]}%`] : [],
       };
       continue;
     }
@@ -421,59 +315,36 @@ function parseOutput(text: string): Section[] {
     // ── Complete ──
     if (t.includes('research complete') || t.includes('RESEARCH COMPLETE') || t.includes('Coverage threshold reached') || t.includes('Orchestrator satisfied')) {
       push();
-      current = {
-        kind: 'complete',
-        title: 'Research Complete',
-        icon: '✅',
-        lines: [t.replace(/^.*?[✓✅]\s*/, '')],
-      };
+      current = { kind: 'complete', title: 'Research Complete', lines: [t.replace(/^.*?[✓✅]\s*/, '')] };
       continue;
     }
 
     // ── Time limit ──
     if (t.includes('Time limit reached')) {
       push();
-      current = {
-        kind: 'timelimit',
-        title: 'Time Limit Reached',
-        icon: '⏱️',
-        lines: [t.replace(/^.*?⏱️\s*/, '')],
-      };
+      current = { kind: 'timelimit', title: 'Time Limit', lines: [t.replace(/^.*?⏱️\s*/, '')] };
       continue;
     }
 
     // ── Error ──
     if (t.startsWith('ERROR') || (t.startsWith('⚠️') && !t.includes('[Reflection]'))) {
       push();
-      current = {
-        kind: 'error',
-        title: 'Error',
-        icon: '⚠️',
-        lines: [t],
-      };
+      current = { kind: 'error', title: 'Error', lines: [t] };
       continue;
     }
 
-    // ── Skip synthesis boilerplate ──
+    // ── Skip boilerplate ──
     if (t === 'glm-4.7 orchestrator deciding what additional research is needed...') {
-      if (current) current.lines.push('GLM evaluating research gaps...');
+      if (current) current.lines.push('Evaluating research gaps...');
       continue;
     }
-    if (t.startsWith('User provided:') && current) {
-      current.lines.push(t);
-      continue;
-    }
+    if (t.startsWith('User provided:') && current) { current.lines.push(t); continue; }
 
-    // ── Fallback: append to current section ──
+    // ── Fallback ──
     if (current) {
       current.lines.push(t);
     } else {
-      current = {
-        kind: 'raw',
-        title: 'Output',
-        icon: '📝',
-        lines: [t],
-      };
+      current = { kind: 'raw', title: 'Output', lines: [t] };
     }
   }
 
@@ -482,156 +353,158 @@ function parseOutput(text: string): Section[] {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Style config
+// Color system — minimal, clean
 // ─────────────────────────────────────────────────────────────
 
-interface StyleSet {
-  headerBg: string;
-  headerText: string;
-  badgeBg: string;
-  badgeText: string;
-  border: string;
-  contentBg: string;
-  accent: string;
-}
+type ColorKey = 'indigo' | 'emerald' | 'blue' | 'teal' | 'amber' | 'purple' | 'rose' | 'sky' | 'cyan' | 'green' | 'orange' | 'red' | 'zinc';
 
-function getStyles(kind: SectionKind, dark: boolean): StyleSet {
-  // Lowered opacity on section backgrounds for a subtler look
-  const styles: Record<string, StyleSet> = {
-    phase: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-white', badgeBg: 'bg-indigo-900/40', badgeText: 'text-indigo-300', border: 'border-indigo-800/30', contentBg: 'bg-zinc-950/40', accent: 'text-indigo-400' }
-      : { headerBg: 'bg-indigo-50', headerText: 'text-indigo-900', badgeBg: 'bg-indigo-100', badgeText: 'text-indigo-700', border: 'border-indigo-200', contentBg: 'bg-white', accent: 'text-indigo-600' },
-    campaign: dark
-      ? { headerBg: 'bg-zinc-900/60', headerText: 'text-zinc-300', badgeBg: 'bg-zinc-800/60', badgeText: 'text-zinc-500', border: 'border-zinc-800/50', contentBg: 'bg-zinc-950/30', accent: 'text-zinc-500' }
-      : { headerBg: 'bg-zinc-50', headerText: 'text-zinc-800', badgeBg: 'bg-zinc-200', badgeText: 'text-zinc-600', border: 'border-zinc-200', contentBg: 'bg-white', accent: 'text-zinc-500' },
-    step: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-emerald-300', badgeBg: 'bg-emerald-900/35', badgeText: 'text-emerald-300', border: 'border-emerald-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-emerald-400' }
-      : { headerBg: 'bg-emerald-50', headerText: 'text-emerald-800', badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-700', border: 'border-emerald-200', contentBg: 'bg-white', accent: 'text-emerald-600' },
-    orchestrator: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-blue-300', badgeBg: 'bg-blue-900/35', badgeText: 'text-blue-300', border: 'border-blue-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-blue-400' }
-      : { headerBg: 'bg-blue-50', headerText: 'text-blue-800', badgeBg: 'bg-blue-100', badgeText: 'text-blue-700', border: 'border-blue-200', contentBg: 'bg-white', accent: 'text-blue-600' },
-    researcher: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-teal-300', badgeBg: 'bg-teal-900/35', badgeText: 'text-teal-300', border: 'border-teal-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-teal-400' }
-      : { headerBg: 'bg-teal-50', headerText: 'text-teal-800', badgeBg: 'bg-teal-100', badgeText: 'text-teal-700', border: 'border-teal-200', contentBg: 'bg-white', accent: 'text-teal-600' },
-    reflection: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-amber-300', badgeBg: 'bg-amber-900/35', badgeText: 'text-amber-300', border: 'border-amber-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-amber-400' }
-      : { headerBg: 'bg-amber-50', headerText: 'text-amber-800', badgeBg: 'bg-amber-100', badgeText: 'text-amber-700', border: 'border-amber-200', contentBg: 'bg-white', accent: 'text-amber-600' },
-    coverage: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-purple-300', badgeBg: 'bg-purple-900/35', badgeText: 'text-purple-300', border: 'border-purple-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-purple-400' }
-      : { headerBg: 'bg-purple-50', headerText: 'text-purple-800', badgeBg: 'bg-purple-100', badgeText: 'text-purple-700', border: 'border-purple-200', contentBg: 'bg-white', accent: 'text-purple-600' },
-    visual: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-rose-300', badgeBg: 'bg-rose-900/35', badgeText: 'text-rose-300', border: 'border-rose-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-rose-400' }
-      : { headerBg: 'bg-rose-50', headerText: 'text-rose-800', badgeBg: 'bg-rose-100', badgeText: 'text-rose-700', border: 'border-rose-200', contentBg: 'bg-white', accent: 'text-rose-600' },
-    thinking: dark
-      ? { headerBg: 'bg-zinc-900/60', headerText: 'text-zinc-500', badgeBg: 'bg-zinc-800/60', badgeText: 'text-zinc-600', border: 'border-zinc-800/30', contentBg: 'bg-zinc-950/30', accent: 'text-zinc-600' }
-      : { headerBg: 'bg-zinc-50', headerText: 'text-zinc-500', badgeBg: 'bg-zinc-200', badgeText: 'text-zinc-500', border: 'border-zinc-200', contentBg: 'bg-white', accent: 'text-zinc-400' },
-    metrics: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-sky-300', badgeBg: 'bg-sky-900/35', badgeText: 'text-sky-300', border: 'border-sky-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-sky-400' }
-      : { headerBg: 'bg-sky-50', headerText: 'text-sky-800', badgeBg: 'bg-sky-100', badgeText: 'text-sky-700', border: 'border-sky-200', contentBg: 'bg-white', accent: 'text-sky-600' },
-    deploy: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-cyan-300', badgeBg: 'bg-cyan-900/35', badgeText: 'text-cyan-300', border: 'border-cyan-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-cyan-400' }
-      : { headerBg: 'bg-cyan-50', headerText: 'text-cyan-800', badgeBg: 'bg-cyan-100', badgeText: 'text-cyan-700', border: 'border-cyan-200', contentBg: 'bg-white', accent: 'text-cyan-600' },
-    complete: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-green-300', badgeBg: 'bg-green-900/35', badgeText: 'text-green-300', border: 'border-green-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-green-400' }
-      : { headerBg: 'bg-green-50', headerText: 'text-green-800', badgeBg: 'bg-green-100', badgeText: 'text-green-700', border: 'border-green-200', contentBg: 'bg-white', accent: 'text-green-600' },
-    timelimit: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-orange-300', badgeBg: 'bg-orange-900/35', badgeText: 'text-orange-300', border: 'border-orange-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-orange-400' }
-      : { headerBg: 'bg-orange-50', headerText: 'text-orange-800', badgeBg: 'bg-orange-100', badgeText: 'text-orange-700', border: 'border-orange-200', contentBg: 'bg-white', accent: 'text-orange-600' },
-    error: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-red-300', badgeBg: 'bg-red-900/35', badgeText: 'text-red-300', border: 'border-red-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-red-400' }
-      : { headerBg: 'bg-red-50', headerText: 'text-red-800', badgeBg: 'bg-red-100', badgeText: 'text-red-700', border: 'border-red-200', contentBg: 'bg-white', accent: 'text-red-600' },
-    ads: dark
-      ? { headerBg: 'bg-zinc-900/80', headerText: 'text-orange-300', badgeBg: 'bg-orange-900/35', badgeText: 'text-orange-300', border: 'border-orange-800/25', contentBg: 'bg-zinc-950/40', accent: 'text-orange-400' }
-      : { headerBg: 'bg-orange-50', headerText: 'text-orange-800', badgeBg: 'bg-orange-100', badgeText: 'text-orange-700', border: 'border-orange-200', contentBg: 'bg-white', accent: 'text-orange-600' },
-    findings: dark
-      ? { headerBg: 'bg-zinc-900/60', headerText: 'text-zinc-300', badgeBg: 'bg-zinc-800/60', badgeText: 'text-zinc-500', border: 'border-zinc-800/50', contentBg: 'bg-zinc-950/30', accent: 'text-zinc-500' }
-      : { headerBg: 'bg-zinc-50', headerText: 'text-zinc-800', badgeBg: 'bg-zinc-200', badgeText: 'text-zinc-600', border: 'border-zinc-200', contentBg: 'bg-white', accent: 'text-zinc-500' },
-    raw: dark
-      ? { headerBg: 'bg-zinc-900/60', headerText: 'text-zinc-400', badgeBg: 'bg-zinc-800/60', badgeText: 'text-zinc-600', border: 'border-zinc-800/40', contentBg: 'bg-zinc-950/30', accent: 'text-zinc-600' }
-      : { headerBg: 'bg-zinc-50', headerText: 'text-zinc-700', badgeBg: 'bg-zinc-200', badgeText: 'text-zinc-500', border: 'border-zinc-200', contentBg: 'bg-white', accent: 'text-zinc-400' },
+function kindColor(kind: SectionKind): ColorKey {
+  const map: Record<string, ColorKey> = {
+    phase: 'indigo', step: 'emerald', orchestrator: 'blue', researcher: 'teal',
+    reflection: 'amber', coverage: 'purple', visual: 'rose', thinking: 'zinc',
+    metrics: 'sky', deploy: 'cyan', complete: 'green', timelimit: 'orange',
+    error: 'red', ads: 'orange', campaign: 'zinc', findings: 'zinc', raw: 'zinc',
   };
-  return styles[kind] || styles.raw;
+  return map[kind] || 'zinc';
+}
+
+function dotColor(color: ColorKey, dark: boolean): string {
+  if (dark) {
+    const map: Record<ColorKey, string> = {
+      indigo: 'bg-indigo-400', emerald: 'bg-emerald-400', blue: 'bg-blue-400', teal: 'bg-teal-400',
+      amber: 'bg-amber-400', purple: 'bg-purple-400', rose: 'bg-rose-400', sky: 'bg-sky-400',
+      cyan: 'bg-cyan-400', green: 'bg-green-400', orange: 'bg-orange-400', red: 'bg-red-400', zinc: 'bg-zinc-500',
+    };
+    return map[color];
+  }
+  const map: Record<ColorKey, string> = {
+    indigo: 'bg-indigo-500', emerald: 'bg-emerald-500', blue: 'bg-blue-500', teal: 'bg-teal-500',
+    amber: 'bg-amber-500', purple: 'bg-purple-500', rose: 'bg-rose-500', sky: 'bg-sky-500',
+    cyan: 'bg-cyan-500', green: 'bg-green-500', orange: 'bg-orange-500', red: 'bg-red-500', zinc: 'bg-zinc-400',
+  };
+  return map[color];
+}
+
+function textColor(color: ColorKey, dark: boolean): string {
+  if (dark) {
+    const map: Record<ColorKey, string> = {
+      indigo: 'text-indigo-400', emerald: 'text-emerald-400', blue: 'text-blue-400', teal: 'text-teal-400',
+      amber: 'text-amber-400', purple: 'text-purple-400', rose: 'text-rose-400', sky: 'text-sky-400',
+      cyan: 'text-cyan-400', green: 'text-green-400', orange: 'text-orange-400', red: 'text-red-400', zinc: 'text-zinc-500',
+    };
+    return map[color];
+  }
+  const map: Record<ColorKey, string> = {
+    indigo: 'text-indigo-600', emerald: 'text-emerald-600', blue: 'text-blue-600', teal: 'text-teal-600',
+    amber: 'text-amber-600', purple: 'text-purple-600', rose: 'text-rose-600', sky: 'text-sky-600',
+    cyan: 'text-cyan-600', green: 'text-green-600', orange: 'text-orange-600', red: 'text-red-600', zinc: 'text-zinc-500',
+  };
+  return map[color];
+}
+
+function badgeBg(color: ColorKey, dark: boolean): string {
+  if (dark) {
+    const map: Record<ColorKey, string> = {
+      indigo: 'bg-indigo-500/10', emerald: 'bg-emerald-500/10', blue: 'bg-blue-500/10', teal: 'bg-teal-500/10',
+      amber: 'bg-amber-500/10', purple: 'bg-purple-500/10', rose: 'bg-rose-500/10', sky: 'bg-sky-500/10',
+      cyan: 'bg-cyan-500/10', green: 'bg-green-500/10', orange: 'bg-orange-500/10', red: 'bg-red-500/10', zinc: 'bg-zinc-700/50',
+    };
+    return map[color];
+  }
+  const map: Record<ColorKey, string> = {
+    indigo: 'bg-indigo-50', emerald: 'bg-emerald-50', blue: 'bg-blue-50', teal: 'bg-teal-50',
+    amber: 'bg-amber-50', purple: 'bg-purple-50', rose: 'bg-rose-50', sky: 'bg-sky-50',
+    cyan: 'bg-cyan-50', green: 'bg-green-50', orange: 'bg-orange-50', red: 'bg-red-50', zinc: 'bg-zinc-100',
+  };
+  return map[color];
 }
 
 // ─────────────────────────────────────────────────────────────
-// Coverage Bar sub-component
+// Coverage Bar
 // ─────────────────────────────────────────────────────────────
 
-function CoverageBar({ text, dark }: { text: string; dark: boolean }) {
-  const pctMatch = text.match(/(\d+)%/);
-  const pct = pctMatch ? parseInt(pctMatch[1]) : 0;
-  const color = pct >= 80 ? (dark ? 'bg-emerald-500/80' : 'bg-emerald-500') : pct >= 50 ? (dark ? 'bg-amber-500/80' : 'bg-amber-500') : (dark ? 'bg-red-500/80' : 'bg-red-500');
+function CoverageBar({ pct, dark }: { pct: number; dark: boolean }) {
+  const barColor = pct >= 80
+    ? 'bg-emerald-500'
+    : pct >= 50
+    ? 'bg-amber-500'
+    : 'bg-red-500';
 
   return (
-    <div className="flex items-center gap-3 w-full mt-1">
-      <div className={`flex-1 h-2 rounded-full ${dark ? 'bg-zinc-800' : 'bg-zinc-200'} overflow-hidden`}>
-        <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
+    <div className="flex items-center gap-2.5 w-full">
+      <div className={`flex-1 h-1.5 rounded-full ${dark ? 'bg-zinc-800' : 'bg-zinc-100'} overflow-hidden`}>
+        <div
+          className={`h-full ${barColor} rounded-full transition-all duration-700 ease-out`}
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
       </div>
-      <span className={`font-mono text-xs font-bold ${dark ? 'text-zinc-300' : 'text-zinc-700'}`}>{pct}%</span>
+      <span className={`text-[10px] font-semibold tabular-nums ${dark ? 'text-zinc-300' : 'text-zinc-600'}`}>
+        {pct}%
+      </span>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────
-// Finding line renderer — handles [1], [2], Surface:, etc.
+// Line renderer
 // ─────────────────────────────────────────────────────────────
 
-function RenderLine({ line, dark, accent }: { line: string; dark: boolean; accent: string }) {
-  const textClass = dark ? 'text-zinc-300' : 'text-zinc-700';
-  const dimClass = dark ? 'text-zinc-500' : 'text-zinc-400';
+function RenderLine({ line, dark, accentClass }: { line: string; dark: boolean; accentClass: string }) {
+  const txt = dark ? 'text-zinc-300' : 'text-zinc-600';
+  const dim = dark ? 'text-zinc-600' : 'text-zinc-400';
 
-  // Numbered finding: [1] Target: Desire
+  // Query line
+  if (line.startsWith('→ "')) {
+    return (
+      <div className="flex items-start gap-2 py-0.5">
+        <span className={`${accentClass} text-[10px] mt-px shrink-0`}>→</span>
+        <span className={`text-xs ${txt} italic`}>{line.slice(2)}</span>
+      </div>
+    );
+  }
+
+  // Numbered finding
   const findingMatch = line.match(/^\s*\[(\d+)\]\s*(.+)/);
   if (findingMatch) {
     return (
       <div className="flex gap-2 items-start py-0.5">
-        <span className={`font-mono text-[10px] font-bold ${accent} bg-current/10 w-5 h-5 flex items-center justify-center rounded shrink-0 mt-0.5`} style={{ backgroundColor: 'transparent' }}>
-          <span className={accent}>{findingMatch[1]}</span>
-        </span>
-        <span className={`text-xs ${textClass} leading-relaxed`}>{findingMatch[2]}</span>
+        <span className={`text-[10px] font-bold ${accentClass} w-4 shrink-0 text-right tabular-nums`}>{findingMatch[1]}</span>
+        <span className={`text-xs ${txt} leading-relaxed`}>{findingMatch[2]}</span>
       </div>
     );
   }
 
-  // Surface/Intensity sub-line
-  if (line.match(/^\s*Surface:/i) || line.match(/^\s*Intensity:/i)) {
-    return (
-      <div className={`text-xs ${dimClass} ml-7 leading-relaxed italic`}>{line.trim()}</div>
-    );
+  // Sub-lines
+  if (line.match(/^\s*(Surface|Intensity):/i)) {
+    return <div className={`text-[11px] ${dim} ml-6 italic`}>{line.trim()}</div>;
   }
 
-  // Campaign data lines (Brand:, Target:, etc.)
+  // KV lines
   const kvMatch = line.match(/^(Brand|Target Audience|Marketing Goal|Audience congregates|Key language|Market gap):\s*(.+)/);
   if (kvMatch) {
     return (
-      <div className="flex gap-2 py-0.5">
-        <span className={`text-xs font-semibold ${accent} shrink-0`}>{kvMatch[1]}</span>
-        <span className={`text-xs ${textClass}`}>{kvMatch[2]}</span>
+      <div className="flex gap-1.5 py-0.5">
+        <span className={`text-[11px] font-medium ${accentClass} shrink-0`}>{kvMatch[1]}:</span>
+        <span className={`text-[11px] ${txt}`}>{kvMatch[2]}</span>
       </div>
     );
   }
 
-  // Compression progress
-  if (line.match(/Compress/i)) {
-    return <div className={`text-[11px] ${dimClass} font-mono`}>{line}</div>;
+  // Compression / fetch
+  if (line.match(/Compress|Fetched/i)) {
+    return <div className={`text-[10px] ${dim} font-mono`}>{line}</div>;
   }
 
-  // Fetched pages
-  if (line.match(/Fetched/i)) {
-    return <div className={`text-xs ${accent} font-mono`}>{line}</div>;
-  }
-
-  // Raw JSON streaming tokens — dim mono so they don't dominate
+  // JSON tokens
   if (line.match(/^\s*[\[{\]},"]/) || line.match(/^\s*"[a-zA-Z_]+"\s*:/)) {
-    return <div className={`text-[10px] ${dimClass} font-mono leading-tight`}>{line}</div>;
+    return <div className={`text-[9px] ${dim} font-mono leading-snug`}>{line}</div>;
   }
 
-  // Default
-  return <div className={`text-xs ${textClass} leading-relaxed`}>{line}</div>;
+  return <div className={`text-[11px] ${txt} leading-relaxed`}>{line}</div>;
 }
 
 // ─────────────────────────────────────────────────────────────
-// Section Component
+// Section Component — clean, minimal card
 // ─────────────────────────────────────────────────────────────
 
 function SectionBlock({
@@ -647,69 +520,107 @@ function SectionBlock({
   onToggle: () => void;
   dark: boolean;
 }) {
-  const s = getStyles(section.kind, dark);
-
-  // Phase sections are always bold/prominent
+  const color = kindColor(section.kind);
   const isPhase = section.kind === 'phase';
+  const isComplete = section.kind === 'complete';
+  const isError = section.kind === 'error';
+  const accent = textColor(color, dark);
+  const dot = dotColor(color, dark);
+  const badge = badgeBg(color, dark);
+  const covPct = (section.kind === 'coverage' || section.kind === 'metrics')
+    ? parseInt(section.title.match(/(\d+)%/)?.[1] || '0')
+    : null;
 
   return (
-    <div className={`border ${s.border} rounded-sm overflow-hidden ${isPhase ? 'mt-1' : ''}`}>
-      {/* Header */}
+    <div className={`group ${isPhase ? 'mt-3 first:mt-0' : ''}`}>
+      {/* Phase divider */}
+      {isPhase && (
+        <div className={`flex items-center gap-2 mb-1.5 px-1`}>
+          <div className={`h-px flex-1 ${dark ? 'bg-zinc-800' : 'bg-zinc-200'}`} />
+          <span className={`text-[9px] uppercase tracking-widest font-semibold ${accent}`}>
+            {section.badge}
+          </span>
+          <div className={`h-px flex-1 ${dark ? 'bg-zinc-800' : 'bg-zinc-200'}`} />
+        </div>
+      )}
+
       <button
         onClick={onToggle}
-        className={`w-full px-3 py-1.5 flex items-center gap-2 ${s.headerBg} hover:brightness-110 transition-all duration-150 cursor-pointer`}
+        className={`w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-colors duration-100 ${
+          dark
+            ? 'hover:bg-zinc-800/60'
+            : 'hover:bg-zinc-50'
+        } ${isPhase ? 'py-2' : ''}`}
       >
-          {/* Title */}
-        <span className={`flex-1 text-left text-[11px] ${isPhase ? 'font-bold uppercase tracking-wide' : 'font-medium'} ${s.headerText} truncate`}>
+        {/* Dot indicator */}
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+          isLast && !isComplete && !isError
+            ? `${dot} animate-pulse`
+            : isComplete
+            ? (dark ? 'bg-emerald-400' : 'bg-emerald-500')
+            : isError
+            ? (dark ? 'bg-red-400' : 'bg-red-500')
+            : dot
+        }`} />
+
+        {/* Title */}
+        <span className={`flex-1 truncate ${
+          isPhase
+            ? `text-xs font-semibold ${dark ? 'text-zinc-100' : 'text-zinc-800'}`
+            : `text-[11px] font-medium ${dark ? 'text-zinc-300' : 'text-zinc-600'}`
+        }`}>
           {section.title}
         </span>
 
+        {/* Coverage bar inline */}
+        {covPct !== null && (
+          <div className="w-16 shrink-0">
+            <CoverageBar pct={covPct} dark={dark} />
+          </div>
+        )}
+
         {/* Badge */}
-        {section.badge && (
-          <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded-sm ${s.badgeBg} ${s.badgeText} shrink-0`}>
-            {section.badge.includes('...') || section.badge === 'live' ? (
-              <ShineText variant={dark ? 'dark' : 'light'} className="text-[9px] font-mono" speed={2}>
+        {section.badge && section.kind !== 'phase' && (
+          <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${badge} ${accent} shrink-0`}>
+            {section.badge.includes('...') || section.badge === 'live' || section.badge === 'searching' || section.badge === 'fetching' ? (
+              <ShineText variant={dark ? 'dark' : 'light'} className="text-[9px]" speed={2}>
                 {section.badge}
               </ShineText>
             ) : section.badge}
           </span>
         )}
 
-        {/* Line count pill */}
-        {section.lines.length > 0 && (
-          <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded-full ${dark ? 'bg-zinc-800/60 text-zinc-500' : 'bg-zinc-200 text-zinc-500'} shrink-0`}>
+        {/* Line count */}
+        {section.lines.length > 0 && !isPhase && (
+          <span className={`text-[9px] tabular-nums ${dark ? 'text-zinc-600' : 'text-zinc-400'} shrink-0`}>
             {section.lines.length}
           </span>
         )}
 
-        {/* Streaming indicator */}
-        {isLast && section.lines.length > 0 && (
-          <span className={`w-1.5 h-1.5 rounded-full ${dark ? 'bg-green-400' : 'bg-green-500'} animate-pulse shrink-0`} />
-        )}
-
         {/* Chevron */}
-        <span className={`text-[10px] ${dark ? 'text-zinc-600' : 'text-zinc-400'} shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
-          ▶
-        </span>
+        {section.lines.length > 0 && (
+          <svg
+            width="10" height="10" viewBox="0 0 24 24" fill="none"
+            stroke={dark ? '#52525b' : '#a1a1aa'} strokeWidth="2.5" strokeLinecap="round"
+            className={`shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+          >
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        )}
       </button>
 
       {/* Content */}
       {isExpanded && section.lines.length > 0 && (
-        <div className={`px-3 py-2 border-t ${s.border} ${s.contentBg} space-y-0.5 max-h-80 overflow-y-auto`}>
-          {/* Coverage gets a bar */}
-          {section.kind === 'coverage' && <CoverageBar text={section.title} dark={dark} />}
-
-          {/* Metrics get a coverage bar too */}
-          {section.kind === 'metrics' && <CoverageBar text={section.title} dark={dark} />}
-
-          {/* Thinking sections render in dim mono */}
+        <div className={`ml-5 pl-2.5 mt-0.5 mb-1 space-y-px max-h-64 overflow-y-auto ${
+          dark ? 'border-l border-zinc-800/60' : 'border-l border-zinc-200'
+        }`}>
           {section.kind === 'thinking' ? (
-            <div className={`font-mono text-[10px] leading-tight whitespace-pre-wrap ${dark ? 'text-zinc-600' : 'text-zinc-400'}`}>
+            <div className={`font-mono text-[9px] leading-snug whitespace-pre-wrap ${dark ? 'text-zinc-600' : 'text-zinc-400'}`}>
               {section.lines.join('\n')}
             </div>
           ) : (
             section.lines.map((line, li) => (
-              <RenderLine key={li} line={line} dark={dark} accent={s.accent} />
+              <RenderLine key={li} line={line} dark={dark} accentClass={accent} />
             ))
           )}
         </div>
@@ -719,72 +630,49 @@ function SectionBlock({
 }
 
 // ─────────────────────────────────────────────────────────────
-// Summary header
+// Status header
 // ─────────────────────────────────────────────────────────────
 
-function ResearchSummary({ sections, dark }: { sections: Section[]; dark: boolean }) {
-  const phases = sections.filter(s => s.kind === 'phase').length;
-  const steps = sections.filter(s => s.kind === 'step').length;
+function StatusHeader({ sections, dark }: { sections: Section[]; dark: boolean }) {
   const searches = sections.filter(s => s.kind === 'researcher').length;
-  const visuals = sections.filter(s => s.kind === 'visual').length;
-  const adsSections = sections.filter(s => s.kind === 'ads');
-  const adsCount = adsSections.length > 0 ? adsSections[adsSections.length - 1].badge : null;
   const metricsSections = sections.filter(s => s.kind === 'metrics');
   const lastMetrics = metricsSections[metricsSections.length - 1];
   const coverage = sections.find(s => s.kind === 'coverage');
-  const coveragePct = lastMetrics?.badge || coverage?.title.match(/(\d+)%/)?.[1] || '—';
+  const covStr = lastMetrics?.title.match(/(\d+)%/)?.[1] || coverage?.title.match(/(\d+)%/)?.[1];
+  const covPct = covStr ? parseInt(covStr) : 0;
   const isDone = sections.some(s => s.kind === 'complete');
   const isTimeout = sections.some(s => s.kind === 'timelimit');
-
-  const statClass = dark ? 'text-zinc-400' : 'text-zinc-500';
-  const numClass = dark ? 'text-white' : 'text-black';
+  const isRunning = !isDone && !isTimeout;
 
   return (
-    <div className={`flex items-center gap-4 px-1 py-1.5 mb-2 border-b ${dark ? 'border-zinc-800' : 'border-zinc-200'}`}>
-      <div className="flex items-center gap-4 flex-1">
-        <span className={`font-mono text-[10px] uppercase tracking-wider ${statClass}`}>
-          <span className={numClass}>{phases}</span> phases
-        </span>
-        <span className={`font-mono text-[10px] uppercase tracking-wider ${statClass}`}>
-          <span className={numClass}>{steps}</span> steps
-        </span>
-        {searches > 0 && (
-          <span className={`font-mono text-[10px] uppercase tracking-wider ${statClass}`}>
-            <span className={numClass}>{searches}</span> searches
-          </span>
+    <div className={`flex items-center gap-3 mb-2 pb-2 border-b ${dark ? 'border-zinc-800/50' : 'border-zinc-200/80'}`}>
+      {/* Status indicator */}
+      <div className="flex items-center gap-1.5">
+        {isRunning && (
+          <span className={`w-1.5 h-1.5 rounded-full ${dark ? 'bg-emerald-400' : 'bg-emerald-500'} animate-pulse`} />
         )}
-        {visuals > 0 && (
-          <span className={`font-mono text-[10px] uppercase tracking-wider ${statClass}`}>
-            <span className={numClass}>{visuals}</span> visuals
-          </span>
-        )}
-        {adsCount && (
-          <span className={`font-mono text-[10px] uppercase tracking-wider ${statClass}`}>
-            <span className={`${dark ? 'text-orange-400' : 'text-orange-600'} font-bold`}>{adsCount}</span>
-          </span>
-        )}
-        {metricsSections.length > 0 && (
-          <span className={`font-mono text-[10px] uppercase tracking-wider ${statClass}`}>
-            <span className={numClass}>{metricsSections.length}</span> iterations
-          </span>
-        )}
-        <span className={`font-mono text-[10px] uppercase tracking-wider ${statClass}`}>
-          <span className={numClass}>{coveragePct}</span>% coverage
+        <span className={`text-[11px] font-medium ${
+          isDone
+            ? (dark ? 'text-emerald-400' : 'text-emerald-600')
+            : isTimeout
+            ? (dark ? 'text-orange-400' : 'text-orange-600')
+            : (dark ? 'text-zinc-400' : 'text-zinc-500')
+        }`}>
+          {isDone ? 'Complete' : isTimeout ? 'Timeout' : 'Researching'}
         </span>
       </div>
-      {isDone && (
-        <span className={`font-mono text-[10px] font-bold ${dark ? 'text-green-400' : 'text-green-600'}`}>
-          ✓ COMPLETE
-        </span>
+
+      {/* Coverage */}
+      {covPct > 0 && (
+        <div className="flex-1">
+          <CoverageBar pct={covPct} dark={dark} />
+        </div>
       )}
-      {isTimeout && (
-        <span className={`font-mono text-[10px] font-bold ${dark ? 'text-orange-400' : 'text-orange-600'}`}>
-          ⏱ TIMEOUT
-        </span>
-      )}
-      {!isDone && !isTimeout && (
-        <span className={`font-mono text-[10px] ${dark ? 'text-zinc-500' : 'text-zinc-400'}`}>
-          running...
+
+      {/* Stats */}
+      {searches > 0 && (
+        <span className={`text-[10px] tabular-nums ${dark ? 'text-zinc-600' : 'text-zinc-400'}`}>
+          {searches} searches
         </span>
       )}
     </div>
@@ -800,7 +688,6 @@ interface ResearchOutputProps {
   isDarkMode: boolean;
 }
 
-// Regex to detect lines that create NEW sections (not lines within existing sections)
 const SECTION_HEADER_RE = /\[PHASE [123]\]|Competitor Ad Intelligence|ORCHESTRATED RESEARCH:|Desire-Driven|Orchestrating Web Search|\[CAMPAIGN_DATA\]|STEP \d+:|Iteration \d+\/|Searching:\s*"|Screenshotting|Orchestrator requested visual|Reflection agent requested visual|Running reflection agent|150% bar mode|Coverage:\s*\d+%.*dimensions|research complete|RESEARCH COMPLETE|Coverage threshold|Orchestrator satisfied|Time limit reached|^ERROR|\[METRICS\]|\[Orchestrator thinking\]|\[Thinking\]|\[Ads\]/im;
 
 export function ResearchOutput({ output, isDarkMode }: ResearchOutputProps) {
@@ -808,7 +695,7 @@ export function ResearchOutput({ output, isDarkMode }: ResearchOutputProps) {
   const cacheRef = useRef<{ len: number; sections: Section[] }>({ len: 0, sections: [] });
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  // Incremental parsing — only full re-parse when a new section header appears
+  // Incremental parsing
   useEffect(() => {
     if (!output) {
       cacheRef.current = { len: 0, sections: [] };
@@ -818,31 +705,27 @@ export function ResearchOutput({ output, isDarkMode }: ResearchOutputProps) {
 
     const cache = cacheRef.current;
 
-    // Reset on shrink (new stage started)
     if (output.length < cache.len) {
       cache.len = 0;
       cache.sections = [];
     }
-
-    // No change
     if (output.length === cache.len) return;
 
     const delta = output.slice(cache.len);
     cache.len = output.length;
 
-    // Fast path: no new section header in delta — append lines to last section
+    // Fast path: no new section header → append to last
     if (!SECTION_HEADER_RE.test(delta) && cache.sections.length > 0) {
       const last = cache.sections[cache.sections.length - 1];
       for (const line of delta.split('\n')) {
         const t = line.trim();
         if (!t || /^[─═]{10,}$/.test(t)) continue;
 
-        // Strip known prefixes for fast path
         if (last.kind === 'researcher' && t.includes('[Researcher]')) {
           const inner = t.replace(/.*\[Researcher\]\s*/, '').replace(/^[🔎📄⚠️]\s*/, '');
           if (inner.includes('Fetched')) {
             const m = inner.match(/Fetched\s+(\d+)\/(\d+)\s+pages\s+\((.+?)s\)/);
-            if (m) last.badge = `${m[1]}/${m[2]} pages · ${m[3]}s`;
+            if (m) last.badge = `${m[1]}/${m[2]} pages`;
           }
           last.lines.push(inner);
         } else if (last.kind === 'visual' && t.includes('[Visual Scout]')) {
@@ -864,19 +747,17 @@ export function ResearchOutput({ output, isDarkMode }: ResearchOutputProps) {
       return;
     }
 
-    // Slow path: new section detected — full re-parse
+    // Slow path: full re-parse
     cache.sections = parseOutput(output);
     setSections(cache.sections);
   }, [output]);
 
-  // Auto-expand latest section + all phases
+  // Auto-expand latest + phases
   useEffect(() => {
     if (sections.length > 0) {
       setExpanded(prev => {
         const next = new Set(prev);
-        // Always expand latest
         next.add(sections.length - 1);
-        // Auto-expand phases and steps on first appearance
         sections.forEach((s, i) => {
           if (s.kind === 'phase' || s.kind === 'step' || s.kind === 'coverage' || s.kind === 'complete' || s.kind === 'error' || s.kind === 'visual' || s.kind === 'metrics' || s.kind === 'ads') {
             next.add(i);
@@ -896,50 +777,51 @@ export function ResearchOutput({ output, isDarkMode }: ResearchOutputProps) {
     });
   };
 
-  const expandAll = () => setExpanded(new Set(sections.map((_, i) => i)));
-  const collapseAll = () => setExpanded(new Set());
-
   if (sections.length === 0) {
     return (
-      <div className={`font-mono text-xs ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'} flex items-center gap-2`}>
-        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-        Waiting for research output...
+      <div className={`flex items-center gap-2 py-6 justify-center`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${isDarkMode ? 'bg-emerald-400' : 'bg-emerald-500'} animate-pulse`} />
+        <ShineText variant={isDarkMode ? 'dark' : 'light'} className="text-xs" speed={2.5}>
+          Starting research...
+        </ShineText>
       </div>
     );
   }
 
   return (
-    <div className="space-y-1">
-      {/* Summary bar */}
-      <ResearchSummary sections={sections} dark={isDarkMode} />
+    <div>
+      {/* Status bar */}
+      <StatusHeader sections={sections} dark={isDarkMode} />
 
-      {/* Controls */}
-      <div className="flex gap-1.5 mb-1">
+      {/* Expand/Collapse */}
+      <div className={`flex items-center gap-px mb-2`}>
         <button
-          onClick={expandAll}
-          className={`font-mono text-[9px] px-2 py-0.5 rounded-sm ${isDarkMode ? 'text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/60' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'} transition-all duration-150`}
+          onClick={() => setExpanded(new Set(sections.map((_, i) => i)))}
+          className={`text-[9px] px-2 py-0.5 rounded-l font-medium ${isDarkMode ? 'text-zinc-500 hover:text-zinc-300 bg-zinc-800/50 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-600 bg-zinc-100 hover:bg-zinc-200'} transition-colors`}
         >
-          expand all
+          Expand
         </button>
         <button
-          onClick={collapseAll}
-          className={`font-mono text-[9px] px-2 py-0.5 rounded-sm ${isDarkMode ? 'text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/60' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'} transition-all duration-150`}
+          onClick={() => setExpanded(new Set())}
+          className={`text-[9px] px-2 py-0.5 rounded-r font-medium ${isDarkMode ? 'text-zinc-500 hover:text-zinc-300 bg-zinc-800/50 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-600 bg-zinc-100 hover:bg-zinc-200'} transition-colors`}
         >
-          collapse all
+          Collapse
         </button>
       </div>
 
       {/* Sections */}
-      {sections.map((section, idx) => (
-        <SectionBlock
-          key={idx}
-          section={section}
-          isExpanded={expanded.has(idx)}
-          isLast={idx === sections.length - 1}
-          onToggle={() => toggle(idx)}
-          dark={isDarkMode}
-        />
-      ))}
+      <div className="space-y-0.5">
+        {sections.map((section, idx) => (
+          <SectionBlock
+            key={idx}
+            section={section}
+            isExpanded={expanded.has(idx)}
+            isLast={idx === sections.length - 1}
+            onToggle={() => toggle(idx)}
+            dark={isDarkMode}
+          />
+        ))}
+      </div>
     </div>
   );
 }

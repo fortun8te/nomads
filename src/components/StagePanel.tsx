@@ -8,13 +8,13 @@ import { tokenTracker, type TokenInfo } from '../utils/tokenStats';
 import { ShineText } from './ShineText';
 import { WordCycler } from './WordCycler';
 
-const STAGE_DESCRIPTIONS: Record<StageName, string> = {
-  research: 'Market & audience research',
-  objections: 'Objection handling strategy',
-  taste: 'Creative direction & positioning',
-  make: 'Ad creative generation',
-  test: 'Creative evaluation',
-  memories: 'Pattern & insights archive',
+const STAGE_INFO: Record<StageName, { label: string; description: string; icon: string }> = {
+  research: { label: 'Research', description: 'Market & audience analysis', icon: '🔍' },
+  objections: { label: 'Objections', description: 'Handling strategy', icon: '🛡' },
+  taste: { label: 'Taste', description: 'Creative direction', icon: '🎨' },
+  make: { label: 'Make', description: 'Ad generation', icon: '⚡' },
+  test: { label: 'Test', description: 'Evaluation', icon: '📊' },
+  memories: { label: 'Memories', description: 'Pattern archive', icon: '💾' },
 };
 
 
@@ -35,12 +35,10 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
   const [, setTick] = useState(0);
   const [tokenInfo, setTokenInfo] = useState<TokenInfo>(tokenTracker.get());
 
-  // Subscribe to live token stats
   useEffect(() => {
     return tokenTracker.subscribe(() => setTokenInfo(tokenTracker.get()));
   }, []);
 
-  // Tick every second to update elapsed timer
   useEffect(() => {
     if (!isRunning) return;
     const interval = setInterval(() => setTick((t) => t + 1), 1000);
@@ -65,33 +63,12 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
 
   const currentStage = viewStage || cycle.currentStage;
   const stageData = cycle.stages[currentStage];
-  // Use completedAt for finished stages so the timer stops ticking
   const elapsed = stageData.startedAt
     ? Math.round(((stageData.completedAt || Date.now()) - stageData.startedAt) / 1000)
     : null;
 
-  const borderClass = isDarkMode ? 'border-zinc-800/70' : 'border-zinc-200';
-  const outputBgClass = isDarkMode ? 'bg-[#0b0b0b]' : 'bg-zinc-50';
-  const textClass = isDarkMode ? 'text-white' : 'text-black';
-  const secondaryTextClass = isDarkMode ? 'text-zinc-600' : 'text-zinc-500';
-  const outputTextClass = isDarkMode ? 'text-zinc-300' : 'text-zinc-800';
-  const placeholderTextClass = isDarkMode ? 'text-zinc-700' : 'text-zinc-300';
+  const info = STAGE_INFO[currentStage];
 
-  const statusColor = stageData.status === 'in-progress'
-    ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600')
-    : stageData.status === 'complete'
-      ? (isDarkMode ? 'text-zinc-500' : 'text-zinc-500')
-      : (isDarkMode ? 'text-zinc-700' : 'text-zinc-400');
-
-  const statusDotClass = stageData.status === 'in-progress'
-    ? (isDarkMode ? 'bg-emerald-400' : 'bg-emerald-500')
-    : stageData.status === 'complete'
-      ? (isDarkMode ? 'bg-zinc-600' : 'bg-zinc-400')
-      : (isDarkMode ? 'bg-zinc-800' : 'bg-zinc-200');
-
-  const dotClass = isDarkMode ? 'bg-zinc-500' : 'bg-zinc-400';
-
-  // Format elapsed time nicely
   const formatTime = (s: number) => {
     if (s < 60) return `${s}s`;
     const m = Math.floor(s / 60);
@@ -99,57 +76,92 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
     return `${m}m ${rem}s`;
   };
 
+  const statusLabel = stageData.status === 'in-progress' ? 'Running' : stageData.status === 'complete' ? 'Complete' : 'Pending';
+
   return (
-    <div className={`border ${borderClass}`}>
+    <div className={`rounded-2xl overflow-hidden relative ${
+      isDarkMode
+        ? 'bg-zinc-900 shadow-[0_2px_8px_rgba(0,0,0,0.3),0_0_0_1px_rgba(255,255,255,0.04)]'
+        : 'bg-white shadow-[0_2px_8px_rgba(0,0,0,0.06),0_4px_16px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]'
+    }`}>
       {/* Header */}
-      <div className={`border-b ${borderClass} px-4 py-2.5 flex items-center justify-between ${isDarkMode ? 'bg-[#0a0a0a]' : 'bg-white'}`}>
-        <div className="flex items-center gap-4">
-          <div>
-            <h3 className={`font-mono font-bold text-sm uppercase tracking-tight ${textClass}`}>{currentStage}</h3>
-            <p className={`font-mono text-[10px] ${secondaryTextClass} mt-0.5`}>{STAGE_DESCRIPTIONS[currentStage]}</p>
+      <div className={`px-5 py-3.5 flex items-center justify-between ${
+        isDarkMode ? 'border-b border-zinc-800/60' : 'border-b border-zinc-100'
+      }`}>
+        <div className="flex items-center gap-3">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm ${
+            stageData.status === 'in-progress'
+              ? isDarkMode ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
+              : stageData.status === 'complete'
+              ? isDarkMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-100 text-zinc-500'
+              : isDarkMode ? 'bg-zinc-800/50 text-zinc-600' : 'bg-zinc-50 text-zinc-300'
+          }`}>
+            {info.icon}
           </div>
-          <div className="flex items-center gap-2">
-            <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass} ${stageData.status === 'in-progress' ? 'animate-pulse' : ''}`} />
-            <span className={`font-mono text-[10px] uppercase tracking-wider ${statusColor}`}>
-              {stageData.status}
-            </span>
+          <div>
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-zinc-900'}`}>{info.label}</h3>
+            <p className={`text-[11px] ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>{info.description}</p>
           </div>
         </div>
-        {elapsed !== null && (
-          <span className={`font-mono text-xs font-medium tabular-nums ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>
-            {formatTime(elapsed)}
+        <div className="flex items-center gap-3">
+          {/* Status badge */}
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium ${
+            stageData.status === 'in-progress'
+              ? isDarkMode ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
+              : stageData.status === 'complete'
+              ? isDarkMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-100 text-zinc-500'
+              : isDarkMode ? 'bg-zinc-800/50 text-zinc-600' : 'bg-zinc-50 text-zinc-400'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${
+              stageData.status === 'in-progress'
+                ? (isDarkMode ? 'bg-emerald-400' : 'bg-emerald-500') + ' animate-pulse'
+                : stageData.status === 'complete'
+                ? isDarkMode ? 'bg-zinc-500' : 'bg-zinc-400'
+                : isDarkMode ? 'bg-zinc-700' : 'bg-zinc-300'
+            }`} />
+            {statusLabel}
           </span>
-        )}
+          {elapsed !== null && (
+            <span className={`text-xs font-medium tabular-nums ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+              {formatTime(elapsed)}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Output Console */}
       <div
         ref={outputRef}
-        className={`${currentStage === 'research' ? 'p-4 min-h-[500px] max-h-[700px]' : 'p-4 h-96'} overflow-y-auto ${outputBgClass} shadow-inner ${currentStage !== 'research' ? `font-mono text-sm ${outputTextClass} leading-relaxed` : ''} space-y-2`}
+        className={`${currentStage === 'research' ? 'p-5 min-h-[500px] max-h-[700px]' : 'p-5 h-96'} overflow-y-auto ${
+          isDarkMode ? 'bg-zinc-900' : 'bg-zinc-50/50'
+        } space-y-2`}
       >
         {stageData.agentOutput ? (
           <div className="space-y-2">
-            {/* Stage transition message */}
             {prevStage && prevStage !== currentStage && (
-              <div className={`border-l-2 ${isDarkMode ? 'border-zinc-600' : 'border-zinc-400'} pl-2 py-1 text-[10px] font-mono ${isDarkMode ? 'text-zinc-500' : 'text-zinc-500'}`}>
+              <div className={`border-l-2 pl-3 py-1 text-[11px] ${
+                isDarkMode ? 'border-zinc-700 text-zinc-500' : 'border-zinc-300 text-zinc-400'
+              }`}>
                 {currentStage}
               </div>
             )}
 
-            {/* Main output with better formatting */}
             {currentStage === 'research' ? (
               <ResearchOutput output={stageData.agentOutput} isDarkMode={isDarkMode} />
             ) : (
-              <div className={`${isDarkMode ? 'text-zinc-300' : 'text-zinc-800'}`}>
+              <div className={`${isDarkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>
                 {stageData.agentOutput.split('\n').map((line, idx) => (
-                  <div key={idx} className={`text-xs leading-relaxed ${line.startsWith('§') ? `${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'} font-semibold` : ''}`}>
-                    {line.startsWith('§') ? line.substring(1) : line || <span className={placeholderTextClass}>.</span>}
+                  <div key={idx} className={`text-[13px] leading-relaxed ${
+                    line.startsWith('§')
+                      ? isDarkMode ? 'text-blue-400 font-semibold' : 'text-blue-600 font-semibold'
+                      : ''
+                  }`}>
+                    {line.startsWith('§') ? line.substring(1) : line || <span className={isDarkMode ? 'text-zinc-800' : 'text-zinc-200'}>.</span>}
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Model output debug info */}
             <ModelOutputDebug
               rawOutput={stageData.rawOutput}
               model={stageData.model}
@@ -163,20 +175,20 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
             {currentStage === 'make' && !isRunning ? (
               <MakeTestPanel isDarkMode={isDarkMode} />
             ) : (
-              <div className={`${placeholderTextClass} flex items-center justify-center h-full`}>
+              <div className={`flex items-center justify-center h-full ${isDarkMode ? 'text-zinc-700' : 'text-zinc-300'}`}>
                 {isRunning ? (
-                  <div className="flex items-center gap-2.5 text-[10px] font-mono">
+                  <div className="flex items-center gap-2.5">
                     <div className="flex gap-1">
-                      <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} />
-                      <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.15s'}} />
-                      <div className={`w-1.5 h-1.5 ${dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.3s'}} />
+                      <div className={`w-1.5 h-1.5 rounded-full animate-slow-bounce ${isDarkMode ? 'bg-zinc-600' : 'bg-zinc-300'}`} />
+                      <div className={`w-1.5 h-1.5 rounded-full animate-slow-bounce ${isDarkMode ? 'bg-zinc-600' : 'bg-zinc-300'}`} style={{animationDelay:'0.15s'}} />
+                      <div className={`w-1.5 h-1.5 rounded-full animate-slow-bounce ${isDarkMode ? 'bg-zinc-600' : 'bg-zinc-300'}`} style={{animationDelay:'0.3s'}} />
                     </div>
-                    <ShineText variant={isDarkMode ? 'dark' : 'light'} className="text-[10px] font-mono" speed={2.5}>
-                      awaiting output
+                    <ShineText variant={isDarkMode ? 'dark' : 'light'} className="text-[11px]" speed={2.5}>
+                      Awaiting output
                     </ShineText>
                   </div>
                 ) : (
-                  <span className={`font-mono text-[10px] ${isDarkMode ? 'text-zinc-800' : 'text-zinc-300'}`}>no output yet</span>
+                  <span className={`text-[11px] ${isDarkMode ? 'text-zinc-700' : 'text-zinc-300'}`}>No output yet</span>
                 )}
               </div>
             )}
@@ -184,54 +196,69 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
         )}
       </div>
 
-      {/* Status Footer — loading / generating / processing */}
+      {/* Status Footer */}
       {stageData.status === 'in-progress' && (
-        <div className={`px-4 py-1.5 border-t ${borderClass} ${isDarkMode ? 'bg-[#090909]' : 'bg-zinc-50'} flex items-center justify-between`}>
+        <div className={`px-5 py-2 flex items-center justify-between ${
+          isDarkMode ? 'border-t border-zinc-800/60' : 'border-t border-zinc-100'
+        }`}>
           <div className="flex items-center gap-2">
-            <div className="flex gap-1">
-              <div className={`w-1 h-1 ${tokenInfo.isModelLoading ? (isDarkMode ? 'bg-amber-400' : 'bg-amber-500') : tokenInfo.isThinking ? (isDarkMode ? 'bg-violet-400' : 'bg-violet-500') : dotClass} rounded-full animate-slow-bounce`} />
-              <div className={`w-1 h-1 ${tokenInfo.isModelLoading ? (isDarkMode ? 'bg-amber-400' : 'bg-amber-500') : tokenInfo.isThinking ? (isDarkMode ? 'bg-violet-400' : 'bg-violet-500') : dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.15s'}} />
-              <div className={`w-1 h-1 ${tokenInfo.isModelLoading ? (isDarkMode ? 'bg-amber-400' : 'bg-amber-500') : tokenInfo.isThinking ? (isDarkMode ? 'bg-violet-400' : 'bg-violet-500') : dotClass} rounded-full animate-slow-bounce`} style={{animationDelay:'0.3s'}} />
+            <div className="flex gap-0.5">
+              {[0, 1, 2].map(i => (
+                <div
+                  key={i}
+                  className={`w-1 h-1 rounded-full animate-slow-bounce ${
+                    tokenInfo.isModelLoading
+                      ? 'bg-amber-400'
+                      : tokenInfo.isThinking
+                      ? 'bg-violet-400'
+                      : isDarkMode ? 'bg-zinc-600' : 'bg-zinc-300'
+                  }`}
+                  style={{ animationDelay: `${i * 0.15}s` }}
+                />
+              ))}
             </div>
             {tokenInfo.isModelLoading ? (
               <WordCycler
-                prefix="loading"
+                prefix="Loading"
                 words={['model', 'weights', 'context', 'layers', 'model']}
                 color={isDarkMode ? '#fbbf24' : '#d97706'}
                 speed={3}
-                className="text-[10px] font-mono"
+                className="text-[11px]"
               />
             ) : (
               <ShineText
                 variant={isDarkMode ? 'dark' : 'light'}
-                className={`font-mono text-[10px] ${tokenInfo.isThinking ? (isDarkMode ? 'text-violet-400' : 'text-violet-600') : tokenInfo.isGenerating ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : secondaryTextClass}`}
+                className={`text-[11px] ${
+                  tokenInfo.isThinking
+                    ? isDarkMode ? 'text-violet-400' : 'text-violet-600'
+                    : tokenInfo.isGenerating
+                    ? isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
+                    : isDarkMode ? 'text-zinc-500' : 'text-zinc-400'
+                }`}
                 speed={2.5}
               >
-                {tokenInfo.isThinking ? 'thinking' : tokenInfo.isGenerating ? 'generating' : 'processing'}
+                {tokenInfo.isThinking ? 'Thinking' : tokenInfo.isGenerating ? 'Generating' : 'Processing'}
               </ShineText>
             )}
           </div>
 
-          {/* Live token stats */}
-          <div className="flex items-center gap-3 font-mono text-[10px] tabular-nums">
-            {/* Loading elapsed timer */}
+          {/* Token stats */}
+          <div className="flex items-center gap-3 text-[11px] tabular-nums">
             {tokenInfo.isModelLoading && tokenInfo.callStartTime && (
               <span className={isDarkMode ? 'text-amber-400' : 'text-amber-600'}>
                 {Math.floor((Date.now() - tokenInfo.callStartTime) / 1000)}s
               </span>
             )}
-            {/* Live token count while thinking or generating */}
             {(tokenInfo.isThinking || tokenInfo.isGenerating) && (
               <span className={tokenInfo.isThinking ? (isDarkMode ? 'text-violet-400' : 'text-violet-600') : (isDarkMode ? 'text-emerald-400' : 'text-emerald-600')}>
                 {tokenInfo.liveTokens.toLocaleString()} tok
                 {tokenInfo.tokensPerSec > 0 && (
-                  <span className={secondaryTextClass}> · {tokenInfo.tokensPerSec} t/s</span>
+                  <span className={isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}> · {tokenInfo.tokensPerSec} t/s</span>
                 )}
               </span>
             )}
-            {/* Session total */}
             {tokenInfo.sessionTotal > 0 && (
-              <span className={secondaryTextClass}>
+              <span className={isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}>
                 {tokenInfo.sessionTotal.toLocaleString()} total
               </span>
             )}

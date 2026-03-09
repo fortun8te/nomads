@@ -13,8 +13,16 @@ import { ResearchReviewModal } from './ResearchReviewModal';
 import type { StageName } from '../types';
 
 interface DashboardProps {
-  embedded?: boolean; // When true, hides ControlPanel (nav is handled by AppShell)
+  embedded?: boolean;
 }
+
+const STAGES = [
+  { name: 'research', label: 'Research', desc: 'Desires & objections', icon: '🔍' },
+  { name: 'taste', label: 'Taste', desc: 'Creative direction', icon: '🎨' },
+  { name: 'make', label: 'Make', desc: 'Assets', icon: '⚡' },
+  { name: 'test', label: 'Test', desc: 'Evaluation', icon: '📊' },
+  { name: 'memories', label: 'Memories', desc: 'Insights', icon: '💾' },
+];
 
 export function Dashboard({ embedded = false }: DashboardProps) {
   const { systemStatus, error, currentCycle, cycles, campaign, pendingQuestion, answerQuestion, reviewingStage, reviewFindings, resumeAfterReview } = useCampaign();
@@ -22,38 +30,36 @@ export function Dashboard({ embedded = false }: DashboardProps) {
   const isRunning = systemStatus === 'running';
   const [selectedStage, setSelectedStage] = useState<StageName | null>(null);
 
-  // Auto-follow the active stage when it changes (unless user explicitly picked one)
   useEffect(() => {
     if (currentCycle) {
       setSelectedStage(currentCycle.currentStage);
     }
   }, [currentCycle?.currentStage]);
 
-  const bgClass = isDarkMode ? 'bg-[#080808]' : 'bg-white';
-  const textClass = isDarkMode ? 'text-white' : 'text-black';
-  const borderClass = isDarkMode ? 'border-zinc-800/70' : 'border-zinc-200';
-  const secondaryTextClass = isDarkMode ? 'text-zinc-600' : 'text-zinc-500';
-
   return (
-    <div className={`${embedded ? 'flex-1 overflow-y-auto' : 'min-h-screen'} ${bgClass} ${textClass}`}>
+    <div className={`${embedded ? 'flex-1 overflow-y-auto' : 'min-h-screen'} ${isDarkMode ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900'}`}>
       {!embedded && <ControlPanel />}
 
       <div className="max-w-7xl mx-auto px-6 py-5">
-
+        {/* Error banner */}
         {error && (
-          <div className={`border ${isDarkMode ? 'border-red-800/60 bg-red-950/20' : 'border-red-300 bg-red-50'} p-3 mb-5 flex items-start gap-3`}>
-            <span className={`font-mono text-[10px] uppercase tracking-widest font-bold ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>Error</span>
-            <span className={`font-mono text-xs ${isDarkMode ? 'text-red-300/80' : 'text-red-700'}`}>{error}</span>
+          <div className={`rounded-xl p-4 mb-5 flex items-start gap-3 ${
+            isDarkMode ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-200'
+          }`}>
+            <span className={`text-[10px] uppercase tracking-wider font-semibold ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>Error</span>
+            <span className={`text-xs ${isDarkMode ? 'text-red-300/80' : 'text-red-700'}`}>{error}</span>
           </div>
         )}
 
+        {/* Running indicator */}
         {!error && isRunning && (
-          <div className={`border-l-2 ${isDarkMode ? 'border-emerald-500/60' : 'border-black'} pl-3 mb-5`}>
-            <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-emerald-400/70' : 'text-black'}`}>Running</span>
+          <div className="flex items-center gap-2 mb-5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className={`text-[11px] font-medium ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Pipeline running</span>
           </div>
         )}
 
-        <div className="grid grid-cols-12 gap-3">
+        <div className="grid grid-cols-12 gap-4">
           {/* Left — Campaign info */}
           <div className="col-span-3 space-y-3">
             <CampaignSelector />
@@ -61,43 +67,52 @@ export function Dashboard({ embedded = false }: DashboardProps) {
             {campaign && !campaign.presetData && <BrandDetailsPanel campaign={campaign} isDarkMode={isDarkMode} />}
             <CycleHistory cycles={cycles} />
 
-            {/* Stage legend — clickable to navigate */}
-            <div className={`border ${borderClass} p-3`}>
-              <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${secondaryTextClass} block mb-2`}>Stages (click to view)</span>
-              <div className="space-y-1.5">
-                {[
-                  { name: 'research', label: 'Research', desc: 'Desires & objections' },
-                  { name: 'taste', label: 'Taste', desc: 'Creative direction' },
-                  { name: 'make', label: 'Make', desc: 'Assets' },
-                  { name: 'test', label: 'Test', desc: 'Eval' },
-                  { name: 'memories', label: 'Memories', desc: 'Insights' },
-                ].map((s) => (
-                  <button
-                    key={s.name}
-                    onClick={() => {
-                      if (campaign && currentCycle) {
-                        setSelectedStage(s.name as StageName);
-                      }
-                    }}
-                    disabled={!campaign || !currentCycle}
-                    className={`w-full flex items-center justify-between gap-2 p-1.5 rounded transition-colors ${
-                      campaign && currentCycle
-                        ? isDarkMode
-                          ? 'hover:bg-zinc-900/60 cursor-pointer'
-                          : 'hover:bg-zinc-100/60 cursor-pointer'
-                        : 'opacity-50 cursor-not-allowed'
-                    } ${
-                      selectedStage === s.name
-                        ? isDarkMode
-                          ? 'bg-zinc-800/80'
-                          : 'bg-zinc-200/60'
-                        : ''
-                    }`}
-                  >
-                    <span className={`font-mono text-[10px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-zinc-400' : 'text-zinc-700'}`}>{s.label}</span>
-                    <span className={`font-mono text-[10px] ${secondaryTextClass}`}>{s.desc}</span>
-                  </button>
-                ))}
+            {/* Stage legend */}
+            <div className={`rounded-xl p-3 ${
+              isDarkMode
+                ? 'bg-zinc-900 border border-zinc-800/60'
+                : 'bg-white border border-zinc-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)]'
+            }`}>
+              <span className={`text-[10px] uppercase tracking-wider font-semibold block mb-2 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                Stages
+              </span>
+              <div className="space-y-1">
+                {STAGES.map((s) => {
+                  const stageData = currentCycle?.stages[s.name as StageName];
+                  const isActive = stageData?.status === 'in-progress';
+                  const isComplete = stageData?.status === 'complete';
+                  return (
+                    <button
+                      key={s.name}
+                      onClick={() => {
+                        if (campaign && currentCycle) setSelectedStage(s.name as StageName);
+                      }}
+                      disabled={!campaign || !currentCycle}
+                      className={`w-full flex items-center gap-2.5 p-2 rounded-lg transition-all ${
+                        campaign && currentCycle
+                          ? isDarkMode
+                            ? 'hover:bg-zinc-800/80 cursor-pointer'
+                            : 'hover:bg-zinc-50 cursor-pointer'
+                          : 'opacity-40 cursor-not-allowed'
+                      } ${
+                        selectedStage === s.name
+                          ? isDarkMode ? 'bg-zinc-800' : 'bg-zinc-100'
+                          : ''
+                      }`}
+                    >
+                      <span className="text-sm">{s.icon}</span>
+                      <div className="flex-1 text-left">
+                        <span className={`text-[11px] font-medium ${isDarkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>{s.label}</span>
+                      </div>
+                      {isActive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                      {isComplete && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? '#71717a' : '#a1a1aa'} strokeWidth="2.5">
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -110,18 +125,19 @@ export function Dashboard({ embedded = false }: DashboardProps) {
                 <StagePanel cycle={currentCycle} isRunning={isRunning} isDarkMode={isDarkMode} viewStage={selectedStage} />
               </>
             ) : (
-              <div className={`border border-dashed ${borderClass} p-12 text-center`}>
-                <p className={`font-mono text-[10px] uppercase tracking-[0.2em] ${isDarkMode ? 'text-zinc-700' : 'text-zinc-400'}`}>
-                  Create campaign to begin
+              <div className={`rounded-2xl border-2 border-dashed p-16 text-center ${
+                isDarkMode ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-white'
+              }`}>
+                <p className={`text-sm ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                  Create a campaign to begin
                 </p>
               </div>
             )}
           </div>
         </div>
-
       </div>
 
-      {/* Interactive question modal — shown when pipeline pauses for user input */}
+      {/* Interactive question modal */}
       {pendingQuestion && (
         <QuestionModal
           question={pendingQuestion}
@@ -130,7 +146,7 @@ export function Dashboard({ embedded = false }: DashboardProps) {
         />
       )}
 
-      {/* Research review modal — shown after research completes in interactive mode */}
+      {/* Research review modal */}
       {reviewingStage === 'research' && reviewFindings && (
         <ResearchReviewModal
           isOpen={true}

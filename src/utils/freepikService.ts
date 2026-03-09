@@ -18,7 +18,8 @@
 const FREEPIK_SERVER = 'http://localhost:8890';
 
 export interface GenerateImageResult {
-  imageBase64: string;
+  imageBase64: string;          // First image (backward compat)
+  imagesBase64?: string[];      // All images when count > 1
   success: boolean;
   error?: string;
 }
@@ -27,6 +28,7 @@ export interface GenerateImageOptions {
   prompt: string;
   model?: string;
   aspectRatio?: string;  // '1:1' | '9:16' | '16:9' | '4:5' | etc.
+  count?: number;  // images per generation (1 = single image, Freepik default can be 2)
   referenceImages?: string[];  // base64 images (data URLs or raw base64)
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
@@ -45,6 +47,7 @@ export async function generateImage(
     prompt,
     model = 'nano-banana-2',
     aspectRatio = '1:1',
+    count = 1,
     referenceImages = [],
     signal,
     onProgress,
@@ -86,6 +89,7 @@ export async function generateImage(
         prompt,
         model,
         aspect_ratio: aspectRatio,
+        count,
         reference_images: referenceImages,
       }),
       signal,
@@ -139,6 +143,7 @@ export async function generateImage(
             case 'complete':
               result = {
                 imageBase64: event.image_base64,
+                imagesBase64: event.images_base64 || [event.image_base64],
                 success: event.success,
               };
               break;
@@ -176,6 +181,21 @@ export async function checkServerStatus(): Promise<boolean> {
   try {
     const resp = await fetch(`${FREEPIK_SERVER}/api/status`, {
       signal: AbortSignal.timeout(3000),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Force-restart the Freepik browser (kills Playwright, next request launches fresh)
+ */
+export async function restartFreepikBrowser(): Promise<boolean> {
+  try {
+    const resp = await fetch(`${FREEPIK_SERVER}/api/restart`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(10000),
     });
     return resp.ok;
   } catch {

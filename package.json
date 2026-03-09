@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "trap 'kill $(jobs -p) 2>/dev/null' EXIT; /opt/homebrew/bin/python3.11 -m uvicorn freepik_server:app --host 0.0.0.0 --port 8890 & vite",
+    "dev:vite": "vite",
+    "dev:freepik": "/opt/homebrew/bin/python3.11 -m uvicorn freepik_server:app --host 0.0.0.0 --port 8890",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -12,9 +14,11 @@
   "dependencies": {
     "@tailwindcss/postcss": "^4.2.1",
     "antd": "^6.3.1",
+    "html-to-image": "^1.11.13",
     "idb-keyval": "^6.2.2",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
+    "pdfjs-dist": "^5.5.207",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

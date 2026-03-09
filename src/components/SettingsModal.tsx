@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import { ollamaService } from '../utils/ollama';
+import { analyzeAll as analyzeAdLibrary, getCache as getAdLibraryCache, clearCache as clearAdLibraryCache, type AdLibraryCache } from '../utils/adLibraryCache';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -23,16 +25,22 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
   const [pipelineMode, setPipelineMode] = useState<'auto' | 'interactive'>('interactive');
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [streamTestOutput, setStreamTestOutput] = useState<string | null>(null);
+  const [streamTesting, setStreamTesting] = useState(false);
+  const [adCacheStatus, setAdCacheStatus] = useState<string>('');
+  const [adCacheProgress, setAdCacheProgress] = useState<string>('');
+  const [adCacheRunning, setAdCacheRunning] = useState(false);
+  const [adCacheInfo, setAdCacheInfo] = useState<AdLibraryCache | null>(null);
+  const adCacheAbortRef = useRef<AbortController | null>(null);
   const [debugTests, setDebugTests] = useState<DebugTest[]>([
     { name: 'Ollama Connection', status: 'pending', message: 'Not tested' },
     { name: 'Ollama Models', status: 'pending', message: 'Not tested' },
-    { name: 'Wayfayer (Web Research)', status: 'pending', message: 'Not tested' },
+    { name: 'Wayfarer (Web Research)', status: 'pending', message: 'Not tested' },
   ]);
 
   useEffect(() => {
-    // All Ollama calls go through the Wayfarer proxy — show proxy URL
     setOllamaHost('http://localhost:8889/ollama (proxy)');
-    localStorage.removeItem('ollama_host'); // clear any stale direct host
+    localStorage.removeItem('ollama_host');
     const savedWayfarer = localStorage.getItem('wayfarer_host');
     setWayfarerHost(savedWayfarer || 'http://localhost:8889');
     const savedTime = localStorage.getItem('max_research_time_minutes');
@@ -41,6 +49,8 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
     setMaxIterations(savedIter || '15');
     const savedMode = localStorage.getItem('pipeline_mode');
     setPipelineMode((savedMode as 'auto' | 'interactive') || 'interactive');
+    // Load ad library cache status
+    getAdLibraryCache().then(cache => setAdCacheInfo(cache));
   }, []);
 
   const fetchWithTimeout = (url: string, timeout = 10000) => {
@@ -56,13 +66,8 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
     setTestingConnection(true);
     setConnectionStatus('idle');
     try {
-      // Test via proxy
       const response = (await fetchWithTimeout('http://localhost:8889/ollama/api/tags', 10000)) as Response;
-      if (response.ok) {
-        setConnectionStatus('success');
-      } else {
-        setConnectionStatus('error');
-      }
+      setConnectionStatus(response.ok ? 'success' : 'error');
     } catch {
       setConnectionStatus('error');
     } finally {
@@ -80,17 +85,16 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
     setDebugTests([
       { name: 'Ollama Connection', status: 'testing', message: 'Connecting...' },
       { name: 'Ollama Models', status: 'testing', message: 'Checking...' },
-      { name: 'Wayfayer (Web Research)', status: 'testing', message: 'Testing...' },
+      { name: 'Wayfarer (Web Research)', status: 'testing', message: 'Testing...' },
     ]);
 
-    // Test 1: Ollama Connection (via proxy)
     try {
       const ollamaResp = (await fetchWithTimeout('http://localhost:8889/ollama/api/tags', 10000)) as Response;
       if (ollamaResp.ok) {
         const models = await ollamaResp.json();
         const modelCount = models.models?.length || 0;
         setDebugTests((prev) => [
-          { ...prev[0], status: 'success', message: `Connected (${modelCount} models available)` },
+          { ...prev[0], status: 'success', message: `Connected (${modelCount} models)` },
           { name: 'Ollama Models', status: 'success', message: models.models?.map((m: any) => m.name).join(', ') || 'None' },
           prev[2],
         ]);
@@ -109,12 +113,10 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
       ]);
     }
 
-    // Test 2: Wayfarer API
     try {
       const wfHost = localStorage.getItem('wayfarer_host') || 'http://localhost:8889';
       const wayfarerResp = (await fetchWithTimeout(`${wfHost}/health`, 5000)) as Response;
       if (wayfarerResp.ok) {
-        // Quick research test
         const testResp = await fetch(`${wfHost}/research`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -124,336 +126,477 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
         if (testResp.ok) {
           const data = await testResp.json();
           setDebugTests((prev) => [
-            prev[0],
-            prev[1],
-            { ...prev[2], status: 'success', message: `Online — ${data.meta?.success || 0}/${data.meta?.total || 0} pages scraped in ${(data.meta?.elapsed || 0).toFixed(1)}s` },
+            prev[0], prev[1],
+            { ...prev[2], status: 'success', message: `Online — ${data.meta?.success || 0}/${data.meta?.total || 0} pages in ${(data.meta?.elapsed || 0).toFixed(1)}s` },
           ]);
         } else {
           setDebugTests((prev) => [
-            prev[0],
-            prev[1],
-            { ...prev[2], status: 'success', message: 'Health OK, but research endpoint returned error' },
+            prev[0], prev[1],
+            { ...prev[2], status: 'success', message: 'Health OK, research endpoint returned error' },
           ]);
         }
       } else {
         setDebugTests((prev) => [
-          prev[0],
-          prev[1],
+          prev[0], prev[1],
           { ...prev[2], status: 'error', message: `Error: ${wayfarerResp.status}` },
         ]);
       }
     } catch (err: unknown) {
       setDebugTests((prev) => [
-        prev[0],
-        prev[1],
-        { ...prev[2], status: 'error', message: `${err instanceof Error ? err.message : 'Unavailable'} — is Wayfayer server running?` },
+        prev[0], prev[1],
+        { ...prev[2], status: 'error', message: `${err instanceof Error ? err.message : 'Unavailable'} — is Wayfarer running?` },
       ]);
     }
   };
 
   if (!isOpen) return null;
 
-  const labelClass = `font-mono text-xs uppercase tracking-widest ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`;
-  const inputClass = `w-full px-3 py-2 rounded font-mono text-xs ${
-    isDarkMode ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-white border-zinc-200 text-black'
-  } border transition-colors`;
-  const sectionBorder = `pt-4 border-t ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`;
-
   return (
     <>
       {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-md z-40" onClick={onClose} />
 
       {/* Modal */}
       <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
-        <div className={`pointer-events-auto w-[420px] ${
+        <div className={`pointer-events-auto w-[440px] rounded-2xl overflow-hidden ${
           isDarkMode
-            ? 'bg-[#0d0d0d] border-zinc-800'
-            : 'bg-white border-zinc-200'
-        } border rounded-lg shadow-2xl`}>
+            ? 'bg-zinc-900 shadow-[0_8px_30px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)]'
+            : 'bg-white shadow-[0_8px_30px_rgba(0,0,0,0.12),0_4px_12px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.04)]'
+        }`}>
 
           {/* Header */}
-          <div className={`px-6 py-4 border-b ${
-            isDarkMode ? 'border-zinc-800' : 'border-zinc-200'
-          } flex items-center justify-between`}>
-            <h2 className={`font-mono text-sm font-bold uppercase tracking-widest ${
-              isDarkMode ? 'text-white' : 'text-black'
-            }`}>
+          <div className={`px-6 py-4 flex items-center justify-between ${
+            isDarkMode ? 'border-b border-zinc-800/80' : 'border-b border-zinc-100'
+          }`}>
+            <h2 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-zinc-900'}`}>
               Settings
             </h2>
             <button
               onClick={onClose}
-              className={`font-mono text-lg hover:opacity-50 transition-opacity ${
-                isDarkMode ? 'text-zinc-500' : 'text-zinc-400'
+              className={`p-1.5 rounded-lg transition-colors ${
+                isDarkMode ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100'
               }`}
             >
-              ×
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
             </button>
           </div>
 
           {/* Tabs */}
-          <div className={`flex border-b ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
-            <button
-              onClick={() => setTab('settings')}
-              className={`flex-1 px-4 py-2 font-mono text-xs uppercase tracking-widest transition-colors ${
-                tab === 'settings'
-                  ? isDarkMode ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-black'
-                  : isDarkMode ? 'text-zinc-500 hover:text-zinc-400' : 'text-zinc-400 hover:text-zinc-600'
-              }`}
-            >
-              Settings
-            </button>
-            <button
-              onClick={() => setTab('debug')}
-              className={`flex-1 px-4 py-2 font-mono text-xs uppercase tracking-widest transition-colors ${
-                tab === 'debug'
-                  ? isDarkMode ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-black'
-                  : isDarkMode ? 'text-zinc-500 hover:text-zinc-400' : 'text-zinc-400 hover:text-zinc-600'
-              }`}
-            >
-              Debug
-            </button>
+          <div className={`px-6 pt-3 ${isDarkMode ? '' : ''}`}>
+            <div className={`inline-flex rounded-xl p-1 ${isDarkMode ? 'bg-zinc-800/60' : 'bg-zinc-100/80'}`}>
+              <button
+                onClick={() => setTab('settings')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                  tab === 'settings'
+                    ? isDarkMode ? 'bg-zinc-700 text-white shadow-sm' : 'bg-white text-zinc-900 shadow-sm'
+                    : isDarkMode ? 'text-zinc-400 hover:text-zinc-300' : 'text-zinc-500 hover:text-zinc-700'
+                }`}
+              >
+                General
+              </button>
+              <button
+                onClick={() => setTab('debug')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                  tab === 'debug'
+                    ? isDarkMode ? 'bg-zinc-700 text-white shadow-sm' : 'bg-white text-zinc-900 shadow-sm'
+                    : isDarkMode ? 'text-zinc-400 hover:text-zinc-300' : 'text-zinc-500 hover:text-zinc-700'
+                }`}
+              >
+                Debug
+              </button>
+            </div>
           </div>
 
           {/* Content */}
-          <div className="px-6 py-4 space-y-4 max-h-[28rem] overflow-y-auto">
+          <div className="px-6 py-5 space-y-5 max-h-[32rem] overflow-y-auto">
             {tab === 'settings' ? (
               <>
-                {/* Theme Toggle */}
+                {/* Theme */}
                 <div className="flex items-center justify-between">
-                  <label className={labelClass}>Theme</label>
-                  <div className="flex items-center gap-2">
-                    <span className={`font-mono text-xs ${isDarkMode ? 'text-zinc-500' : 'text-zinc-500'}`}>
-                      {isDarkMode ? 'Dark' : 'Light'}
-                    </span>
-                    <button
-                      onClick={toggleTheme}
-                      className={`relative w-12 h-6 rounded-full transition-colors ${
-                        isDarkMode ? 'bg-white' : 'bg-black'
-                      }`}
-                    >
-                      <div className={`absolute top-0.5 w-5 h-5 rounded-full transition-all ${
-                        isDarkMode ? 'right-0.5 bg-black' : 'left-0.5 bg-white'
-                      }`} />
-                    </button>
+                  <div>
+                    <p className={`text-[13px] font-medium ${isDarkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>Appearance</p>
+                    <p className={`text-[11px] ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>{isDarkMode ? 'Dark mode' : 'Light mode'}</p>
                   </div>
+                  <button
+                    onClick={toggleTheme}
+                    className={`relative w-10 h-[22px] rounded-full transition-colors ${isDarkMode ? 'bg-blue-500' : 'bg-zinc-300'}`}
+                  >
+                    <span className={`absolute top-[3px] w-4 h-4 bg-white rounded-full shadow transition-transform ${isDarkMode ? 'left-[22px]' : 'left-[3px]'}`} />
+                  </button>
                 </div>
 
                 {/* Pipeline Mode */}
-                <div className={sectionBorder}>
-                  <label className={`block ${labelClass} mb-2`}>Pipeline Mode</label>
-                  <div className="flex gap-2">
+                <div className={`pt-4 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+                  <p className={`text-[13px] font-medium mb-2 ${isDarkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>Pipeline mode</p>
+                  <div className={`inline-flex rounded-xl p-1 w-full ${isDarkMode ? 'bg-zinc-800/60' : 'bg-zinc-100/80'}`}>
                     <button
-                      onClick={() => {
-                        setPipelineMode('auto');
-                        localStorage.setItem('pipeline_mode', 'auto');
-                      }}
-                      className={`flex-1 px-3 py-2 font-mono text-[10px] uppercase tracking-widest border transition-colors ${
+                      onClick={() => { setPipelineMode('auto'); localStorage.setItem('pipeline_mode', 'auto'); }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
                         pipelineMode === 'auto'
-                          ? isDarkMode ? 'bg-white text-black border-white' : 'bg-black text-white border-black'
-                          : isDarkMode ? 'bg-transparent text-zinc-500 border-zinc-700 hover:border-zinc-500' : 'bg-transparent text-zinc-400 border-zinc-300 hover:border-zinc-500'
+                          ? isDarkMode ? 'bg-zinc-700 text-white shadow-sm' : 'bg-white text-zinc-900 shadow-sm'
+                          : isDarkMode ? 'text-zinc-400' : 'text-zinc-500'
                       }`}
                     >
-                      Full Auto
+                      Full auto
                     </button>
                     <button
-                      onClick={() => {
-                        setPipelineMode('interactive');
-                        localStorage.setItem('pipeline_mode', 'interactive');
-                      }}
-                      className={`flex-1 px-3 py-2 font-mono text-[10px] uppercase tracking-widest border transition-colors ${
+                      onClick={() => { setPipelineMode('interactive'); localStorage.setItem('pipeline_mode', 'interactive'); }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
                         pipelineMode === 'interactive'
-                          ? isDarkMode ? 'bg-white text-black border-white' : 'bg-black text-white border-black'
-                          : isDarkMode ? 'bg-transparent text-zinc-500 border-zinc-700 hover:border-zinc-500' : 'bg-transparent text-zinc-400 border-zinc-300 hover:border-zinc-500'
+                          ? isDarkMode ? 'bg-zinc-700 text-white shadow-sm' : 'bg-white text-zinc-900 shadow-sm'
+                          : isDarkMode ? 'text-zinc-400' : 'text-zinc-500'
                       }`}
                     >
                       Interactive
                     </button>
                   </div>
-                  <p className={`font-mono text-[10px] mt-1.5 ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                  <p className={`text-[11px] mt-2 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
                     {pipelineMode === 'auto'
-                      ? 'Runs end-to-end without interruption.'
-                      : 'Pauses at key checkpoints to ask for your direction.'}
+                      ? 'Runs the full pipeline without interruption.'
+                      : 'Pauses at checkpoints to ask for your direction.'}
                   </p>
                   {isRunning && (
-                    <p className={`font-mono text-[10px] mt-1.5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-                      Mode change takes effect on next cycle — current run is unaffected.
+                    <p className="text-[11px] mt-1 text-amber-500 font-medium">
+                      Takes effect on next cycle.
                     </p>
                   )}
                 </div>
 
-                {/* Ollama Connection */}
-                <div className={sectionBorder}>
-                  <label className={`block ${labelClass} mb-2`}>Ollama Host</label>
-                  <input
-                    type="text"
-                    value={ollamaHost}
-                    onChange={(e) => {
-                      setOllamaHost(e.target.value);
-                      setConnectionStatus('idle');
-                    }}
-                    className={`${inputClass} mb-2`}
-                    placeholder="http://localhost:11435"
-                  />
-                  <button
-                    onClick={testConnection}
-                    disabled={testingConnection}
-                    className={`w-full px-3 py-1.5 rounded font-mono text-xs uppercase tracking-widest transition-colors ${
-                      testingConnection
-                        ? (isDarkMode ? 'bg-zinc-800 text-zinc-600' : 'bg-zinc-100 text-zinc-400')
-                        : connectionStatus === 'success'
-                        ? (isDarkMode ? 'bg-green-900 text-green-400' : 'bg-green-100 text-green-700')
-                        : connectionStatus === 'error'
-                        ? (isDarkMode ? 'bg-red-900 text-red-400' : 'bg-red-100 text-red-700')
-                        : (isDarkMode ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-zinc-100 text-black hover:bg-zinc-200')
-                    }`}
-                  >
-                    {testingConnection ? 'Testing...' : connectionStatus === 'success' ? '✓ Connected' : connectionStatus === 'error' ? '✗ Failed' : 'Test Connection'}
-                  </button>
+                {/* Connections */}
+                <div className={`pt-4 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+                  <p className={`text-[13px] font-medium mb-3 ${isDarkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>Connections</p>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className={`block text-[11px] font-medium mb-1 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>Ollama</label>
+                      <input
+                        type="text"
+                        value={ollamaHost}
+                        onChange={(e) => { setOllamaHost(e.target.value); setConnectionStatus('idle'); }}
+                        className={`w-full px-3 py-2 rounded-xl text-xs transition-colors ${
+                          isDarkMode ? 'bg-zinc-800 border-zinc-700/50 text-zinc-300 focus:border-zinc-600' : 'bg-zinc-50 border-zinc-200 text-zinc-700 focus:border-zinc-300'
+                        } border outline-none`}
+                        placeholder="http://localhost:11435"
+                      />
+                    </div>
+                    <button
+                      onClick={testConnection}
+                      disabled={testingConnection}
+                      className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                        testingConnection
+                          ? isDarkMode ? 'bg-zinc-800 text-zinc-600' : 'bg-zinc-100 text-zinc-400'
+                          : connectionStatus === 'success'
+                          ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                          : connectionStatus === 'error'
+                          ? 'bg-red-500/10 text-red-500 border border-red-500/20'
+                          : isDarkMode ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                      }`}
+                    >
+                      {testingConnection ? 'Testing...' : connectionStatus === 'success' ? 'Connected' : connectionStatus === 'error' ? 'Connection failed' : 'Test connection'}
+                    </button>
+
+                    <div>
+                      <label className={`block text-[11px] font-medium mb-1 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>Wayfarer</label>
+                      <input
+                        type="text"
+                        value={wayfarerHost}
+                        onChange={(e) => setWayfarerHost(e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl text-xs transition-colors ${
+                          isDarkMode ? 'bg-zinc-800 border-zinc-700/50 text-zinc-300 focus:border-zinc-600' : 'bg-zinc-50 border-zinc-200 text-zinc-700 focus:border-zinc-300'
+                        } border outline-none`}
+                        placeholder="http://localhost:8889"
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                {/* Wayfayer / Research Config */}
-                <div className={sectionBorder}>
-                  <label className={`block ${labelClass} mb-2`}>Wayfayer Host</label>
-                  <input
-                    type="text"
-                    value={wayfarerHost}
-                    onChange={(e) => setWayfarerHost(e.target.value)}
-                    className={`${inputClass} mb-3`}
-                    placeholder="http://localhost:8889"
-                  />
-
+                {/* Research Limits */}
+                <div className={`pt-4 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+                  <p className={`text-[13px] font-medium mb-3 ${isDarkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>Research limits</p>
                   <div className="flex gap-3 mb-3">
                     <div className="flex-1">
-                      <label className={`block ${labelClass} mb-1`}>Time Limit</label>
+                      <label className={`block text-[11px] font-medium mb-1 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>Time limit</label>
                       <div className="flex items-center gap-2">
                         <input
                           type="number"
                           value={maxResearchTime}
                           onChange={(e) => setMaxResearchTime(e.target.value)}
-                          min="1"
-                          max="120"
-                          className={`${inputClass} w-20`}
+                          min="1" max="120"
+                          className={`w-20 px-3 py-2 rounded-xl text-xs transition-colors ${
+                            isDarkMode ? 'bg-zinc-800 border-zinc-700/50 text-zinc-300' : 'bg-zinc-50 border-zinc-200 text-zinc-700'
+                          } border outline-none`}
                         />
-                        <span className={`font-mono text-xs ${isDarkMode ? 'text-zinc-500' : 'text-zinc-500'}`}>min</span>
+                        <span className={`text-[11px] ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>min</span>
                       </div>
                     </div>
                     <div className="flex-1">
-                      <label className={`block ${labelClass} mb-1`}>Max Iterations</label>
+                      <label className={`block text-[11px] font-medium mb-1 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>Max iterations</label>
                       <input
                         type="number"
                         value={maxIterations}
                         onChange={(e) => setMaxIterations(e.target.value)}
-                        min="1"
-                        max="50"
-                        className={`${inputClass} w-20`}
+                        min="1" max="50"
+                        className={`w-20 px-3 py-2 rounded-xl text-xs transition-colors ${
+                          isDarkMode ? 'bg-zinc-800 border-zinc-700/50 text-zinc-300' : 'bg-zinc-50 border-zinc-200 text-zinc-700'
+                        } border outline-none`}
                       />
                     </div>
                   </div>
-
                   <button
                     onClick={saveResearchSettings}
-                    className={`w-full px-3 py-1.5 rounded font-mono text-xs uppercase tracking-widest transition-colors ${
-                      isDarkMode ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-zinc-100 text-black hover:bg-zinc-200'
+                    className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                      isDarkMode ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                     }`}
                   >
-                    Save Research Settings
+                    Save
                   </button>
-                  <p className={`font-mono text-[10px] mt-1.5 ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
-                    Applies to new campaigns. Running research will use its campaign settings.
+                  <p className={`text-[10px] mt-1.5 ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    Applies to new campaigns.
                   </p>
                 </div>
 
                 {/* Version */}
-                <div className={`pt-2 border-t ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
-                  <p className={`font-mono text-xs ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
-                    NOMADS Ad Creative Agent v1.1
+                <div className={`pt-3 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+                  <p className={`text-[11px] ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    NOMADS v1.1
                   </p>
                 </div>
               </>
             ) : (
-              <>
-                {/* Debug Tab */}
-                <div className="space-y-3">
-                  <button
-                    onClick={runDebugTests}
-                    className={`w-full px-3 py-2 rounded font-mono text-xs uppercase tracking-widest transition-colors ${
-                      isDarkMode
-                        ? 'bg-blue-900 text-blue-400 hover:bg-blue-800'
-                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                    }`}
-                  >
-                    Run All Tests
-                  </button>
+              /* Debug Tab */
+              <div className="space-y-3">
+                <button
+                  onClick={runDebugTests}
+                  className={`w-full px-4 py-2.5 rounded-xl text-xs font-medium transition-all ${
+                    isDarkMode
+                      ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20'
+                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
+                  }`}
+                >
+                  Run all tests
+                </button>
 
-                  {debugTests.map((test, idx) => (
-                    <div key={idx} className={`p-3 rounded border ${
-                      test.status === 'success'
-                        ? isDarkMode ? 'bg-green-950 border-green-700' : 'bg-green-50 border-green-200'
-                        : test.status === 'error'
-                        ? isDarkMode ? 'bg-red-950 border-red-700' : 'bg-red-50 border-red-200'
-                        : isDarkMode ? 'bg-zinc-900 border-zinc-700' : 'bg-zinc-50 border-zinc-200'
-                    }`}>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1">
-                          <p className={`font-mono text-xs font-bold ${
-                            test.status === 'success'
-                              ? isDarkMode ? 'text-green-400' : 'text-green-700'
-                              : test.status === 'error'
-                              ? isDarkMode ? 'text-red-400' : 'text-red-700'
-                              : isDarkMode ? 'text-zinc-400' : 'text-zinc-600'
-                          }`}>
-                            {test.name}
-                          </p>
-                          <p className={`font-mono text-xs mt-1 break-words ${
-                            isDarkMode ? 'text-zinc-400' : 'text-zinc-600'
-                          }`}>
-                            {test.message}
-                          </p>
-                        </div>
-                        <div className={`text-lg ${
+                {debugTests.map((test, idx) => (
+                  <div key={idx} className={`p-3 rounded-xl border ${
+                    test.status === 'success'
+                      ? isDarkMode ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'
+                      : test.status === 'error'
+                      ? isDarkMode ? 'bg-red-500/5 border-red-500/20' : 'bg-red-50 border-red-200'
+                      : isDarkMode ? 'bg-zinc-800/50 border-zinc-700/50' : 'bg-zinc-50 border-zinc-200'
+                  }`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-medium ${
                           test.status === 'success'
-                            ? isDarkMode ? 'text-green-400' : 'text-green-600'
+                            ? isDarkMode ? 'text-emerald-400' : 'text-emerald-700'
                             : test.status === 'error'
-                            ? isDarkMode ? 'text-red-400' : 'text-red-600'
-                            : isDarkMode ? 'text-zinc-500' : 'text-zinc-400'
+                            ? isDarkMode ? 'text-red-400' : 'text-red-700'
+                            : isDarkMode ? 'text-zinc-300' : 'text-zinc-700'
                         }`}>
-                          {test.status === 'success' && '✓'}
-                          {test.status === 'error' && '✗'}
-                          {test.status === 'testing' && '⟳'}
-                        </div>
+                          {test.name}
+                        </p>
+                        <p className={`text-[11px] mt-0.5 break-words ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                          {test.message}
+                        </p>
+                      </div>
+                      <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] ${
+                        test.status === 'success'
+                          ? 'bg-emerald-500/20 text-emerald-500'
+                          : test.status === 'error'
+                          ? 'bg-red-500/20 text-red-500'
+                          : test.status === 'testing'
+                          ? 'bg-blue-500/20 text-blue-500 animate-spin'
+                          : isDarkMode ? 'bg-zinc-700 text-zinc-500' : 'bg-zinc-200 text-zinc-400'
+                      }`}>
+                        {test.status === 'success' && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6L9 17l-5-5" /></svg>}
+                        {test.status === 'error' && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12" /></svg>}
+                        {test.status === 'testing' && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83" /></svg>}
                       </div>
                     </div>
-                  ))}
+                  </div>
+                ))}
 
-                  <div className={`pt-2 border-t text-xs font-mono ${isDarkMode ? 'border-zinc-800 text-zinc-500' : 'border-zinc-200 text-zinc-600'}`}>
-                    <p>Search: Wayfayer + SearXNG (local, full page scraping)</p>
-                    <p className={`mt-1 p-2 rounded ${isDarkMode ? 'bg-zinc-900' : 'bg-zinc-100'}`}>
-                      SearXNG :8888 → Wayfayer :8889 → Full pages
-                    </p>
+                {/* Streaming test */}
+                <div className={`pt-3 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+                  <p className={`text-[10px] uppercase tracking-wider font-semibold mb-2 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    Stream test
+                  </p>
+                  <button
+                    disabled={streamTesting}
+                    onClick={async () => {
+                      setStreamTesting(true);
+                      setStreamTestOutput('');
+                      let acc = '';
+                      const start = Date.now();
+                      try {
+                        await ollamaService.generateStream(
+                          'Say hi back in one short sentence.',
+                          'You are a helpful assistant.',
+                          {
+                            model: 'lfm2.5-thinking:latest',
+                            onChunk: (chunk) => {
+                              acc += chunk;
+                              setStreamTestOutput(acc);
+                            },
+                          }
+                        );
+                        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+                        setStreamTestOutput(prev => `${prev}\n\n--- ${elapsed}s ---`);
+                      } catch (err) {
+                        setStreamTestOutput(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+                      } finally {
+                        setStreamTesting(false);
+                      }
+                    }}
+                    className={`w-full px-4 py-2.5 rounded-xl text-xs font-medium transition-all ${
+                      streamTesting
+                        ? isDarkMode ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-wait' : 'bg-emerald-50 text-emerald-600 border border-emerald-200 cursor-wait'
+                        : isDarkMode ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700/50' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 border border-zinc-200'
+                    }`}
+                  >
+                    {streamTesting ? 'Streaming from lfm2.5...' : 'Test streaming (lfm2.5 say hi)'}
+                  </button>
+                  {streamTestOutput !== null && (
+                    <pre className={`mt-2 p-3 rounded-xl text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-words max-h-40 overflow-y-auto border ${
+                      streamTestOutput.startsWith('ERROR')
+                        ? isDarkMode ? 'bg-red-500/5 text-red-400 border-red-500/20' : 'bg-red-50 text-red-600 border-red-200'
+                        : isDarkMode ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    }`}>
+                      {streamTestOutput || '...'}
+                    </pre>
+                  )}
+                </div>
+
+                {/* Ad Library Pre-Analysis */}
+                <div className={`pt-3 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+                  <p className={`text-[10px] uppercase tracking-wider font-semibold mb-2 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    Ad Library Analysis
+                  </p>
+                  {adCacheInfo && adCacheInfo.totalAnalyzed > 0 && (
+                    <div className={`mb-2 p-2 rounded-lg text-[11px] ${isDarkMode ? 'bg-emerald-500/5 text-emerald-400 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                      {adCacheInfo.totalAnalyzed} ads analyzed · {adCacheInfo.totalFailed} failed · Updated {new Date(adCacheInfo.lastUpdated).toLocaleDateString()}
+                    </div>
+                  )}
+                  {adCacheProgress && (
+                    <div className={`mb-2 p-2 rounded-lg text-[11px] font-mono ${isDarkMode ? 'bg-blue-500/5 text-blue-400 border border-blue-500/20' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                      {adCacheProgress}
+                    </div>
+                  )}
+                  {adCacheStatus && (
+                    <div className={`mb-2 p-2 rounded-lg text-[11px] ${
+                      adCacheStatus.startsWith('ERROR')
+                        ? isDarkMode ? 'bg-red-500/5 text-red-400 border border-red-500/20' : 'bg-red-50 text-red-600 border border-red-200'
+                        : isDarkMode ? 'bg-emerald-500/5 text-emerald-400 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    }`}>
+                      {adCacheStatus}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      disabled={adCacheRunning}
+                      onClick={async () => {
+                        setAdCacheRunning(true);
+                        setAdCacheStatus('');
+                        setAdCacheProgress('Starting...');
+                        const abort = new AbortController();
+                        adCacheAbortRef.current = abort;
+                        try {
+                          const cache = await analyzeAdLibrary(
+                            (done, total, current) => {
+                              setAdCacheProgress(`${done}/${total} analyzed · ${current}`);
+                            },
+                            abort.signal
+                          );
+                          setAdCacheInfo(cache);
+                          setAdCacheStatus(`Done! ${cache.totalAnalyzed} ads analyzed.`);
+                          setAdCacheProgress('');
+                        } catch (err) {
+                          setAdCacheStatus(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+                        } finally {
+                          setAdCacheRunning(false);
+                          adCacheAbortRef.current = null;
+                        }
+                      }}
+                      className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-medium transition-all ${
+                        adCacheRunning
+                          ? isDarkMode ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20 cursor-wait' : 'bg-blue-50 text-blue-600 border border-blue-200 cursor-wait'
+                          : isDarkMode ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700/50' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 border border-zinc-200'
+                      }`}
+                    >
+                      {adCacheRunning ? 'Analyzing...' : adCacheInfo?.totalAnalyzed ? 'Re-analyze All' : 'Pre-analyze Ad Library (minicpm-v)'}
+                    </button>
+                    {adCacheRunning && (
+                      <button
+                        onClick={() => adCacheAbortRef.current?.abort()}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-medium ${isDarkMode ? 'bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20' : 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'}`}
+                      >
+                        Stop
+                      </button>
+                    )}
+                    {adCacheInfo?.totalAnalyzed && !adCacheRunning ? (
+                      <button
+                        onClick={async () => {
+                          await clearAdLibraryCache();
+                          setAdCacheInfo(null);
+                          setAdCacheStatus('Cache cleared');
+                        }}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-medium ${isDarkMode ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 border border-zinc-700/50' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200'}`}
+                      >
+                        Clear
+                      </button>
+                    ) : null}
                   </div>
                 </div>
-              </>
-            )}
-          </div>
 
-          {/* Footer */}
-          <div className={`px-6 py-3 border-t ${
-            isDarkMode ? 'border-zinc-800' : 'border-zinc-200'
-          } flex justify-end`}>
-            <button
-              onClick={onClose}
-              className={`font-mono text-xs uppercase tracking-widest px-4 py-1.5 rounded transition-colors ${
-                isDarkMode
-                  ? 'bg-white text-black hover:bg-zinc-200'
-                  : 'bg-black text-white hover:bg-zinc-800'
-              }`}
-            >
-              Close
-            </button>
+                {/* Kill all LLM — unloads all running models from Ollama VRAM */}
+                <div className={`pt-3 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+                  <p className={`text-[10px] uppercase tracking-wider font-semibold mb-2 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    Ollama Control
+                  </p>
+                  <button
+                    onClick={async () => {
+                      try {
+                        // List running models via Ollama API
+                        const psResp = await fetch('http://localhost:8889/ollama/api/ps');
+                        if (!psResp.ok) throw new Error(`ps failed: ${psResp.status}`);
+                        const psData = await psResp.json();
+                        const models = psData.models || [];
+                        if (models.length === 0) {
+                          alert('No models currently loaded in VRAM');
+                          return;
+                        }
+                        // Unload each model by sending keep_alive: 0
+                        for (const m of models) {
+                          await fetch('http://localhost:8889/ollama/api/generate', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ model: m.name, keep_alive: 0 }),
+                          });
+                        }
+                        alert(`Unloaded ${models.length} model(s) from VRAM: ${models.map((m: any) => m.name).join(', ')}`);
+                      } catch (err) {
+                        alert(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+                      }
+                    }}
+                    className={`w-full px-4 py-2.5 rounded-xl text-xs font-medium transition-all ${
+                      isDarkMode
+                        ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20'
+                        : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                    }`}
+                  >
+                    Kill all LLM (unload from VRAM)
+                  </button>
+                </div>
+
+                <div className={`pt-3 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+                  <p className={`text-[11px] ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    SearXNG :8888 → Wayfarer :8889 → Full pages
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

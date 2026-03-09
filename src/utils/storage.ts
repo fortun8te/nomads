@@ -13,14 +13,21 @@ export interface StoredImage {
   imagePrompt?: string;         // Final prompt sent to image model (may differ from user prompt)
   model: string;                // 'nano-banana-2' | 'seedream-5-lite'
   aspectRatio: string;          // '1:1' | '9:16' | '4:5' | '16:9'
-  pipeline: string;             // 'direct' | 'research-llm' | 'research-html-llm'
+  pipeline: string;             // 'direct' | 'preset-llm' | 'preset-html-llm' | 'research-llm' | 'research-html-llm'
   timestamp: number;
   label: string;                // 'Ad 1', 'Ad 2', etc.
   referenceImageCount: number;  // How many @img refs were used
+  referenceImages?: string[];   // The actual base64 reference images (for display in lightbox)
   campaignId?: string;          // Which campaign this was for
   campaignBrand?: string;       // Brand name for display
   favorite?: boolean;           // User favorited this image
   heroImageBase64?: string;     // Optional hero image generated via Freepik Pikaso (Phase 10)
+  htmlScreenshot?: string;      // Screenshot of the HTML layout wireframe (base64, for HTML pipeline)
+  htmlSource?: string;          // Full HTML source code (for re-rendering, editing, reuse as template)
+  strategyLabel?: string;       // e.g. "Product Hero - PAS" (for HTML ad variant cards)
+  generationDurationMs?: number; // How long this ad took to generate (ms)
+  inspiredByRef?: string;       // Which library reference inspired this ad (e.g. "Reference #3 - social-proof")
+  sourceHtmlId?: string;        // Links rendered Freepik image back to its HTML draft
 }
 
 export const storage = {

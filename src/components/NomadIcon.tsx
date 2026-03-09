@@ -10,6 +10,8 @@
  *   <NomadIcon animated size={48} /> — Custom size loader
  */
 
+import { useMemo } from 'react';
+
 interface NomadIconProps {
   size?: number;
   animated?: boolean;
@@ -25,7 +27,7 @@ export function NomadIcon({
   color = 'currentColor',
   glow = false,
 }: NomadIconProps) {
-  const id = `nomad-${Math.random().toString(36).slice(2, 8)}`;
+  const id = useMemo(() => `nomad-${Math.random().toString(36).slice(2, 8)}`, []);
 
   return (
     <svg
