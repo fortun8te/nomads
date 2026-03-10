@@ -274,11 +274,11 @@ export interface Cycle {
 
 export type ResearchMode = 'interactive' | 'autonomous';
 
-// Labeled reference image with metadata for LLM context
+// uploaded image — either a product shot or a layout ref
 export interface ReferenceImage {
   base64: string;
-  label: string;       // e.g. "Product bottle", "Lifestyle shot", "Brand guideline"
-  description: string; // e.g. "White spray bottle with brown branding, front angle"
+  label: string;       // e.g. "Front bottle", "Hero layout"
+  description: string; // e.g. "white spray bottle, brown branding, front angle"
   type: 'product' | 'layout';
 }
 

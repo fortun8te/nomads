@@ -28,6 +28,17 @@ export interface StoredImage {
   generationDurationMs?: number; // How long this ad took to generate (ms)
   inspiredByRef?: string;       // Which library reference inspired this ad (e.g. "Reference #3 - social-proof")
   sourceHtmlId?: string;        // Links rendered Freepik image back to its HTML draft
+  visionFeedback?: string;      // Vision QA feedback from MiniCPM brand compliance check
+  visionRounds?: VisionRound[]; // Full round-by-round history (persistent, browsable after generation)
+}
+
+/** One round of the vision QA loop */
+export interface VisionRound {
+  round: number;         // 0 = original/candidate, 1+ = revision
+  imageBase64: string;   // The image at this round
+  prompt: string;        // The prompt used for this round
+  feedback: string;      // MiniCPM's feedback (or "selected by MiniCPM" / "original")
+  status: 'original' | 'candidate' | 'revised' | 'passed'; // What happened
 }
 
 export const storage = {

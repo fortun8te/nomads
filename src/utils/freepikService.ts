@@ -202,3 +202,19 @@ export async function restartFreepikBrowser(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Nuclear kill — kills Playwright browser + orphaned Chrome processes via OS-level pkill.
+ * Use when /api/restart doesn't actually stop the browser.
+ */
+export async function forceKillFreepik(): Promise<boolean> {
+  try {
+    const resp = await fetch(`${FREEPIK_SERVER}/api/force-kill`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(10000),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}

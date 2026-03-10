@@ -138,6 +138,7 @@ async function compressFindings(
   // Compress in batches of 3 (don't overwhelm Ollama)
   const compressed: string[] = [];
   for (let i = 0; i < validPages.length; i += 3) {
+    if (signal?.aborted) break;
     const batch = validPages.slice(i, i + 3);
     const batchResults = await Promise.all(
       batch.map((p) => compressPage(p.content, p.title, p.url, researchQuery, signal))
@@ -310,7 +311,7 @@ export const orchestrator = {
           evaluationPrompt,
           'You decide what research is needed. Be specific about topics.',
           {
-            model: 'glm-4.7-flash:q4_K_M',
+            model: 'qwen3.5:9b',
             signal,
             onChunk: (c) => {
               decisionBuffer += c;
@@ -668,7 +669,7 @@ VISUAL_SCOUT: [competitor URLs to screenshot and analyze, if visual analysis is 
       const response = await ollamaService.generateStream(
         reflectionPrompt,
         'Be BRUTALLY critical. Find what we DON\'T know. Suggest specific web research.',
-        { model: 'glm-4.7-flash:q4_K_M', onChunk, signal } // Upgraded from lfm-2.5 — reflection needs strategic depth
+        { model: 'qwen3.5:9b', onChunk, signal } // Upgraded from lfm-2.5 — reflection needs strategic depth
       );
 
       // Extract risk level

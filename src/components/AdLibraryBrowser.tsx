@@ -10,6 +10,7 @@ interface AdLibraryBrowserProps {
   theme: 'light' | 'dark';
   onUseAsTemplate?: (html: string, label: string) => void;
   onReferenceLayout?: (imageBase64: string, description: string, category: string) => void;
+  onCopyTarget?: (imageBase64: string, description: string, category: string, filename: string, path: string) => void;
 }
 
 const AD_LIBRARY_CATEGORIES = [
@@ -62,7 +63,7 @@ function extractKeywords(desc: string): string[] {
   return keywords.slice(0, 4);
 }
 
-export function AdLibraryBrowser({ onClose, theme, onReferenceLayout }: AdLibraryBrowserProps) {
+export function AdLibraryBrowser({ onClose, theme, onReferenceLayout, onCopyTarget }: AdLibraryBrowserProps) {
   const { campaign } = useCampaign();
   const [selectedCategory, setSelectedCategory] = useState<string>('product-hero');
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<string | null>(null);
@@ -657,6 +658,22 @@ Be specific enough that this description alone could be used as a prompt to gene
                       }`}
                     >
                       Reference this layout
+                    </button>
+                  )}
+                  {onCopyTarget && selectedImageBase64 && (
+                    <button
+                      onClick={() => {
+                        const desc = descriptions[selectedImage.filename]?.description || (selectedImage as any).description || '';
+                        onCopyTarget(selectedImageBase64, desc, selectedImage.category, selectedImage.filename, selectedImage.path);
+                        onClose();
+                      }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                        isDark
+                          ? 'bg-purple-500 text-white hover:bg-purple-400'
+                          : 'bg-purple-600 text-white hover:bg-purple-500'
+                      }`}
+                    >
+                      Copy This Ad
                     </button>
                   )}
                 </>

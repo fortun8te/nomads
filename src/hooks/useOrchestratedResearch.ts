@@ -36,7 +36,7 @@ export function useOrchestratedResearch() {
     const desireResult = await executeDesireResearch(
       campaign,
       (msg) => onProgress?.(msg),
-      'glm-4.7-flash:q4_K_M',
+      'qwen3.5:9b',
       signal
     );
 
@@ -181,7 +181,7 @@ Ready for: Objection Handling -> Creative Direction (Taste)
       return {
         processedOutput: combinedOutput,
         rawOutput: combinedOutput,
-        model: 'glm-4.7-flash:q4_K_M (orchestrator) + lfm-2.5 (researchers)',
+        model: 'qwen3.5:9b (orchestrator) + lfm-2.5 (researchers)',
         processingTime: Date.now() - startTime,
         researchFindings: desireResult.researchFindings,
       };

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { ollamaService } from '../utils/ollama';
+import { MODEL_CONFIG } from '../utils/modelConfig';
 import { analyzeAll as analyzeAdLibrary, getCache as getAdLibraryCache, clearCache as clearAdLibraryCache, type AdLibraryCache } from '../utils/adLibraryCache';
 
 interface SettingsModalProps {
@@ -13,6 +14,198 @@ interface DebugTest {
   name: string;
   status: 'pending' | 'testing' | 'success' | 'error';
   message: string;
+}
+
+// All Ollama calls go through Wayfarer proxy (handles CORS + streaming)
+const OLLAMA_PROXY = 'http://localhost:8889/ollama';
+
+interface OllamaModel {
+  name: string;
+  size: number;
+  loaded: boolean;
+}
+
+function OllamaModelControl({ isDarkMode }: { isDarkMode: boolean }) {
+  const [models, setModels] = useState<OllamaModel[]>([]);
+  const [loading, setLoading] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    setError(null);
+    const allModels: OllamaModel[] = [];
+
+    try {
+      const [tagsResp, psResp] = await Promise.all([
+        fetch(`${OLLAMA_PROXY}/api/tags`, { signal: AbortSignal.timeout(8000) }),
+        fetch(`${OLLAMA_PROXY}/api/ps`, { signal: AbortSignal.timeout(8000) }),
+      ]);
+      const tags = tagsResp.ok ? await tagsResp.json() : { models: [] };
+      const ps = psResp.ok ? await psResp.json() : { models: [] };
+      const loadedNames = new Set((ps.models || []).map((m: any) => m.name));
+      for (const m of (tags.models || [])) {
+        allModels.push({ name: m.name, size: m.size || 0, loaded: loadedNames.has(m.name) });
+      }
+    } catch (err) {
+      setError(`Ollama: ${err instanceof Error ? err.message : 'unreachable'} — is Wayfarer running?`);
+    }
+
+    setModels(allModels);
+    setRefreshing(false);
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const loadModel = async (m: OllamaModel) => {
+    setLoading(m.name);
+    try {
+      await fetch(`${OLLAMA_PROXY}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: m.name, prompt: '', keep_alive: '10m' }),
+        signal: AbortSignal.timeout(120000),
+      });
+      await refresh();
+    } catch (err) {
+      console.error('Load failed:', err);
+    }
+    setLoading(null);
+  };
+
+  const unloadModel = async (m: OllamaModel) => {
+    setLoading(m.name);
+    try {
+      await fetch(`${OLLAMA_PROXY}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: m.name, keep_alive: 0 }),
+        signal: AbortSignal.timeout(10000),
+      });
+      await refresh();
+    } catch (err) {
+      console.error('Unload failed:', err);
+    }
+    setLoading(null);
+  };
+
+  const killAll = async () => {
+    setLoading('all');
+    const loaded = models.filter(m => m.loaded);
+    for (const m of loaded) {
+      try {
+        await fetch(`${OLLAMA_PROXY}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: m.name, keep_alive: 0 }),
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch {}
+    }
+    await refresh();
+    setLoading(null);
+  };
+
+  const loadedCount = models.filter(m => m.loaded).length;
+
+  // Map model → stages from config
+  const modelStages = (name: string): string[] => {
+    return Object.entries(MODEL_CONFIG)
+      .filter(([, v]) => v === name)
+      .map(([k]) => k);
+  };
+
+  const formatSize = (bytes: number) => {
+    if (!bytes) return '';
+    const gb = bytes / (1024 * 1024 * 1024);
+    return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(bytes / (1024 * 1024)).toFixed(0)}MB`;
+  };
+
+  return (
+    <div className={`pt-3 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+      <div className="flex items-center justify-between mb-2">
+        <p className={`text-[10px] uppercase tracking-wider font-semibold ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+          Ollama Models
+          {!refreshing && models.length > 0 && (
+            <span className={`ml-1.5 ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+              {loadedCount}/{models.length} loaded
+            </span>
+          )}
+        </p>
+        <button
+          onClick={refresh}
+          disabled={refreshing}
+          className={`text-[9px] px-1.5 py-0.5 rounded ${isDarkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}
+        >
+          {refreshing ? '...' : 'Refresh'}
+        </button>
+      </div>
+
+      {error && (
+        <p className={`text-[10px] mb-2 px-2 py-1 rounded ${isDarkMode ? 'text-red-400 bg-red-500/10' : 'text-red-600 bg-red-50'}`}>
+          {error}
+        </p>
+      )}
+
+      {models.length === 0 && !refreshing && (
+        <p className={`text-[10px] mb-2 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+          No models found. Check Ollama is running.
+        </p>
+      )}
+
+      <div className="space-y-1.5 mb-2.5">
+        {models.map(m => {
+          const stages = modelStages(m.name);
+          return (
+            <div key={m.name} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg ${isDarkMode ? 'bg-zinc-800/60' : 'bg-zinc-50'}`}>
+              {/* Status dot */}
+              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${m.loaded ? 'bg-green-500' : 'bg-zinc-500/40'}`} />
+              {/* Model info */}
+              <div className="flex-1 min-w-0">
+                <div className={`text-[10px] font-medium truncate ${isDarkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>
+                  {m.name}
+                  {formatSize(m.size) && <span className={`ml-1 ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>{formatSize(m.size)}</span>}
+                </div>
+                {stages.length > 0 && (
+                  <div className={`text-[8px] truncate ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    {stages.join(', ')}
+                  </div>
+                )}
+              </div>
+              {/* Load/Unload button */}
+              <button
+                onClick={() => m.loaded ? unloadModel(m) : loadModel(m)}
+                disabled={loading !== null}
+                className={`text-[9px] px-2 py-1 rounded-md font-medium flex-shrink-0 transition-colors ${
+                  loading === m.name ? 'opacity-50 cursor-wait' :
+                  m.loaded
+                    ? isDarkMode ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20' : 'bg-red-50 text-red-600 hover:bg-red-100'
+                    : isDarkMode ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20' : 'bg-green-50 text-green-600 hover:bg-green-100'
+                }`}
+              >
+                {loading === m.name ? '...' : m.loaded ? 'Kill' : 'Load'}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Kill all (only show when something is loaded) */}
+      {loadedCount > 0 && (
+        <button
+          onClick={killAll}
+          disabled={loading !== null}
+          className={`w-full px-3 py-2 rounded-xl text-[10px] font-medium transition-all ${
+            isDarkMode
+              ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20'
+              : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+          } ${loading === 'all' ? 'opacity-50 cursor-wait' : ''}`}
+        >
+          {loading === 'all' ? 'Killing...' : 'Kill all loaded'}
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps) {
@@ -39,7 +232,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
   ]);
 
   useEffect(() => {
-    setOllamaHost('http://localhost:8889/ollama (proxy)');
+    setOllamaHost('localhost:8889/ollama → 100.74.135.83:11435');
     localStorage.removeItem('ollama_host');
     const savedWayfarer = localStorage.getItem('wayfarer_host');
     setWayfarerHost(savedWayfarer || 'http://localhost:8889');
@@ -66,7 +259,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
     setTestingConnection(true);
     setConnectionStatus('idle');
     try {
-      const response = (await fetchWithTimeout('http://localhost:8889/ollama/api/tags', 10000)) as Response;
+      const response = (await fetchWithTimeout(`${OLLAMA_PROXY}/api/tags`, 10000)) as Response;
       setConnectionStatus(response.ok ? 'success' : 'error');
     } catch {
       setConnectionStatus('error');
@@ -89,13 +282,22 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
     ]);
 
     try {
-      const ollamaResp = (await fetchWithTimeout('http://localhost:8889/ollama/api/tags', 10000)) as Response;
+      const ollamaResp = (await fetchWithTimeout(`${OLLAMA_PROXY}/api/tags`, 10000)) as Response;
       if (ollamaResp.ok) {
-        const models = await ollamaResp.json();
-        const modelCount = models.models?.length || 0;
+        const data = await ollamaResp.json();
+        const modelCount = data.models?.length || 0;
+        // Also check which are loaded
+        let loadedCount = 0;
+        try {
+          const psResp = (await fetchWithTimeout(`${OLLAMA_PROXY}/api/ps`, 5000)) as Response;
+          if (psResp.ok) {
+            const psData = await psResp.json();
+            loadedCount = psData.models?.length || 0;
+          }
+        } catch {}
         setDebugTests((prev) => [
-          { ...prev[0], status: 'success', message: `Connected (${modelCount} models)` },
-          { name: 'Ollama Models', status: 'success', message: models.models?.map((m: any) => m.name).join(', ') || 'None' },
+          { ...prev[0], status: 'success', message: `Remote OK — ${modelCount} models, ${loadedCount} loaded` },
+          { name: 'Ollama Models', status: 'success', message: data.models?.map((m: any) => m.name).join(', ') || 'None' },
           prev[2],
         ]);
       } else {
@@ -550,45 +752,8 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
                   </div>
                 </div>
 
-                {/* Kill all LLM — unloads all running models from Ollama VRAM */}
-                <div className={`pt-3 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
-                  <p className={`text-[10px] uppercase tracking-wider font-semibold mb-2 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                    Ollama Control
-                  </p>
-                  <button
-                    onClick={async () => {
-                      try {
-                        // List running models via Ollama API
-                        const psResp = await fetch('http://localhost:8889/ollama/api/ps');
-                        if (!psResp.ok) throw new Error(`ps failed: ${psResp.status}`);
-                        const psData = await psResp.json();
-                        const models = psData.models || [];
-                        if (models.length === 0) {
-                          alert('No models currently loaded in VRAM');
-                          return;
-                        }
-                        // Unload each model by sending keep_alive: 0
-                        for (const m of models) {
-                          await fetch('http://localhost:8889/ollama/api/generate', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ model: m.name, keep_alive: 0 }),
-                          });
-                        }
-                        alert(`Unloaded ${models.length} model(s) from VRAM: ${models.map((m: any) => m.name).join(', ')}`);
-                      } catch (err) {
-                        alert(`Failed: ${err instanceof Error ? err.message : String(err)}`);
-                      }
-                    }}
-                    className={`w-full px-4 py-2.5 rounded-xl text-xs font-medium transition-all ${
-                      isDarkMode
-                        ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20'
-                        : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
-                    }`}
-                  >
-                    Kill all LLM (unload from VRAM)
-                  </button>
-                </div>
+                {/* Ollama Model Control */}
+                <OllamaModelControl isDarkMode={isDarkMode} />
 
                 <div className={`pt-3 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
                   <p className={`text-[11px] ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>

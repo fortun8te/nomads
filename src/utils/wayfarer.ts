@@ -242,7 +242,7 @@ import type { ProductPageAnalysis } from '../types';
 import { ollamaService } from './ollama';
 
 const VISION_MODEL = 'minicpm-v:8b';
-const GLM_MODEL = 'glm-4.7-flash:q4_K_M';
+const GLM_MODEL = 'qwen3.5:9b';
 
 async function parseProductPageVision(
   visionOutput: string

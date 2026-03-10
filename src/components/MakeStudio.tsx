@@ -24,31 +24,58 @@ import { createPortal } from 'react-dom';
 import { useCampaign } from '../context/CampaignContext';
 import { useTheme } from '../context/ThemeContext';
 import { ollamaService } from '../utils/ollama';
-import { generateImage, checkServerStatus, restartFreepikBrowser } from '../utils/freepikService';
-import { storage, type StoredImage } from '../utils/storage';
+import { generateImage, checkServerStatus, restartFreepikBrowser, forceKillFreepik } from '../utils/freepikService';
+import { storage, type StoredImage, type VisionRound } from '../utils/storage';
 import { knowledge } from '../utils/knowledge';
 import { NomadIcon } from './NomadIcon';
-import { ShineText } from './ShineText';
 import { OrbitalLoader } from './OrbitalLoader';
-import { tokenTracker, type TokenInfo } from '../utils/tokenStats';
+import { tokenTracker } from '../utils/tokenStats';
 import type { ReferenceImage } from '../types';
 import { toPng } from 'html-to-image';
 import { SIMPLETICS_PRESET } from '../utils/presetCampaigns';
 import { pdfToImages } from '../utils/pdfUtils';
 import { AdLibraryBrowser } from './AdLibraryBrowser';
-import { getRelevantReferences } from '../utils/adLibraryCache';
+import { getRelevantReferences, getCache, type AdDescription } from '../utils/adLibraryCache';
+import { loadAdImageBase64 } from '../utils/adLibraryLoader';
 
 // ── Types ──
 
 type AdMode = 'static' | 'funnel' | 'custom';
 type AspectRatio = '1:1' | '9:16' | '4:5' | '16:9' | '2:3' | '3:4';
+interface VisionRoundSnapshot { round: number; screenshot: string; feedback: string; prompt?: string; }
 
-/** Extract the image prompt from LLM JSON output, falling back to raw text.
- *  Always prefixes with "advertising creative" context so the image model
- *  knows to produce an ad, not a stock photo. */
-function extractImagePrompt(raw: string): string {
+/** Extract SHORT brand context for image prompts.
+ *  Only primary palette (3-4 hex codes max) + font. No variant colors, no verbose descriptions. */
+function getShortBrandContext(campaign: any): { colors: string; font: string } {
+  const brandData = campaign?.presetData?.brand;
+  const rawColors: string = brandData?.colors || campaign?.brandColors || '';
+  // Extract just hex codes from the color string — take first 4 max
+  const hexes = rawColors.match(/#[0-9A-Fa-f]{6}/g) || [];
+  const shortColors = hexes.slice(0, 4).join(' ');
+  const font = brandData?.fonts || campaign?.brandFonts || '';
+  // Take just the first font family name
+  const shortFont = font.split(',')[0]?.split('(')[0]?.trim() || '';
+  return { colors: shortColors, font: shortFont };
+}
+
+/** Extract clean base64 strings from uploaded images.
+ *  Strips data URL prefixes and filters out empty/corrupt entries
+ *  so @img tags always match actual images sent to Freepik. */
+function getCleanBase64s(images: ReferenceImage[]): string[] {
+  return images
+    .map(img => img.base64.includes(',') ? img.base64.split(',')[1] : img.base64)
+    .filter(b64 => b64 && b64.length > 100); // <100 chars = corrupt/empty
+}
+
+/** Extract the image prompt from LLM JSON output.
+ *  Nano Banana works best with SHORT prompts (20-50 words).
+ *  The model can SEE the images — don't describe them, just reference @img tags. */
+function extractImagePrompt(
+  raw: string,
+  opts?: { shortColors?: string; imageCount?: number }
+): string {
   const trimmed = raw.trim();
-  let prompt = trimmed;
+  let prompt = '';
 
   try {
     const jsonStart = trimmed.indexOf('{');
@@ -60,18 +87,28 @@ function extractImagePrompt(raw: string): string {
         prompt = parsed.prompt_for_image_model;
       } else if (parsed.scene?.description) {
         prompt = parsed.scene.description;
-      } else if (parsed.global_context?.scene_description) {
-        prompt = parsed.global_context.scene_description;
       }
     }
   } catch {
-    // JSON parse failed — use raw text
+    prompt = trimmed;
   }
 
-  // Ensure the image model knows this is an AD, not a photo
-  const adPrefix = 'Professional social media advertising creative for a DTC brand campaign. ';
-  if (!prompt.toLowerCase().includes('advertising') && !prompt.toLowerCase().includes('ad creative') && !prompt.toLowerCase().includes('ad image')) {
-    prompt = adPrefix + prompt;
+  if (!prompt) prompt = trimmed;
+
+  // Truncate to ~50 words max
+  const words = prompt.split(/\s+/);
+  if (words.length > 50) {
+    prompt = words.slice(0, 50).join(' ');
+  }
+
+  // Ensure @img1 when images exist
+  if (opts?.imageCount && opts.imageCount > 0 && !prompt.includes('@img')) {
+    prompt = `@img1 product. ${prompt}`;
+  }
+
+  // Add short hex colors if missing (max 4 hex codes, not verbose strings)
+  if (opts?.shortColors && !prompt.includes('#')) {
+    prompt = `${prompt}. Colors: ${opts.shortColors}`;
   }
 
   return prompt;
@@ -100,6 +137,13 @@ async function captureHtmlScreenshot(
   try {
     const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
     if (!iframeDoc) return null;
+
+    // Validate HTML — must have opening tag
+    if (!html || (html.indexOf('<') === -1 && html.indexOf('>') === -1)) {
+      console.error('Invalid HTML: no tags found');
+      return null;
+    }
+
     iframeDoc.open();
     iframeDoc.write(html);
     iframeDoc.close();
@@ -112,26 +156,46 @@ async function captureHtmlScreenshot(
     if (!body) return null;
 
     // Add timeout to image capture (toPng can hang on bad HTML)
+    // IMPORTANT: catch the losing promise to prevent unhandled rejection crash
     const capturePromise = toPng(body, {
       width,
       height,
       style: { margin: '0', padding: '0' },
       canvasWidth: width,
       canvasHeight: height,
+    }).catch((err) => {
+      console.warn('toPng rejected (may be superseded by timeout):', err);
+      return null as string | null;
     });
 
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Screenshot capture timeout')), 5000)
+    let timedOut = false;
+    const timeoutPromise = new Promise<string | null>((resolve) =>
+      setTimeout(() => { timedOut = true; resolve(null); }, 8000)
     );
 
     const dataUrl = await Promise.race([capturePromise, timeoutPromise]);
+    if (!dataUrl || timedOut) {
+      console.error(`Screenshot ${timedOut ? 'timed out' : 'failed'} for ${width}x${height} HTML`);
+      return null;
+    }
     return dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
   } catch (err) {
     console.error('HTML screenshot capture failed:', err);
+    console.error('Error details:', {
+      type: err instanceof Error ? err.constructor.name : typeof err,
+      message: err instanceof Error ? err.message : String(err),
+      html: html.slice(0, 200),
+    });
     // Silently continue without layout screenshot
     return null;
   } finally {
-    document.body.removeChild(container);
+    try {
+      if (container.parentNode) {
+        document.body.removeChild(container);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 }
 
@@ -162,6 +226,7 @@ interface HtmlAdVariant {
   timestamp: number;
   inspiredBy?: string;
   renders: RenderedImage[];
+  visionFeedback?: string;
 }
 
 /** Replace {{PRODUCT_IMG_N}} placeholders with real base64 data URIs */
@@ -187,10 +252,18 @@ function extractHtmlDocument(raw: string): string {
   let clean = raw.trim();
   // Strip markdown code fences
   clean = clean.replace(/^```html?\s*/i, '').replace(/```\s*$/, '').trim();
+
+  // Find where the actual HTML starts (DOCTYPE or <html)
   const docStart = clean.indexOf('<!DOCTYPE') !== -1 ? clean.indexOf('<!DOCTYPE') : clean.indexOf('<html');
   const docEnd = clean.lastIndexOf('</html>');
+
   if (docStart >= 0 && docEnd > docStart) {
-    clean = clean.slice(docStart, docEnd + 7);
+    // Preserve HTML comments that appear BEFORE <!DOCTYPE (Strategy, Inspired by)
+    const preDoc = clean.slice(0, docStart);
+    const comments = preDoc.match(/<!--[\s\S]*?-->/g) || [];
+    const preserved = comments.join('\n');
+    const htmlPart = clean.slice(docStart, docEnd + 7);
+    clean = preserved ? `${preserved}\n${htmlPart}` : htmlPart;
   }
   return clean;
 }
@@ -234,9 +307,10 @@ export function MakeStudio() {
   // Core state
   const [activeMode, setActiveMode] = useState<AdMode>('static');
   const [prompt, setPrompt] = useState('');
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState('');
+  const [generationError, setGenerationError] = useState<string | null>(null); // persists until dismissed
   const [generationStartTime, setGenerationStartTime] = useState(0);
   const [_generationEta, setGenerationEta] = useState(0); // seconds
   const [generationElapsed, setGenerationElapsed] = useState(0);
@@ -255,13 +329,19 @@ export function MakeStudio() {
   // Batch generation
   const [batchCount, setBatchCount] = useState(1);
   const [batchCurrent, setBatchCurrent] = useState(0); // 0 = not in batch
-  const [batchMode, setBatchMode] = useState<'concepts' | 'variations'>('concepts');
-  const lastConceptRef = useRef<string>(''); // Stores first concept for variation mode
+  const lastConceptRef = useRef<string>(''); // Stores first concept for future variation mode
 
   // HTML Ad variant state
   const [htmlVariants, setHtmlVariants] = useState<HtmlAdVariant[]>([]);
   const [currentHtmlPreview, setCurrentHtmlPreview] = useState<string>('');
-  const [variantCount, setVariantCount] = useState(1);
+  const [variantCount, setVariantCount] = useState(() => {
+    if (typeof window === 'undefined') return 1;
+    return parseInt(localStorage.getItem('html_variant_count') || '1', 10);
+  });
+  const [autoRenderHtml] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('html_auto_render') === 'true';
+  });
   const [generationPhase, setGenerationPhase] = useState<'idle' | 'streaming' | 'capturing' | 'between'>('idle');
   const [debouncedHtml, setDebouncedHtml] = useState('');
   const [codeDrawerOpen, setCodeDrawerOpen] = useState(false);
@@ -270,32 +350,119 @@ export function MakeStudio() {
   const [templateLabel, setTemplateLabel] = useState<string>('');
   const codeEndRef = useRef<HTMLDivElement>(null);
 
-  // Token tracker state (live progress from ollamaService)
-  const [tokenInfo, setTokenInfo] = useState<TokenInfo>(tokenTracker.get());
-  useEffect(() => {
-    return tokenTracker.subscribe(() => setTokenInfo(tokenTracker.get()));
-  }, []);
+  // ── Live token counter ──
+  // Accumulates across entire generation run. Never resets mid-generation.
+  const chunkCountRef = useRef(0);        // total chunks this generation run
+  const chunkStartRef = useRef(0);        // timestamp of first onChunk
+  const stepChunkRef = useRef(0);         // chunks in current sub-step (for t/s calc)
+  const stepStartRef = useRef(0);         // start of current sub-step
+  const [tokenDisplay, setTokenDisplay] = useState({
+    tokens: 0, tps: 0, loading: false, thinking: false, sessionTotal: 0,
+  });
 
-  // Fun rotating status words (cycles during generation)
-  const STATUS_WORDS: Record<string, string[]> = {
-    loading: ['Loading model...', 'Warming up VRAM...', 'Waking up neurons...', 'Booting brain...', 'Initializing vibes...'],
-    thinking: ['Thinking...', 'Pondering...', 'Contemplating...', 'Brainstorming...', 'Ideating...'],
-    streaming: ['Writing HTML...', 'Crafting markup...', 'Composing layout...', 'Designing...', 'Building ad...'],
-    capturing: ['Screenshotting...', 'Capturing pixels...', 'Rendering...', 'Snapping...'],
-    freepik: ['Sending to Freepik...', 'Generating pixels...', 'Creating imagery...', 'Painting...', 'Rendering creative...'],
-    enhancing: ['Enhancing prompt...', 'Adding ad expertise...', 'Combobulating...', 'Strategizing...', 'Optimizing copy...'],
-  };
-  const [statusWordIdx, setStatusWordIdx] = useState(0);
+  // Detect error messages in generationProgress and persist them
   useEffect(() => {
-    if (!isGenerating) { setStatusWordIdx(0); return; }
-    const interval = setInterval(() => setStatusWordIdx(i => i + 1), 3500);
-    return () => clearInterval(interval);
+    const errorKeywords = /failed|error|not running|crashed|unavailable|invalid|check console/i;
+    if (generationProgress && errorKeywords.test(generationProgress) && !isGenerating) {
+      setGenerationError(generationProgress);
+      setGenerationProgress('');
+    }
+  }, [generationProgress, isGenerating]);
+
+  // Clear error when new generation starts
+  useEffect(() => {
+    if (isGenerating) setGenerationError(null);
   }, [isGenerating]);
 
-  const getStatusWord = (phase: string): string => {
-    const words = STATUS_WORDS[phase] || STATUS_WORDS.streaming;
-    return words[statusWordIdx % words.length];
+  // Poll every 100ms while generating (any phase, not just streaming)
+  useEffect(() => {
+    if (!isGenerating) {
+      // Reset on generation end
+      if (tokenDisplay.tokens > 0) setTokenDisplay({ tokens: 0, tps: 0, loading: false, thinking: false, sessionTotal: 0 });
+      return;
+    }
+    const poll = () => {
+      const snap = tokenTracker.getSnapshot();
+      const ownTokens = chunkCountRef.current;
+      const tokens = Math.max(ownTokens, snap.liveTokens);
+      // t/s from current sub-step (more accurate than total run)
+      let tps = 0;
+      if (stepStartRef.current && stepChunkRef.current > 3) {
+        const elapsed = (Date.now() - stepStartRef.current) / 1000;
+        if (elapsed > 0.3) tps = Math.round(stepChunkRef.current / elapsed);
+      }
+      if (tps === 0 && snap.tokensPerSec > 0) tps = snap.tokensPerSec;
+      setTokenDisplay({
+        tokens,
+        tps,
+        loading: snap.isModelLoading,
+        thinking: snap.isThinking,
+        sessionTotal: snap.sessionTotal,
+      });
+    };
+    poll();
+    const id = setInterval(poll, 150);
+    return () => clearInterval(id);
+  }, [isGenerating]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Convenience alias so existing JSX doesn't need big refactor
+  const tokenInfo = {
+    liveTokens: tokenDisplay.tokens,
+    tokensPerSec: tokenDisplay.tps,
+    isModelLoading: tokenDisplay.loading,
+    isThinking: tokenDisplay.thinking,
+    sessionTotal: tokenDisplay.sessionTotal,
   };
+
+  // Fun rotating status words (cycles during generation)
+  const VIBE_WORDS = [
+    'Accomplishing', 'Actioning', 'Actualizing', 'Analyzing', 'Baking', 'Bloviating',
+    'Brewing', 'Brainstorming', 'Clauding', 'Cogitating', 'Combobulating', 'Concocting',
+    'Contemplating', 'Creating', 'Cultivating', 'Designing', 'Developing', 'Elaborating',
+    'Envisioning', 'Executing', 'Figuring', 'Generating', 'Honking', 'Imagining',
+    'Implementing', 'Innovating', 'Integrating', 'Marinating', 'Optimizing', 'Planning',
+    'Pondering', 'Processing', 'Prototyping', 'Ruminating', 'Simmering', 'Strategizing',
+    'Synthesizing', 'Thinking', 'Translating', 'Visualizing', 'Whatchamacalliting',
+    'Wrangling', 'Sketching', 'Drafting', 'Rendering', 'Compositing', 'Tweaking',
+    'Iterating', 'Polishing', 'Pretending to work', 'Flex-rendering',
+    'Smoking a cigar', 'Vaping', 'Taking a Zyn', 'Drinking coffee',
+    'Contemplating life', 'Glazing Michael', 'Michael-fying', 'Michael-mixing',
+    'Michaeling', 'Delegating', 'Outsourcing', 'Scope-creeping',
+    'Nodding in standups', 'Circling back', 'Going offline',
+    'Synergizing', 'Professionalizing', 'Defrosting VRAM',
+  ];
+  const [vibeHistory, setVibeHistory] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isGenerating) { setVibeHistory([]); return; }
+    const shuffled = [...VIBE_WORDS].sort(() => Math.random() - 0.5);
+    setVibeHistory([shuffled[0]]);
+    let idx = 0;
+    const interval = setInterval(() => {
+      idx++;
+      setVibeHistory(prev => [shuffled[idx % shuffled.length], ...prev].slice(0, 12));
+    }, 3000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGenerating]);
+
+  // Actual phase label (bold, gradient)
+  const getPhaseLabel = (): string => {
+    if (generationProgress?.includes('Vision')) return 'Vision QA';
+    if (generationProgress?.includes('Thinking:')) return 'Vision QA';
+    if (generationProgress?.includes('Refining')) return 'Refining';
+    if (generationPhase === 'streaming') {
+      if (tokenInfo.isModelLoading) return 'Loading model';
+      if (tokenInfo.isThinking) return 'Thinking';
+      return 'Writing';
+    }
+    if (generationPhase === 'capturing') return 'Capturing';
+    if (generationPhase === 'between') return 'Next variant';
+    if (generationProgress?.includes('Enhancing')) return 'Enhancing';
+    if (generationProgress?.includes('Freepik') || generationProgress?.includes('Sending to')) return 'Freepik';
+    return 'Generating';
+  };
+  // Current vibe word (lighter, fun)
+  const currentVibe = vibeHistory.length > 0 ? vibeHistory[0] : '';
 
   // Image model settings (always visible — final output is always image model)
   const [imageModel, setImageModel] = useState('nano-banana-2');
@@ -303,10 +470,29 @@ export function MakeStudio() {
   // Pipeline toggles (LLM is master — others depend on it)
   const [llmEnabled, setLlmEnabled] = useState(true);
   const [presetEnabled, setPresetEnabled] = useState(true);   // Inject campaign/brand data
-  const [htmlEnabled, setHtmlEnabled] = useState(true);       // HTML ads = default mode
+  const [htmlEnabled, setHtmlEnabled] = useState(false);      // HTML ads off by default
   const [researchEnabled, setResearchEnabled] = useState(false);
-  const [llmModel, setLlmModel] = useState('glm-4.7-flash:q4_K_M');
+  const [llmModel, setLlmModel] = useState(() => {
+    const v = localStorage.getItem('make_llm_model');
+    // Migrate: local 35b is too slow — force remote
+    if (v?.startsWith('local:') && v.includes('35b')) { localStorage.removeItem('make_llm_model'); return 'qwen3.5:35b'; }
+    return v || 'qwen3.5:35b';
+  });
+  const [htmlLlmModel, setHtmlLlmModel] = useState(() => {
+    const v = localStorage.getItem('make_html_llm_model');
+    if (v?.startsWith('local:') && v.includes('35b')) { localStorage.removeItem('make_html_llm_model'); return 'qwen3.5:35b'; }
+    return v || 'qwen3.5:35b';
+  });
   const [showResearchSummary, setShowResearchSummary] = useState(false);
+  const [visionFeedbackEnabled, setVisionFeedbackEnabled] = useState(() => (localStorage.getItem('make_vision_feedback') || 'false') === 'true');
+  const [visionRounds, setVisionRounds] = useState(() => parseInt(localStorage.getItem('make_vision_rounds') || '3', 10));
+
+  // Vision model follows HTML model's routing (local: or remote)
+  const visionModel = htmlLlmModel.startsWith('local:') ? 'local:minicpm-v:8b' : 'minicpm-v:8b';
+
+  // Vision QA round history — for side-by-side comparison view
+  const [visionHistory, setVisionHistory] = useState<VisionRoundSnapshot[]>([]);
+  const [showVisionComparison, setShowVisionComparison] = useState(false);
 
   // LLM streaming output (visible during generation)
   const [llmOutput, setLlmOutput] = useState('');
@@ -315,6 +501,29 @@ export function MakeStudio() {
   // Ad library browser
   const [showAdLibrary, setShowAdLibrary] = useState(false);
   const [adLibraryEnabled, setAdLibraryEnabled] = useState(true);  // Inject reference ads into prompts
+
+  // Reference Copy mode — skip HTML, generate via Freepik using ad library reference
+  const [referenceCopyEnabled, setReferenceCopyEnabled] = useState(
+    () => (localStorage.getItem('make_reference_copy') || 'false') === 'true'
+  );
+  const [referenceCopyTarget, setReferenceCopyTarget] = useState<{
+    base64: string; description: string; category: string; filename: string; path: string; style?: string;
+  } | null>(() => {
+    try {
+      const saved = localStorage.getItem('make_reference_copy_target');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  // Per-reference style brief — describes layout/composition/vibe (no brand content)
+  // User fills this in manually. Used in prompt instead of "Recreate @img2 layout".
+  const [referenceStyle, setReferenceStyle] = useState(() => localStorage.getItem('make_reference_style') || '');
+  const [batchRefCount, setBatchRefCount] = useState(() => parseInt(localStorage.getItem('make_batch_ref_count') || '1', 10));
+
+  // Research readiness check — blocks generation if research data is insufficient
+  const [researchReadinessCheck, setResearchReadinessCheck] = useState(
+    () => (localStorage.getItem('make_research_readiness') || 'false') === 'true'
+  );
+  const [researchReadinessWarning, setResearchReadinessWarning] = useState('');
 
   // Render phase (HTML → Freepik conversion)
   const [isRendering, setIsRendering] = useState(false);
@@ -336,6 +545,7 @@ export function MakeStudio() {
   const [refineHistory, setRefineHistory] = useState<{ role: 'user' | 'result'; text: string; imageBase64?: string; htmlSource?: string }[]>([]);
   const refineAbortRef = useRef<AbortController | null>(null);
   const refineInputRef = useRef<HTMLTextAreaElement>(null);
+  const [visionRoundIdx, setVisionRoundIdx] = useState(0); // Which round to show in iteration viewer
 
   // Knowledge system (single editable text → injected into LLM system prompt)
   const [showKnowledge, setShowKnowledge] = useState(false);
@@ -348,6 +558,7 @@ export function MakeStudio() {
   const [presetSections, setPresetSections] = useState<Record<string, boolean>>({ brand: true });
   const presetFileInputRef = useRef<HTMLInputElement>(null);
   const [analyzingImageIdx, setAnalyzingImageIdx] = useState<number | null>(null);
+  const analyzeAbortRef = useRef<AbortController | null>(null);
 
   // Image uploads — sourced from campaign.referenceImages (shared across tabs)
   // Migrate old string[] format → ReferenceImage[] on the fly
@@ -422,6 +633,7 @@ export function MakeStudio() {
     setRefineHistory([]);
     setIsRefining(false);
     setRefineProgress('');
+    setVisionRoundIdx(0); // Reset iteration viewer to first round
   }, [selectedImage?.id]);
 
   // Load knowledge on mount
@@ -712,6 +924,10 @@ export function MakeStudio() {
   const analyzeReferenceImage = useCallback(async (index: number) => {
     const img = uploadedImages[index];
     if (!img) return;
+    // Abort any in-progress analysis
+    analyzeAbortRef.current?.abort();
+    const abort = new AbortController();
+    analyzeAbortRef.current = abort;
     setAnalyzingImageIdx(index);
     updateReferenceImage(index, { description: '' });
 
@@ -728,8 +944,9 @@ export function MakeStudio() {
         `${brandHint} This is a ${typeHint}. Output ONLY 10 keywords max describing: product form, colors, visible text on label, angle, background. Example: "white spray bottle, brown label, 'Vanilla Voyage' text, front angle, plain white background". No sentences, just comma-separated keywords.`,
         'Analyze this image in detail for marketing intelligence.',
         {
-          model: 'minicpm-v:8b',
+          model: visionModel,
           images: [rawBase64],
+          signal: abort.signal,
           onChunk: (chunk) => {
             accumulated += chunk;
             updateReferenceImage(index, { description: accumulated.trim() });
@@ -737,12 +954,20 @@ export function MakeStudio() {
         }
       );
     } catch (err) {
+      if (abort.signal.aborted) return; // cancelled, don't overwrite
       console.error('Vision analysis failed:', err);
       updateReferenceImage(index, { description: `[Analysis failed: ${err instanceof Error ? err.message : 'unknown error'}]` });
     } finally {
+      if (analyzeAbortRef.current === abort) analyzeAbortRef.current = null;
       setAnalyzingImageIdx(null);
     }
   }, [uploadedImages, updateReferenceImage, campaign]);
+
+  const cancelAnalyze = useCallback(() => {
+    analyzeAbortRef.current?.abort();
+    analyzeAbortRef.current = null;
+    setAnalyzingImageIdx(null);
+  }, []);
 
   // ── Clipboard paste handler for images ──
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -898,7 +1123,7 @@ Example output (adapt to the brand and angle — don't copy):
     "appearance": "White bottle with warm brown (#8B6F47) label text, matte plastic",
     "interaction": "Hand holding at 30-degree angle, nozzle aimed at hair"
   },
-  "prompt_for_image_model": "Advertising creative for Simpletics Vanilla Voyage: Polished DTC ad campaign image. Over-the-shoulder intimate POV — a woman's hand with natural nails holds the white spray bottle with warm brown (#8B6F47) branding @img1 up near sun-kissed wavy hair, mid-spray — fine mist catches golden sunlight between bottle and hair. Product hero: white bottle, brown label, actuator pressed, mist visible. Setting echoes brand palette: warm wood shelf, white marble counter, warm brown towel, sun-drenched bathroom. Golden backlight creates rim light on hair and illuminates spray particles. Shallow depth of field, background soft bokeh. Premium paid Instagram ad composition — aspirational, effortless, brand-consistent."
+  "prompt_for_image_model": "@img1 product on marble counter, colors #FFFFFF #8B6F47 #F5F0EB, morning sunlight, eucalyptus sprigs, soft shadows, clean minimal ad"
 }
 
 --- OUTPUT FORMAT ---
@@ -944,7 +1169,7 @@ JSON schema (fill every field):
     "appearance": "EXACT visual description matching brand data — colors, shape, label, materials",
     "interaction": "How a person/hand/scene interacts with the product"
   },
-  "prompt_for_image_model": "START with 'Advertising creative for [brand]:' then one dense paragraph describing the COMPLETE ad image. MUST include: (1) 'advertising creative' or 'ad campaign image' framing. (2) Product's EXACT appearance from brand data — packaging colors, shape, label. (3) What the product is DOING in the scene. (4) Brand colors deliberately used in background/props/lighting. (5) Camera angle and composition. (6) Lighting and mood. (7) Must look like a polished paid social ad, NOT a stock photo. (8) If product reference images exist, place @img tags RIGHT NEXT TO the product description — e.g. '...white spray bottle with brown branding @img1 being held...'"
+  "prompt_for_image_model": "SHORT INSTRUCTION — 20-40 words MAX. The model can SEE the reference images so DON'T describe them. Instead INSTRUCT: what to do with @img1 (product), what colors to use (just hex codes), what font, what scene. Example: '@img1 product on marble counter, colors #8B6F47 #F5F0EB #FFFFFF, morning sunlight, soft shadows, minimal ad'"
 }
 
 --- SELF-CHECK ---
@@ -961,70 +1186,64 @@ If any check fails, REVISE. Generic lifestyle photo with no strategic intent = a
 
   // ── HTML Ad system prompt (HTML IS the final ad — screenshot = deliverable) ──
   const htmlDim = htmlAdDimensions[aspectRatio];
-  const HTML_AD_SYSTEM_PROMPT = `You are an HTML AD DESIGNER for paid social (Instagram, TikTok, Facebook). You output a single complete HTML document that gets screenshotted as the final ad image.
+  const HTML_AD_SYSTEM_PROMPT = `You produce a SINGLE complete HTML document. It gets screenshotted at ${htmlDim.w}x${htmlDim.h}px as a paid social ad.
 
-CRITICAL — THIS IS A SOCIAL AD, NOT A WEBSITE:
-- Think billboard, not brochure. Maximum 3-4 text elements (headline + subtext + CTA).
-- Headline HUGE — minimum 56px. Readable at phone-screen size.
-- Product image must be MASSIVE — 40-60% of the ad area, never tiny or thumbnailed.
-- If the product image has a transparent background, let it BLEND into the design. No white boxes around it.
-- Use 2-3 colors max. White space is power.
+OUTPUT RULES:
+- Start with <!DOCTYPE html>. CSS in <style>. No JS.
+- Include: <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+- Product images: <img src="{{PRODUCT_IMG_1}}">. System injects real images.
+- Inside <body>, first thing: <!-- Strategy: [FORMAT] - [FRAMEWORK] --> and <!-- Inspired by: [ref] --> if references provided.
 
-TECHNICAL:
-1. Exactly ${htmlDim.w}x${htmlDim.h}px. Outer container: <div style="width:${htmlDim.w}px;height:${htmlDim.h}px;overflow:hidden;position:relative;">
-2. CSS in <style> or inline. MUST include this font link: <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">. No JS, no iframes.
-3. Product images: <img src="{{PRODUCT_IMG_1}}">. System injects real images.
-4. Start with <!-- Strategy: [FORMAT] - [FRAMEWORK] --> then <!-- Inspired by: Reference #N --> (if reference ads were provided), then <!DOCTYPE html>. Output ONLY HTML.
+YOU MUST USE THIS EXACT HTML SKELETON — just fill in the content and style the <style> block:
 
-PRODUCT IMAGE RULES (NON-NEGOTIABLE):
-- Product must be the VISUAL HERO. Giant, dominant, unmissable.
-- If the product has a transparent/white background, use object-fit: contain with NO background box.
-- Let the product float naturally on the ad background — no white rectangles or boxes around it.
-- Drop shadow (filter: drop-shadow) works great on transparent product images for depth.
-- Minimum 350px in smallest dimension. Product should feel like you could reach out and grab it.
-- Consider angled/tilted product placement for dynamic energy (transform: rotate(-5deg)).
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Suisse Intl','Inter',system-ui,sans-serif; }
+  .ad { width:${htmlDim.w}px; height:${htmlDim.h}px; overflow:hidden; display:flex; flex-direction:column; position:relative; }
+  .top { padding:${Math.round(htmlDim.h * 0.02)}px ${Math.round(htmlDim.w * 0.04)}px; flex-shrink:0; }
+  .hero { flex:1; display:flex; align-items:center; justify-content:center; padding:${Math.round(htmlDim.w * 0.03)}px; min-height:0; }
+  .hero img { max-width:90%; max-height:100%; object-fit:contain; filter:drop-shadow(0 8px 24px rgba(0,0,0,0.25)); }
+  .headline { padding:0 ${Math.round(htmlDim.w * 0.04)}px; flex-shrink:0; }
+  .headline h1 { font-size:${Math.round(htmlDim.w * 0.075)}px; font-weight:800; line-height:1.05; }
+  .info { padding:${Math.round(htmlDim.h * 0.01)}px ${Math.round(htmlDim.w * 0.04)}px; flex-shrink:0; }
+  .cta { padding:${Math.round(htmlDim.h * 0.015)}px ${Math.round(htmlDim.w * 0.04)}px ${Math.round(htmlDim.h * 0.025)}px; flex-shrink:0; }
+  .cta button { width:100%; padding:${Math.round(htmlDim.h * 0.018)}px; font-size:${Math.round(htmlDim.w * 0.04)}px; font-weight:700; border-radius:12px; border:none; cursor:pointer; background:#5383F0; color:#fff; }
+  /* ADD YOUR CUSTOM STYLES BELOW — colors, backgrounds, effects */
+</style>
+</head><body>
+<div class="ad">
+  <!-- Strategy: FORMAT - FRAMEWORK -->
+  <div class="top"><!-- brand name / tag --></div>
+  <div class="headline"><h1><!-- BIG BOLD HEADLINE --></h1></div>
+  <div class="hero"><img src="{{PRODUCT_IMG_1}}" /></div>
+  <div class="info"><!-- price, subtext, rating --></div>
+  <div class="cta"><button><!-- CTA TEXT --></button></div>
+</div>
+</body></html>
 
-TYPOGRAPHY RULES (NON-NEGOTIABLE):
-- Font: font-family: 'Suisse Intl', 'Inter', system-ui, sans-serif — this exact stack, no exceptions.
-- Headline: 56-80px, font-weight: 800 (ExtraBold). Must be readable from 3 feet away.
-- Subtext/prices: 20-28px, font-weight: 600 (SemiBold). One line, max two.
-- Body text: 16-20px, font-weight: 400 or 500 (Regular/Medium).
-- CTA button text: 20-24px, font-weight: 700 (Bold). High contrast button.
-- Small tags/badges: 12-16px, font-weight: 500 (Medium).
-- NEVER use font-weight below 400. NEVER use text smaller than 12px.
+RULES FOR FILLING IN THE SKELETON:
+1. The .ad div is ${htmlDim.w}x${htmlDim.h}px. NOTHING goes outside it. overflow:hidden enforced.
+2. You MAY reorder the zones (headline above or below hero, etc). You MAY add extra divs INSIDE zones.
+3. Product image in .hero MUST stay huge — the flex:1 gives it ~45% of height. NEVER shrink .hero.
+4. Headline font-size: ${Math.round(htmlDim.w * 0.065)}-${Math.round(htmlDim.w * 0.09)}px, weight 800. MAX 6 WORDS.
+5. Font stack: 'Suisse Intl','Inter',system-ui,sans-serif everywhere. No other fonts.
+6. CTA button: #5383F0 background, white text, full width. Always visible at bottom.
+7. DO NOT use position:absolute on anything. Flex only.
+8. Product img: ONLY use max-width % + object-fit:contain. NEVER fixed px width/height.
+9. Max 3-4 text elements total: headline + subtext + CTA. This is a billboard, not a brochure.
+10. Background: white, off-white (#f8f8f8), soft gradient, or dark (#1a1a2e). Brand colors for accents.
 
-COLOR RULES (READ CAREFULLY):
-- Brand blue: #5383F0 — use this for CTAs, buttons, badges, and accent elements.
-- Use the brand's PRIMARY colors from the brand data for backgrounds and text.
-- Variant/scent accent colors (like brown for vanilla) are ONLY for tiny accents or tags, NOT for backgrounds, CTAs, or headlines.
-- CTA buttons: #5383F0 background with white text. This is the brand's action color.
-- Background options: clean white/off-white, soft gradient (white → light blue #EBF0FD), or dark navy (#1E2A3A → #2E3138).
-- NEVER make the whole ad one accent/variant color. The brand identity > the scent variant.
+VARY ACROSS BATCH — each ad must differ:
+- Different headline (unique angle: benefit, social proof, urgency, question, statistic)
+- Different zone order (headline-first vs product-first vs split layout)
+- Different background treatment (light vs dark vs gradient vs colored)
+- Different info zone content (price vs rating vs benefit badges vs testimonial quote)
 
-AD FORMATS — you MUST use different ones across a batch. Pick one per ad:
-- PRODUCT HERO: Product huge + centered or dynamically placed. Bold headline overlapping. CTA at bottom.
-- BEFORE/AFTER: Split layout showing transformation. "Before" flat/boring hair, "After" textured/styled. Strong contrast.
-- SOCIAL PROOF: Large product image + floating review cards with glassmorphism (backdrop-blur, semi-transparent bg). Star ratings. "200,000+ customers" type headline.
-- BENEFIT BADGES: Product centered with floating pill badges around it ("Paraben Free", "5 Ingredients", "Real Himalayan Salt").
-- URGENCY/OFFER: Price callout ($20 vs $50+), strikethrough pricing, "Limited" feel. Product + bold offer text.
-- LIFESTYLE SPLIT: Half text/half product. Text side has headline + CTA, product side has large product on gradient.
-- TESTIMONIAL: Big quote text + product below/beside + customer name + stars. Clean and trust-building.
-- TIKTOK NATIVE: Looks like organic TikTok content. "TikTok's Favorite" badge, casual energy, platform logos.
-
-COPY RULES:
-- Write copy that sounds like a real DTC brand, not generic marketing.
-- Use the brand's actual language and proof points from the brand data.
-- Each ad in a batch MUST have a UNIQUE headline — never repeat the same copy.
-- Good copy patterns: "The [product] that actually works", "[Bold claim]. [Proof].", "[Number] customers can't be wrong", "Your [routine] is lying to you"
-- BAD copy: generic wellness speak, overly formal, anything that sounds like a template.
-
-SIMPLICITY CHECK — before outputting, verify:
-✓ Can I read the headline in under 2 seconds?
-✓ Is the product image LARGE and well-integrated (no white box around it)?
-✓ Are there 4 or fewer text elements?
-✓ Does this look like a real Instagram/TikTok ad from a DTC brand?
-✓ VARIATION: Is this layout/format DIFFERENT from other ads in this batch?
-✓ Are colors consistent with the brand's website, NOT the scent variant color?`;
+COPY: Sound like a real DTC brand. Short, punchy, specific. Not generic marketing.`;
 
 
   // ── Get research context ──
@@ -1148,27 +1367,20 @@ SIMPLICITY CHECK — before outputting, verify:
     return parts.join('\n\n');
   }, [campaign]);
 
-  // ── Build rich image context for LLM (replaces generic @img refs) ──
-  // Also builds instructions for how to reference @img tags in prompt_for_image_model
+  // ── Build image context for LLM — tells it what images are available ──
   const buildImageContext = useCallback(() => {
     if (uploadedImages.length === 0) return '';
     const lines = uploadedImages.map((img, i) => {
       const tag = `@img${i + 1}`;
-      const desc = img.description ? `: ${img.description}` : '';
-      return `${tag} [${img.type}] "${img.label}"${desc}`;
+      return `${tag} [${img.type}] "${img.label}"`;
     });
-    const productImgs = uploadedImages.filter(img => img.type === 'product');
-    const imgTagInstructions = productImgs.length > 0
-      ? `\n\nIMPORTANT — @img TAG USAGE IN prompt_for_image_model:
-When writing the "prompt_for_image_model" field, you MUST include @img tags for product reference images.
-${productImgs.map((img, _i) => {
-  const globalIdx = uploadedImages.indexOf(img) + 1;
-  return `- Use @img${globalIdx} to reference "${img.label}"${img.description ? ` (${img.description})` : ''}`;
-}).join('\n')}
-Place @img tags NEXT TO the product description in the prompt, e.g.: "...a white spray bottle with brown branding @img1 being held up near..."
-The @img tag tells the image model to use that uploaded reference for visual accuracy. Without it, the model won't match the actual product appearance.`
+    const imgTagInstructions = uploadedImages.length > 0
+      ? `\n\n@img TAG RULES for prompt_for_image_model:
+- The image model can SEE the reference images. DO NOT describe what they look like.
+- Just use @img1 to reference the product. The model will use the uploaded image directly.
+- Focus on INSTRUCTIONS: scene, colors (hex only), lighting, composition. Not descriptions.`
       : '';
-    return `REFERENCE IMAGES:\n${lines.join('\n')}\n\nUse these images as visual reference. Product images show the ACTUAL product to feature prominently. Layout images show the composition/structure to be inspired by. Match the product's exact appearance, colors, and packaging in your ad composition.${imgTagInstructions}`;
+    return `REFERENCE IMAGES:\n${lines.join('\n')}\n\nUse these images as visual reference. Product images show the ACTUAL product to feature prominently. Layout images show the EXACT composition/structure to reproduce — match the zone arrangement, proportions, and element positions. Match the product's exact appearance, colors, and packaging in your ad composition.${imgTagInstructions}`;
   }, [uploadedImages]);
 
   // ── Build brand visual rules block (mandatory when preset data exists) ──
@@ -1220,6 +1432,251 @@ Style product images with: object-fit: contain (NEVER cover — preserve transpa
   }, [campaign]);
 
   // ══════════════════════════════════════════════════════
+  // ██  VISION FEEDBACK — MiniCPM audits, thinking model gives CSS fixes
+  // ══════════════════════════════════════════════════════
+  const getVisionFeedback = useCallback(async (
+    adScreenshotBase64: string,
+    referenceBase64: string | null,
+    brandContext: string,
+    signal?: AbortSignal
+  ): Promise<string> => {
+    const adRaw = adScreenshotBase64.includes(',') ? adScreenshotBase64.split(',')[1] : adScreenshotBase64;
+    const refRaw = referenceBase64
+      ? (referenceBase64.includes(',') ? referenceBase64.split(',')[1] : referenceBase64)
+      : null;
+
+    // ── Single MiniCPM call — sends BOTH images (ad + reference) for direct comparison ──
+    // Image 1 = generated ad, Image 2 = reference layout (if available)
+    const images = refRaw ? [adRaw, refRaw] : [adRaw];
+    const hasRef = !!refRaw;
+
+    setGenerationProgress(hasRef ? 'Vision: comparing ad to reference...' : 'Vision: auditing ad layout...');
+    setLlmOutput('');
+
+    const visionPrompt = hasRef
+      ? `${brandContext}
+You are given TWO images:
+- IMAGE 1: The generated HTML ad (what we need to fix)
+- IMAGE 2: The reference ad (the layout we want to match)
+
+Compare them side by side. For each difference, give a SPECIFIC CSS/HTML fix:
+
+1. LAYOUT: How does the reference arrange its zones (product, headline, CTA, background)? What must change in the generated ad to match?
+2. PRODUCT SIZE: How big is the product in the reference vs the generated ad? Give exact % change needed.
+3. TEXT SIZING: Are headlines, subheads, body text similar in scale? What font-size changes?
+4. CTA PLACEMENT: Where is the CTA in the reference? Does the generated ad match?
+5. SPACING: Is the whitespace/padding distribution similar?
+6. OVERFLOW: Any elements cut off or overflowing in the generated ad?
+
+For EACH fix, write it as a concrete CSS instruction like:
+- "Change .product-zone img max-width from 30% to 75%"
+- "Move CTA to bottom, add margin-top: auto"
+- "Increase headline font-size from 24px to 48px"
+
+Give 4-8 concrete fixes to make IMAGE 1 match IMAGE 2's layout. No vague advice — CSS properties only.`
+      : `${brandContext}
+Audit this ad screenshot for layout and design problems. For EACH issue found:
+1. WHAT is wrong (e.g. "product image is tiny", "text overflows")
+2. WHERE it is (e.g. "top-left", "bottom")
+3. The SPECIFIC CSS fix (e.g. "change max-width from 30% to 80%")
+
+Check for: product too small, overflow, text too small, CTA missing/cut off, dead space, overlap, poor contrast.
+
+Give 3-6 concrete CSS/HTML fixes. No vague advice — CSS properties only.`;
+
+    let audit = '';
+    try {
+      audit = await ollamaService.generateStream(
+        visionPrompt,
+        'You are a visual QA engineer comparing ad layouts. Give only concrete CSS property changes. No praise, no fluff — just the fixes.',
+        {
+          model: visionModel,
+          images,
+          signal,
+          onChunk: (chunk) => setLlmOutput(prev => prev + chunk),
+        }
+      );
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      console.error('[VisionQA] Vision audit failed:', err);
+      setGenerationProgress('Vision QA: MiniCPM failed — check console');
+      return '';
+    }
+
+    if (!audit.trim()) {
+      console.warn('[VisionQA] MiniCPM returned empty response');
+      return '';
+    }
+
+    // ── Thinking model refines the raw MiniCPM output into precise CSS instructions ──
+    setGenerationProgress('Thinking: refining fixes...');
+    setLlmOutput('');
+
+    let feedback = '';
+    try {
+      feedback = await ollamaService.generateStream(
+        `RAW VISION QA AUDIT:\n${audit}\n\nClean up the audit above into a numbered list of SPECIFIC CSS/HTML fixes. Each fix must:
+- Reference a specific CSS property or HTML element
+- Include the exact value to change TO (not just "make bigger")
+- Be implementable by copying the instruction verbatim
+
+Example format:
+1. Change .product-zone img { max-width } from 30% to 80%
+2. Add .cta-zone { margin-top: auto; padding: 16px 0 }
+3. Increase .headline-zone h1 { font-size } from 24px to 7vw
+
+Remove any vague or redundant items. Keep only actionable fixes.`,
+        'You are an HTML/CSS expert. Convert visual feedback into precise CSS property changes. Output ONLY the numbered fix list.',
+        {
+          model: llmModel,
+          signal,
+          onChunk: (chunk) => setLlmOutput(prev => prev + chunk),
+        }
+      );
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      console.error('[VisionQA] Fix refinement failed:', err);
+      // Fall back to raw audit if thinking model fails
+      return audit;
+    }
+
+    return feedback || audit;
+  }, [llmModel, visionModel]);
+
+  // ── Image-based vision feedback (for Reference Copy — SMART BRAND QA) ──
+  // MiniCPM sees the ad and audits brand compliance using full brand/product/research knowledge.
+  // Then the LLM (from settings) rewrites the prompt using the same deep knowledge.
+  // MiniCPM never writes copy — it only identifies problems. The LLM fixes them.
+  const getImageVisionFeedback = useCallback(async (
+    generatedBase64: string,
+    _referenceBase64: string,
+    currentPrompt: string,
+    brandContext: string,
+    signal?: AbortSignal
+  ): Promise<string> => {
+    const genRaw = generatedBase64.includes(',') ? generatedBase64.split(',')[1] : generatedBase64;
+
+    setGenerationProgress('Vision QA: auditing ad...');
+    setLlmOutput('');
+
+    // ── Step 1: MiniCPM AUDITS the generated ad ──
+    // It gets the FULL brand context so it knows exactly what's right vs wrong.
+    const brandNameLine = brandContext.split('\n')[0]?.replace('BRAND: ', '') || 'our brand';
+    const visionPrompt = `You are a creative director reviewing an ad for ${brandNameLine}. Look at this ad image carefully and read ALL text visible in it.
+
+BRAND KNOWLEDGE:
+${brandContext}
+
+AUDIT CHECKLIST — check every single one:
+
+1. BRANDING: Is the brand name "${brandNameLine}" visible? Are there any OTHER brand names or logos? (This is critical — competitor logos are unacceptable)
+2. COPY ACCURACY: Read every piece of text in the ad. For each claim or benefit mentioned, is it in the APPROVED BENEFITS list above? Quote any text that isn't approved.
+3. HEADLINE QUALITY: Is the headline compelling and specific? Or generic/boring? Does it speak to a real customer desire or pain point?
+4. VISUAL BRAND FIT: Do the colors match the brand palette? Does the typography feel right for the brand tone?
+5. PRODUCT VISIBILITY: Is the product clearly shown? Is it the right product? Is it positioned well?
+6. OVERALL IMPRESSION: Would this ad stop someone scrolling? Does it feel professional and on-brand?
+
+FORMAT — for each issue:
+ISSUE: [specific problem — quote exact text if relevant]
+SEVERITY: [critical / major / minor]
+FIX: [what the image generation prompt should say differently]
+
+If the ad is good and on-brand, say "PASS" and explain briefly why it works.
+Be honest and specific. This feedback drives the next revision.`;
+
+    let audit = '';
+    try {
+      audit = await ollamaService.generateStream(
+        visionPrompt,
+        `Creative director for ${brandNameLine}. Audit this ad image. Report problems with specific fixes. Do NOT write new ad copy — only identify what needs changing and why.`,
+        {
+          model: visionModel,
+          images: [genRaw],
+          signal,
+          onChunk: (chunk) => {
+            chunkCountRef.current++; stepChunkRef.current++;
+            if (!chunkStartRef.current) chunkStartRef.current = Date.now(); if (!stepStartRef.current) stepStartRef.current = Date.now();
+            setLlmOutput(prev => prev + chunk);
+          },
+        }
+      );
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      console.error('[VisionQA] Brand audit failed:', err);
+      return '';
+    }
+
+    if (!audit.trim()) return '';
+
+    // Check if ad passed review
+    const auditUpper = audit.toUpperCase();
+    const hasCritical = auditUpper.includes('CRITICAL');
+    const hasMajor = auditUpper.includes('MAJOR');
+    const isPass = auditUpper.includes('PASS') && !hasCritical && !hasMajor;
+
+    if (isPass) {
+      console.log('[VisionQA] Ad passed brand review');
+      setGenerationProgress('Vision QA: approved ✓');
+      await new Promise(r => setTimeout(r, 1200));
+      return ''; // empty = no changes needed, stop looping
+    }
+
+    console.log(`[VisionQA] Issues found (critical: ${hasCritical}, major: ${hasMajor}):`, audit.slice(0, 300));
+
+    // ── Step 2: LLM rewrites the prompt to fix issues ──
+    // The LLM gets the FULL brand context + research + knowledge to write great copy.
+    setGenerationProgress('Rewriting prompt to fix issues...');
+    setLlmOutput('');
+    stepChunkRef.current = 0;
+    stepStartRef.current = 0;
+
+    // Pull in research context for the LLM to use when rewriting
+    const researchCtx = getResearchContext();
+
+    let refinedPrompt = '';
+    try {
+      refinedPrompt = await ollamaService.generateStream(
+        `CURRENT IMAGE GENERATION PROMPT:
+${currentPrompt}
+
+VISION QA FEEDBACK (issues found in the generated ad):
+${audit}
+
+FULL BRAND DATA:
+${brandContext}
+${researchCtx ? `\nCUSTOMER RESEARCH:\n${researchCtx}` : ''}
+
+Rewrite the image generation prompt to fix EVERY issue above. Rules:
+1. Keep all @img tags and layout/composition instructions intact.
+2. If wrong logo/brand found → add explicit "NO [wrong brand]. ${brandNameLine} branding ONLY."
+3. If wrong claims → replace with REAL benefits from the brand data.
+4. If headline is weak → write a sharper one using customer desires/pain points from research.
+5. If colors are off → specify exact hex codes from brand palette.
+6. If product placement is bad → give specific spatial instructions.
+7. Keep the prompt concise — under 100 words. Every word must earn its place.
+
+Output ONLY the revised prompt. No explanation. No markdown. Just the prompt text.`,
+        `Expert ad prompt writer for ${brandNameLine}. Fix the issues using real brand data. Output ONLY the prompt.`,
+        {
+          model: llmModel,
+          signal,
+          onChunk: (chunk) => {
+            chunkCountRef.current++; stepChunkRef.current++;
+            if (!chunkStartRef.current) chunkStartRef.current = Date.now(); if (!stepStartRef.current) stepStartRef.current = Date.now();
+            setLlmOutput(prev => prev + chunk);
+          },
+        }
+      );
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      console.error('[VisionQA] Prompt rewrite failed:', err);
+      return `${currentPrompt}\n\nFIX: ${audit}`;
+    }
+
+    return refinedPrompt || currentPrompt;
+  }, [llmModel, visionModel, getResearchContext]);
+
+  // ══════════════════════════════════════════════════════
   // ██  GENERATE HTML ADS — multi-variant generation
   // ══════════════════════════════════════════════════════
   const generateHtmlAds = useCallback(async (count: number) => {
@@ -1238,6 +1695,10 @@ Style product images with: object-fit: contain (NEVER cover — preserve transpa
 
     // Step 0: Get cached ad library references (instant if pre-analyzed)
     const adLibraryContext = adLibraryEnabled ? await getAdLibraryContext() : '';
+    // Parse individual references for per-variant assignment
+    const refLines = adLibraryContext
+      ? adLibraryContext.match(/Reference #\d+\.\s*\[[^\]]+\]\s*.+/g) || []
+      : [];
 
     for (let i = 0; i < count; i++) {
       if (signal?.aborted) break;
@@ -1248,6 +1709,23 @@ Style product images with: object-fit: contain (NEVER cover — preserve transpa
       setGenerationPhase('streaming');
       setLlmOutput('');
       setCurrentHtmlPreview('');
+      chunkCountRef.current = 0;
+      chunkStartRef.current = 0;
+
+      // Pick ONE specific reference for this variant (round-robin through available refs)
+      const pickedRef = refLines.length > 0 ? refLines[i % refLines.length] : '';
+      const refInstruction = pickedRef
+        ? `\n--- YOUR REFERENCE AD (REPRODUCE THIS LAYOUT) ---
+${pickedRef}
+YOUR TASK: CLONE this reference ad's layout as closely as possible.
+- SAME zone arrangement (where product goes, where headline goes, where CTA goes)
+- SAME proportions (if product is 50% of the ad area, yours should be too)
+- SAME visual weight distribution (if headline is huge and bold, match that scale)
+- SAME spacing ratios between elements
+- ONLY swap in: your brand's product images, brand name, brand colors, and specific copy text
+Think of this as a TEMPLATE — reproduce the structure exactly, just fill in your brand's content.
+Include <!-- Inspired by: ${pickedRef.match(/Reference #\d+/)?.[0] || 'Reference'} --> in your HTML.\n`
+        : '';
 
       // Build diversity instruction (stronger than before)
       const variationInstruction = usedFormats.length > 0
@@ -1276,7 +1754,7 @@ USER BRIEF: ${prompt || 'Create a high-performance paid social ad.'}
 
 ${fullPreset ? `--- BRAND BIBLE ---\n${fullPreset}\n` : presetContext ? `BRAND:\n${presetContext}\n` : ''}
 ${researchContext ? `--- CUSTOMER RESEARCH ---\n${researchContext}\n` : ''}
-${adLibraryContext}${brandRules}
+${refInstruction}${brandRules}
 ${productPlaceholders}${variationInstruction}${templateInstruction}
 
 Create a complete, production-ready HTML ad. This screenshot IS the final deliverable — make it polished and compelling.`;
@@ -1287,10 +1765,12 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
           adPrompt,
           HTML_AD_SYSTEM_PROMPT,
           {
-            model: llmModel,
+            model: htmlLlmModel,
             signal,
             onChunk: (chunk) => {
               htmlOutput += chunk;
+              chunkCountRef.current++; stepChunkRef.current++;
+              if (!chunkStartRef.current) chunkStartRef.current = Date.now(); if (!stepStartRef.current) stepStartRef.current = Date.now();
               setLlmOutput(prev => prev + chunk);
               setCurrentHtmlPreview(htmlOutput);
             },
@@ -1317,9 +1797,19 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
           const label = extractStrategyLabel(cleanHtml);
           usedFormats.push(label);
 
-          // Parse which reference ad inspired this design
+          // Parse which reference ad inspired this design (can be before DOCTYPE or in body)
           const inspiredMatch = cleanHtml.match(/<!--\s*Inspired by:\s*(.+?)\s*-->/i);
-          const inspiredBy = inspiredMatch ? inspiredMatch[1].trim() : undefined;
+          let inspiredBy = inspiredMatch ? inspiredMatch[1].trim() : undefined;
+          // Clean up generic "Reference #N" → look up actual name from adLibraryContext
+          if (inspiredBy && inspiredBy.match(/^Reference #?\d+$/i) && adLibraryContext) {
+            const refNum = inspiredBy.match(/\d+/)?.[0];
+            if (refNum) {
+              const refLine = adLibraryContext.match(new RegExp(`Reference #${refNum}\\.\\s*\\[([^\\]]+)\\]\\s*(.+?)(?:\\n|$)`, 'i'));
+              if (refLine) {
+                inspiredBy = `${refLine[1]} — ${refLine[2].slice(0, 40).trim()}`;
+              }
+            }
+          }
 
           const variant: HtmlAdVariant = {
             id: `htmlad-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1356,16 +1846,146 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
             inspiredByRef: inspiredBy,
           };
           await persistImage(stored);
+
+          // ── Vision QA loop (optional, multi-round) ──
+          // Each round: audit screenshot → get CSS fixes → regenerate HTML → re-capture.
+          // Even 1 round = audit + refine (not just audit).
+          // Wrapped in its own try/catch so VisionQA crashes don't kill the whole generation.
+          if (visionFeedbackEnabled && screenshot && !signal?.aborted) try {
+            console.log(`[VisionQA] Starting ${visionRounds} round(s) for ad ${i + 1}`);
+            const refImages = uploadedImages.filter(img => img.type === 'layout');
+            const refBase64 = refImages.length > 0 ? refImages[0].base64 : null;
+            const brandCtx = presetEnabled ? (getPresetContext() || '') : '';
+            let currentHtml = cleanHtml;
+            let currentScreenshot = screenshot;
+            let allFeedback = '';
+
+            // Initialize vision history with original screenshot
+            setVisionHistory([{ round: 0, screenshot, feedback: '(original)' }]);
+            setShowVisionComparison(true);
+
+            for (let round = 0; round < visionRounds; round++) {
+              if (signal?.aborted) break;
+
+              const roundLabel = visionRounds > 1 ? ` (round ${round + 1}/${visionRounds})` : '';
+
+              // ── Step A: Audit the current screenshot ──
+              setGenerationPhase('streaming');
+              setLlmOutput('');
+              chunkCountRef.current = 0;
+              chunkStartRef.current = 0;
+              setGenerationProgress(`Vision: reviewing ad ${i + 1}${roundLabel}...`);
+
+              const feedback = await getVisionFeedback(currentScreenshot, refBase64, brandCtx, signal);
+              if (!feedback || signal?.aborted) {
+                console.warn(`[VisionQA] No feedback returned for ad ${i + 1} round ${round + 1} — MiniCPM may have failed`);
+                setGenerationProgress(`Vision QA: no feedback (MiniCPM may be unavailable)`);
+                await new Promise(r => setTimeout(r, 1500));
+                break;
+              }
+
+              console.log(`[VisionQA] Got feedback for ad ${i + 1} round ${round + 1}: ${feedback.slice(0, 100)}...`);
+              allFeedback += (allFeedback ? `\n\n--- Round ${round + 1} ---\n` : '') + feedback;
+
+              // Update variant with latest feedback
+              setHtmlVariants(prev => prev.map(v =>
+                v.id === variant.id ? { ...v, visionFeedback: allFeedback } : v
+              ));
+
+              // ── Step B: Regenerate HTML incorporating the fixes ──
+              setGenerationProgress(`Refining ad ${i + 1}${roundLabel}...`);
+              setGenerationPhase('streaming');
+              setLlmOutput('');
+              chunkCountRef.current = 0;
+              chunkStartRef.current = 0;
+
+              let refinedHtml = '';
+              await ollamaService.generateStream(
+                `Here is the current HTML ad:\n\`\`\`html\n${currentHtml}\n\`\`\`\n\nCSS/HTML FIXES REQUIRED:\n${feedback}\n\nApply EACH fix listed above. Change the specific CSS properties and HTML structure as instructed. Keep the same content (copy, images, colors) but fix the layout problems. Output ONLY the complete revised HTML document — no explanation, just the fixed HTML.`,
+                HTML_AD_SYSTEM_PROMPT,
+                {
+                  model: htmlLlmModel,
+                  signal,
+                  onChunk: (chunk) => {
+                    refinedHtml += chunk;
+                    chunkCountRef.current++; stepChunkRef.current++;
+                    if (!chunkStartRef.current) chunkStartRef.current = Date.now(); if (!stepStartRef.current) stepStartRef.current = Date.now();
+                    setLlmOutput(prev => prev + chunk);
+                    setCurrentHtmlPreview(refinedHtml);
+                  },
+                }
+              );
+
+              // ── Step C: Re-capture screenshot with refined HTML ──
+              const extracted = extractHtmlDocument(refinedHtml);
+              if (extracted && extracted.length >= 50) {
+                currentHtml = embedProductImages(extracted, uploadedImages);
+                setGenerationPhase('capturing');
+                setGenerationProgress(`Capturing refined ad ${i + 1}${roundLabel}...`);
+                const newScreenshot = await captureHtmlScreenshot(currentHtml, dim.w, dim.h);
+                if (newScreenshot) {
+                  currentScreenshot = newScreenshot;
+                  // Update variant with refined HTML + screenshot
+                  setHtmlVariants(prev => prev.map(v =>
+                    v.id === variant.id ? { ...v, html: currentHtml, screenshotBase64: newScreenshot } : v
+                  ));
+                  // Track in vision history for side-by-side comparison
+                  setVisionHistory(prev => [...prev, { round: round + 1, screenshot: newScreenshot, feedback }]);
+                  console.log(`[VisionQA] Refined ad ${i + 1} round ${round + 1} — HTML updated`);
+                }
+              } else {
+                console.warn(`[VisionQA] Refinement produced invalid HTML for ad ${i + 1} round ${round + 1}`);
+              }
+            }
+
+            // ── Update IndexedDB with refined HTML + screenshot ──
+            if (currentHtml !== cleanHtml) {
+              console.log(`[VisionQA] Updating stored image ${variant.id} with refined HTML + screenshot`);
+              const updatedStored: StoredImage = {
+                id: variant.id,
+                imageBase64: currentScreenshot,
+                prompt: prompt || '(HTML ad)',
+                imagePrompt: `HTML Ad: ${label} (refined)`,
+                model: llmModel,
+                aspectRatio,
+                pipeline: 'html-ad',
+                timestamp: variant.timestamp,
+                label: `Ad ${imageCountRef.current}`,
+                referenceImageCount: uploadedImages.filter(img => img.type === 'product').length,
+                campaignId: campaign?.id,
+                campaignBrand: campaign?.brand,
+                htmlSource: currentHtml,
+                strategyLabel: label,
+                generationDurationMs: Date.now() - adStartTime,
+                inspiredByRef: inspiredBy,
+              };
+              await storage.saveImage(updatedStored);
+              setStoredImages(prev => prev.map(img =>
+                img.id === variant.id ? updatedStored : img
+              ));
+            }
+          } catch (visionErr) {
+            if (signal?.aborted) throw visionErr; // Re-throw abort
+            console.error(`[VisionQA] Crashed during ad ${i + 1}:`, visionErr);
+            setGenerationProgress(`Vision QA crashed — ad saved without refinement`);
+            await new Promise(r => setTimeout(r, 2000));
+          }
         } else {
-          setGenerationProgress(`Ad ${i + 1} screenshot failed, skipping...`);
-          await new Promise(r => setTimeout(r, 1000));
+          console.error(`Screenshot capture returned null for ad ${i + 1}`);
+          setGenerationProgress(`Ad ${i + 1} screenshot failed (check console for details), skipping...`);
+          await new Promise(r => setTimeout(r, 1500));
         }
 
         // Smooth transition between variants
         if (i < count - 1) {
           setGenerationPhase('between');
-          setGenerationProgress(`Ad ${i + 1} done — starting next...`);
-          await new Promise(r => setTimeout(r, 600));
+          setGenerationProgress(`✓ Ad ${i + 1} done — creating next...`);
+          await new Promise(r => setTimeout(r, 400));
+        } else if (count > 0) {
+          // Final ad done
+          setGenerationPhase('between');
+          setGenerationProgress(`✓ All ${count} ads created`);
+          await new Promise(r => setTimeout(r, 800));
         }
       } catch (err) {
         if (signal?.aborted) break;
@@ -1378,9 +1998,655 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
     }
 
     setBatchCurrent(0);
+
+    // Mark for auto-render if enabled (will be handled by effect)
+    if (autoRenderHtml && !signal?.aborted && htmlVariants.length > 0) {
+      setGenerationProgress('Preparing to auto-render...');
+    } else {
+      setGenerationProgress('');
+      setGenerationPhase('idle');
+    }
+  }, [aspectRatio, buildBrandVisualRules, presetEnabled, getFullPresetContext, researchEnabled, getResearchContext, getPresetContext, buildProductImagePlaceholders, prompt, uploadedImages, llmModel, htmlLlmModel, campaign, persistImage, HTML_AD_SYSTEM_PROMPT, templateHtml, getAdLibraryContext, adLibraryEnabled, visionFeedbackEnabled, visionRounds, getVisionFeedback]);
+
+  // ══════════════════════════════════════════════════════
+  // ██  AUTO-PICK — Select best reference(s) from ad library cache
+  // ══════════════════════════════════════════════════════
+  const autoPickReferences = useCallback(async (count: number = 1): Promise<Array<{
+    base64: string; description: string; category: string; filename: string; path: string;
+  }>> => {
+    const cache = await getCache();
+    if (!cache || cache.descriptions.length === 0) return [];
+
+    const productType = campaign?.productDescription || '';
+    const brandVibe = campaign?.brand || '';
+    const keywords = [
+      ...(productType).toLowerCase().split(/\s+/),
+      ...(brandVibe).toLowerCase().split(/\s+/),
+      ...(prompt || '').toLowerCase().split(/\s+/),
+    ].filter(w => w.length > 2);
+
+    // Score each cached description
+    const scored = cache.descriptions.map(d => {
+      let score = 0;
+      const text = `${d.category} ${d.description}`.toLowerCase();
+
+      // Category match bonuses
+      if (d.category === 'product-hero') score += 3;
+      if (d.category === 'features-benefits') score += 2;
+      if (d.category === 'social-proof') score += 1;
+
+      // Keyword relevance
+      for (const kw of keywords) {
+        if (text.includes(kw)) score += 1;
+      }
+
+      // Random jitter for variety
+      score += Math.random() * 2;
+
+      return { ...d, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    // Pick top N with category diversity (max 2 per category)
+    const picked: AdDescription[] = [];
+    const catCounts: Record<string, number> = {};
+    for (const item of scored) {
+      if (picked.length >= count) break;
+      const cc = catCounts[item.category] || 0;
+      if (cc >= 2) continue;
+      picked.push(item);
+      catCounts[item.category] = cc + 1;
+    }
+
+    // Load base64 for each — skip blank/corrupt images
+    const results: Array<{ base64: string; description: string; category: string; filename: string; path: string }> = [];
+    for (const d of picked) {
+      // Construct path from category/filename if path is missing
+      const imgPath = d.path || `${d.category}/${d.filename}`;
+      const base64 = await loadAdImageBase64(imgPath);
+      if (!base64) continue;
+      // Check raw base64 size (>2KB = real image, not an error page)
+      const raw = base64.includes(',') ? base64.split(',')[1] : base64;
+      if (!raw || raw.length < 2000) {
+        console.warn(`[RefCopy] Skipping "${d.filename}" — image too small (${raw?.length || 0} chars, path: ${imgPath})`);
+        continue;
+      }
+      results.push({ base64, description: d.description, category: d.category, filename: d.filename, path: imgPath });
+    }
+    return results;
+  }, [campaign, prompt]);
+
+  // ══════════════════════════════════════════════════════
+  // ██  REFERENCE COPY — Ad library ref → Freepik image (no HTML)
+  // Single reference copy generation (extracted for batch support)
+  const generateSingleReferenceCopy = useCallback(async (
+    target: { base64: string; description: string; category: string; filename: string; path: string },
+    batchLabel: string = '',
+    batchIndex: number = 0
+  ) => {
+
+    const signal = generationAbortRef.current?.signal;
+    const startTime = Date.now();
+
+    setGenerationPhase('streaming');
+    setGenerationProgress(`Loading reference ad${batchLabel}...`);
+    setLlmOutput('');
+    stepChunkRef.current = 0;
+    stepStartRef.current = 0;
+
+    // Step 1: Ensure we have a real base64 of reference ad (not empty/tiny)
+    let refBase64 = target.base64;
+    if (!refBase64) {
+      const loaded = await loadAdImageBase64(target.path);
+      if (!loaded) {
+        setGenerationProgress('Failed to load reference ad image');
+        setGenerationPhase('idle');
+        return;
+      }
+      refBase64 = loaded;
+    }
+
+    // Strip data: prefix for Freepik (expects raw base64)
+    const refRaw = refBase64.includes(',') ? refBase64.split(',')[1] : refBase64;
+
+    // Validate: raw base64 must be substantial (>2KB = real image, not a blank/corrupt file)
+    if (!refRaw || refRaw.length < 2000) {
+      console.warn(`[RefCopy] Skipping "${target.filename}" — image too small (${refRaw?.length || 0} chars, likely blank/corrupt)`);
+      setGenerationProgress(`Skipping ${target.filename} — image appears blank`);
+      await new Promise(r => setTimeout(r, 1500));
+      setGenerationPhase('idle');
+      return;
+    }
+
+    // Step 2: Pre-check Freepik server
+    setGenerationProgress('Checking Freepik server...');
+    const serverOk = await checkServerStatus();
+    if (!serverOk) {
+      console.error('[RefCopy] Freepik server not reachable at localhost:8890');
+      setGenerationProgress('Freepik server not running — start it first (port 8890)');
+      setTimeout(() => { setGenerationProgress(''); setGenerationPhase('idle'); }, 4000);
+      return;
+    }
+
+    // Step 3: Build reference image array — send ALL uploaded images (product + layout)
+    // Users uploaded these for a reason — layout images are visual references too
+    const allUploadedBase64s = getCleanBase64s(uploadedImages);
+    const productBase64s = getCleanBase64s(uploadedImages.filter(img => img.type === 'product'));
+    const layoutBase64s = getCleanBase64s(uploadedImages.filter(img => img.type === 'layout'));
+
+    const refRawClean = refRaw && refRaw.length > 100 ? refRaw : null;
+    // Order: product images first, then layout images, then ad library ref last
+    const allRefs = [...allUploadedBase64s, ...(refRawClean ? [refRawClean] : [])];
+    const refIdx = allRefs.length; // ad library ref index (1-indexed for @img tag)
+
+    // Build @img tag map for the LLM
+    const quickBrand = campaign?.brand || '';
+    const imgTagMap: string[] = [];
+    let imgNum = 1;
+    if (productBase64s.length > 0) {
+      imgTagMap.push(`@img${imgNum} = ${quickBrand} product photo — keep exact appearance, rotate/reposition as needed.`);
+      imgNum += productBase64s.length;
+    }
+    if (layoutBase64s.length > 0) {
+      imgTagMap.push(`@img${imgNum} = uploaded layout reference — use as composition guide.`);
+      imgNum += layoutBase64s.length;
+    }
+    if (refRawClean) {
+      imgTagMap.push(`@img${refIdx} = AD LIBRARY REFERENCE — copy composition/zones, IGNORE all text and branding.`);
+    }
+
+    // ── Step 4: EXTRACT REAL DATA before LLM call ──
+    setGenerationProgress('Writing ad copy + creative direction...');
+    setLlmOutput('');
+
+    const preset = campaign?.presetData || {};
+    const brand = preset.brand || {};
+    const product = preset.product || {};
+    const messaging = preset.messaging || {};
+
+    // Real brand data — exhaustive extraction
+    const brandName = brand.name || campaign?.brand || '';
+    const brandTagline = brand.tagline || messaging.brandTagline || '';
+    const brandTone = brand.tone || brand.voiceTone || messaging.tone || '';
+    const brandColors = brand.colors || campaign?.brandColors || '';
+    const brandFonts = brand.fonts || campaign?.brandFonts || '';
+    const brandPersonality = brand.personality || '';
+    // brandFonts — font info available but kept short for Nano Banana (used via brand data only)
+
+    // Visual identity — critical for on-brand generation
+    const packagingDesc = product.packaging || brand.packagingDesign || '';
+    const productFormat = product.format || '';
+    const variantName = product.variant || product.activeVariant || '';
+    const variantColor = product.variantColor || '';
+    // variantVibe available via product.variantVibe if needed for future prompts
+
+    // Real product data
+    const productName = product.name || '';
+    const productDesc = product.oneLiner || product.description || campaign?.productDescription || '';
+    const productUSP = product.usp || '';
+    const productBenefits = Array.isArray(product.keyBenefits) ? product.keyBenefits : [];
+    const functionalBenefits = product.functionalBenefits || {};
+    const funcBenefitValues = typeof functionalBenefits === 'object' && !Array.isArray(functionalBenefits)
+      ? Object.values(functionalBenefits).filter(v => typeof v === 'string') as string[]
+      : [];
+    const realBenefits: string[] = [
+      ...funcBenefitValues,
+      ...productBenefits,
+      ...(product.emotionalBenefits || []).slice(0, 3),
+    ].filter(Boolean).slice(0, 8);
+    const provenResults = product.provenResults || '';
+    const ingredients = Array.isArray(product.ingredients) ? product.ingredients : [];
+    const noNos = product.features?.noNos || '';
+
+    // ── Product angle variety per batch item ──
+    const angleVariants = [
+      'front-facing, slightly angled 15 degrees right, hero product shot',
+      'tilted 30 degrees left, dynamic angle, spray mist visible',
+      'shot from slightly above, looking down at product at 20 degree angle',
+      'product angled 45 degrees showing side label, three-quarter view',
+      'low angle looking up at product, powerful and bold',
+      'flat lay top-down view, product centered among props',
+      'product rotated to show back/side, different perspective',
+      'close-up detail shot, product slightly tilted forward',
+    ];
+    const angleInstruction = angleVariants[batchIndex % angleVariants.length];
+
+    // ── Extract hex codes for color direction ──
+    const hexCodes = brandColors.match(/#[0-9A-Fa-f]{6}/g) || [];
+    const primaryHex = hexCodes[0] || '#000000';
+    const accentHex = hexCodes.length > 2 ? hexCodes[2] : hexCodes[1] || '#FFFFFF';
+    const variantHex = variantColor.match(/#[0-9A-Fa-f]{6}/)?.[0] || '';
+
+    // ── Pull research insights to drive ad angles ──
+    const rf = currentCycle?.researchFindings;
+    // Pick a specific desire to target (rotate per batch)
+    const topDesires = rf?.deepDesires?.map(d => d.deepestDesire).filter(Boolean) || [];
+    const topObjections = rf?.objections?.map(o => o.objection).filter(Boolean) || [];
+    const customerLanguage = rf?.avatarLanguage?.slice(0, 6) || [];
+    const competitorGaps = rf?.competitorWeaknesses || [];
+    const targetDesire = topDesires.length > 0 ? topDesires[batchIndex % topDesires.length] : '';
+    const targetObjection = topObjections.length > 0 ? topObjections[batchIndex % topObjections.length] : '';
+
+    // ── LLM prompt — rich with research + brand data ──
+    const structuredPrompt = `Write a ${brandName} ad targeting a SPECIFIC customer desire. Use ONLY the data below.
+
+BRAND: ${brandName} — ${brandPersonality || brandTone || 'Clear, direct, confident'}
+PRODUCT: ${productName}${variantName ? ` (${variantName})` : ''}
+USP: ${productUSP || 'Premium quality, transparent ingredients, fair price'}
+${ingredients.length > 0 ? `INGREDIENTS: ${ingredients.join(', ')}` : ''}
+${noNos ? `CLEAN: ${noNos}` : ''}
+
+APPROVED BENEFITS:
+${realBenefits.map(b => `- ${b}`).join('\n')}
+${targetDesire ? `\nTARGET DESIRE (build your headline around this): "${targetDesire}"` : ''}
+${targetObjection ? `OVERCOME THIS OBJECTION: "${targetObjection}"` : ''}
+${customerLanguage.length > 0 ? `SPEAK LIKE THE CUSTOMER: ${customerLanguage.map(l => `"${l}"`).join(', ')}` : ''}
+${competitorGaps.length > 0 ? `EXPLOIT COMPETITOR GAPS: ${competitorGaps.slice(0, 3).join('; ')}` : ''}
+${provenResults ? `PROOF: ${provenResults.slice(0, 100)}` : ''}
+
+COLORS: ${primaryHex} (primary), ${accentHex} (accent)${variantHex ? `, ${variantHex} (variant)` : ''}
+${prompt ? `BRIEF: ${prompt}` : ''}
+
+Output ONLY JSON:
+{
+  "headline": "2-5 words addressing the target desire/objection",
+  "subtext": "CTA or supporting line, max 6 words",
+  "callouts": ["benefit 1", "benefit 2", "benefit 3"],
+  "scene": "${angleInstruction}",
+  "bg": "${primaryHex} or ${accentHex}"
+}
+
+RULES:
+- headline: address the TARGET DESIRE or counter the OBJECTION. Use customer language. Short + punchy.${targetDesire ? `\n  e.g. for desire "${targetDesire.slice(0, 40)}" → pick the benefit that solves it` : ''}
+- callouts: shorten from APPROVED BENEFITS. "Holds 8+ hours" → "8-Hour Hold"
+- bg: specific hex code only
+- NEVER invent benefits. ${brandName} ONLY.`;
+
+    let imagePrompt = '';
+    try {
+      const rawLlmOutput = await ollamaService.generateStream(
+        structuredPrompt,
+        `${brandName} ad copywriter. Output ONLY valid JSON. Use ONLY the benefits listed — never invent claims. Pick punchy, specific headlines from the benefits list. Never generic.`,
+        {
+          model: llmModel,
+          signal,
+          onChunk: (chunk) => setLlmOutput(prev => prev + chunk),
+          // NOTE: Don't send images to text-only LLMs (qwen, lfm) — causes errors.
+          // The prompt already contains all brand/product data. MiniCPM handles vision.
+        }
+      );
+
+      // Parse structured JSON from the LLM
+      let parsed: Record<string, unknown> = {};
+      try {
+        const jsonStart = rawLlmOutput.indexOf('{');
+        const jsonEnd = rawLlmOutput.lastIndexOf('}');
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+          parsed = JSON.parse(rawLlmOutput.slice(jsonStart, jsonEnd + 1));
+        }
+      } catch {
+        const hMatch = rawLlmOutput.match(/"headline"\s*:\s*"([^"]+)"/);
+        if (hMatch) parsed = { headline: hMatch[1] };
+      }
+
+      const headline = (parsed.headline as string) || '';
+      const subtext = (parsed.subtext as string) || '';
+      // callouts parsed but NOT sent to Freepik — image model needs short prompts
+      const scene = (parsed.scene as string) || '';
+      const bg = (parsed.bg as string) || '';
+      const mood = (parsed.mood as string) || '';
+
+      // ── Assemble final Freepik prompt — SHORT (~40-50 words max) ──
+      // Nano Banana works best with short, punchy prompts. The reference images carry the visual info.
+      const bgHex = bg?.match(/#[0-9A-Fa-f]{6}/)?.[0] || primaryHex || '#000000';
+      const textHex = (bgHex === '#000000' || bgHex?.toLowerCase() === '#252520') ? '#FFFFFF' : primaryHex;
+      const sceneDir = scene || angleInstruction;
+
+      const shortParts: string[] = [];
+      shortParts.push(`${brandName} ad.`);
+      if (productBase64s.length > 0) shortParts.push(`@img1 product, ${sceneDir}.`);
+      if (refRawClean) shortParts.push(`@img${refIdx} layout ref.`);
+      if (headline) shortParts.push(`Headline: "${headline}".`);
+      if (subtext) shortParts.push(`"${subtext}".`);
+      shortParts.push(`${bgHex} background, ${textHex} text.`);
+      if (mood) shortParts.push(`${mood}.`);
+      shortParts.push(`Only ${brandName} branding.`);
+
+      imagePrompt = shortParts.join(' ');
+
+      console.log('[RefCopy] LLM output →', parsed);
+      console.log('[RefCopy] Assembled prompt:', imagePrompt);
+    } catch (err) {
+      if (signal?.aborted) {
+        setGenerationPhase('idle');
+        return;
+      }
+      // LLM failed — fall back to SHORT template prompt
+      console.warn('[RefCopy] LLM analysis failed, using template:', err);
+      const topBenefit = realBenefits[0] || productUSP?.split('.')[0] || `${brandName} product`;
+      imagePrompt = [
+        `${brandName} ad.`,
+        productBase64s.length > 0 ? `@img1 product, ${angleInstruction}.` : '',
+        refRawClean ? `@img${refIdx} layout ref.` : '',
+        `Headline: "${topBenefit}".`,
+        `${primaryHex || '#000000'} background, #FFFFFF text.`,
+        `Only ${brandName} branding.`,
+        prompt || '',
+      ].filter(Boolean).join(' ').trim();
+    }
+
+    // Filter out any empty/corrupt refs before sending
+    const cleanRefs = allRefs.filter(b64 => b64 && b64.length > 500);
+    console.log(`[RefCopy] Sending ${cleanRefs.length} reference images to Freepik (${cleanRefs.map((_, i) => `@img${i+1}`).join(', ')})`);
+    console.log(`[RefCopy] Prompt (${imagePrompt.split(/\s+/).length} words):`, imagePrompt);
+
+    // ── Step 5: Generate candidates from Freepik ──
+    // Generate renderCount candidates, then MiniCPM picks the best one for refinement
+    const candidateCount = visionFeedbackEnabled ? renderCount : 1;
+    setGenerationProgress(`Generating ${candidateCount > 1 ? `${candidateCount} candidates` : 'ad'} via Freepik (${cleanRefs.length} refs)...`);
+    setGenerationPhase('streaming');
+
+    const result = await generateImage({
+      prompt: imagePrompt,
+      model: imageModel,
+      aspectRatio,
+      count: candidateCount,
+      referenceImages: cleanRefs,
+      signal,
+      onProgress: (msg) => setGenerationProgress(msg),
+      onWarning: (msg) => setServerWarning(msg),
+      onEtaUpdate: (secs) => setGenerationEta(secs),
+    });
+
+    if (!result.success || !result.imageBase64) {
+      setGenerationProgress(result.error || 'Image generation failed');
+      await new Promise(r => setTimeout(r, 2000));
+      setGenerationProgress('');
+      setGenerationPhase('idle');
+      return;
+    }
+
+    // All candidate images (use imagesBase64 if available, else single image)
+    const allCandidates = (result.imagesBase64 && result.imagesBase64.length > 0)
+      ? result.imagesBase64.filter(b => b && b.length > 1000)
+      : [result.imageBase64];
+
+    // ── Step 5b: MiniCPM picks the best candidate (if multiple) ──
+    let currentImageBase64 = allCandidates[0];
+    let currentPrompt = imagePrompt;
+
+    if (allCandidates.length > 1 && visionFeedbackEnabled && !signal?.aborted) {
+      setGenerationProgress(`Evaluating ${allCandidates.length} candidates...`);
+      setLlmOutput('');
+      chunkCountRef.current = 0;
+      chunkStartRef.current = 0;
+
+      // Build brand context early for candidate selection
+      const brandNameForPick = brandName || campaign?.brand || 'the brand';
+
+      try {
+        // Send all candidates to MiniCPM — ask it to pick the best
+        const candidateRaws = allCandidates.map(c =>
+          c.includes(',') ? c.split(',')[1] : c
+        );
+
+        const pickPrompt = `You are evaluating ${allCandidates.length} ad image candidates for ${brandNameForPick}.
+
+The ad MUST show the product "${productName || productDesc}" with CORRECT branding for ${brandNameForPick}.
+
+Look at each image (IMAGE 1 through IMAGE ${allCandidates.length}) and pick the BEST one based on:
+1. BRAND ACCURACY: correct brand name, no competitor logos
+2. COPY QUALITY: headline and text match real product benefits
+3. PRODUCT PLACEMENT: product is clearly visible and well-positioned
+4. VISUAL QUALITY: clean, professional, on-brand colors
+5. LAYOUT: good composition, readable text
+
+Reply with ONLY a number (1-${allCandidates.length}) for the best candidate. Then on the next line, briefly explain why (1 sentence).
+Example:
+2
+Best product placement and no competitor branding visible.`;
+
+        const pickResult = await ollamaService.generateStream(
+          pickPrompt,
+          `Ad creative director. Pick the best candidate. Reply with ONLY the number, then one sentence.`,
+          {
+            model: visionModel,
+            images: candidateRaws,
+            signal,
+            onChunk: (chunk) => {
+              chunkCountRef.current++;
+              setLlmOutput(prev => prev + chunk);
+            },
+          }
+        );
+
+        // Parse the picked number
+        const pickMatch = pickResult.match(/(\d+)/);
+        const pickedIdx = pickMatch ? Math.max(0, Math.min(allCandidates.length - 1, parseInt(pickMatch[1]) - 1)) : 0;
+        currentImageBase64 = allCandidates[pickedIdx];
+        console.log(`[VisionQA] MiniCPM picked candidate ${pickedIdx + 1}/${allCandidates.length}: ${pickResult.slice(0, 100)}`);
+        setGenerationProgress(`Selected candidate ${pickedIdx + 1}/${allCandidates.length}`);
+      } catch (err) {
+        if (signal?.aborted) { setGenerationPhase('idle'); return; }
+        console.warn('[VisionQA] Candidate selection failed, using first:', err);
+        // Fall through with first candidate
+      }
+    }
+
+    // ── Step 6: Persist initial result ──
+    imageCountRef.current += 1;
+    const imageId = `refcopy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const stored: StoredImage = {
+      id: imageId,
+      imageBase64: currentImageBase64,
+      prompt: prompt || '(Reference Copy)',
+      imagePrompt: currentPrompt,
+      model: imageModel,
+      aspectRatio,
+      pipeline: 'reference-copy',
+      timestamp: Date.now(),
+      label: `Ad ${imageCountRef.current}`,
+      referenceImageCount: cleanRefs.length,
+      referenceImages: cleanRefs.length > 0 ? cleanRefs : undefined,
+      campaignId: campaign?.id,
+      campaignBrand: campaign?.brand,
+      inspiredByRef: `${target.filename} [${target.category}]`,
+      generationDurationMs: Date.now() - startTime,
+    };
+    await persistImage(stored);
+
+    // ── Step 7: Vision QA loop — MiniCPM audits, Qwen fixes, Freepik regenerates ──
+    if (visionFeedbackEnabled && !signal?.aborted) {
+      // Build RICH brand context — MiniCPM + LLM get everything we know
+      const visionBrandCtx = [
+        `BRAND: ${brandName || campaign?.brand || 'Unknown'}`,
+        productName ? `PRODUCT: ${productName}${variantName ? ` (${variantName})` : ''}` : '',
+        packagingDesc ? `PACKAGING: ${packagingDesc}` : '',
+        productFormat ? `FORMAT: ${productFormat}` : '',
+        productUSP ? `USP: ${productUSP}` : '',
+        noNos ? `CLEAN CLAIMS: ${noNos}` : '',
+        ingredients.length > 0 ? `INGREDIENTS: ${ingredients.join(', ')}` : '',
+        realBenefits.length > 0 ? `APPROVED BENEFITS (ONLY these are valid — reject anything else):\n${realBenefits.map(b => `- ${b}`).join('\n')}` : '',
+        `BRAND COLORS: ${brandColors}${variantColor ? ` | Variant accent: ${variantColor}` : ''}`,
+        brandFonts ? `BRAND FONTS: ${brandFonts.split('.')[0]}` : '',
+        brandTone ? `TONE: ${brandTone.split('.')[0]}` : '',
+        brandPersonality ? `PERSONALITY: ${brandPersonality.split('—')[0].trim()}` : '',
+        brandTagline ? `TAGLINE: "${brandTagline}"` : '',
+        provenResults ? `SOCIAL PROOF: ${provenResults.slice(0, 150)}` : '',
+        referenceStyle ? `TARGET STYLE: ${referenceStyle}` : '',
+      ].filter(Boolean).join('\n');
+
+      // ── Persistent round history — saved to IndexedDB, browsable after generation ──
+      const rounds: VisionRound[] = [];
+
+      // Add candidates (round 0)
+      if (allCandidates.length > 1) {
+        allCandidates.forEach((c, i) => {
+          rounds.push({
+            round: 0,
+            imageBase64: c,
+            prompt: currentPrompt,
+            feedback: c === currentImageBase64 ? 'Selected by MiniCPM' : `Candidate ${i + 1}`,
+            status: c === currentImageBase64 ? 'original' : 'candidate',
+          });
+        });
+      } else {
+        rounds.push({
+          round: 0,
+          imageBase64: currentImageBase64,
+          prompt: currentPrompt,
+          feedback: 'Original generation',
+          status: 'original',
+        });
+      }
+
+      // Initialize live timeline (UI state for during generation)
+      setVisionHistory(rounds.map(r => ({
+        round: r.round, screenshot: r.imageBase64, feedback: r.feedback, prompt: r.prompt,
+      })));
+      setShowVisionComparison(true);
+
+      // Save initial rounds to stored image
+      const updateStored = async (extraRounds: VisionRound[], fb: string, img?: string, prmpt?: string) => {
+        const updated: StoredImage = {
+          ...stored,
+          imageBase64: img || currentImageBase64,
+          imagePrompt: prmpt || currentPrompt,
+          visionFeedback: fb,
+          visionRounds: [...rounds, ...extraRounds],
+          generationDurationMs: Date.now() - startTime,
+        };
+        await storage.saveImage(updated);
+        setStoredImages(prev => prev.map(i => i.id === imageId ? updated : i));
+      };
+      await updateStored([], 'QA in progress...');
+
+      let allFeedback = '';
+
+      for (let round = 0; round < visionRounds; round++) {
+        if (signal?.aborted) break;
+
+        setGenerationProgress(`Vision QA ${round + 1}/${visionRounds}: checking...`);
+        setGenerationPhase('streaming');
+        chunkCountRef.current = 0;
+        chunkStartRef.current = 0;
+
+        try {
+          const refinedPrompt = await getImageVisionFeedback(
+            currentImageBase64, refBase64, currentPrompt,
+            visionBrandCtx, signal
+          );
+
+          // Empty string = PASS (no issues found) — stop looping
+          if (!refinedPrompt || signal?.aborted) {
+            console.log(`[VisionQA] Round ${round + 1}: approved — stopping`);
+            allFeedback += `\nRound ${round + 1}: PASSED`;
+            rounds.push({
+              round: round + 1,
+              imageBase64: currentImageBase64,
+              prompt: currentPrompt,
+              feedback: 'Approved — no issues found',
+              status: 'passed',
+            });
+            await updateStored([], allFeedback.trim());
+            break;
+          }
+          currentPrompt = refinedPrompt;
+          allFeedback += `\nRound ${round + 1}: revised`;
+
+          // Regenerate with refined prompt
+          setGenerationProgress(`Regenerating (round ${round + 1}/${visionRounds})...`);
+          const refinedResult = await generateImage({
+            prompt: currentPrompt,
+            model: imageModel,
+            aspectRatio,
+            count: 1,
+            referenceImages: cleanRefs,
+            signal,
+            onProgress: (msg) => setGenerationProgress(msg),
+            onWarning: (msg) => setServerWarning(msg),
+            onEtaUpdate: (secs) => setGenerationEta(secs),
+          });
+
+          if (refinedResult.success && refinedResult.imageBase64) {
+            currentImageBase64 = refinedResult.imageBase64;
+
+            // Save this round
+            rounds.push({
+              round: round + 1,
+              imageBase64: currentImageBase64,
+              prompt: currentPrompt,
+              feedback: refinedPrompt,
+              status: 'revised',
+            });
+
+            // Update live timeline
+            setVisionHistory(rounds.map(r => ({
+              round: r.round, screenshot: r.imageBase64, feedback: r.feedback, prompt: r.prompt,
+            })));
+
+            // Persist to IndexedDB (round-by-round, so nothing is lost on crash)
+            await updateStored([], allFeedback.trim(), currentImageBase64, currentPrompt);
+            console.log(`[VisionQA] Round ${round + 1} — saved (${rounds.length} total rounds)`);
+          }
+        } catch (err) {
+          if (signal?.aborted) break;
+          console.error(`[VisionQA] Round ${round + 1} failed:`, err);
+          setGenerationProgress(`Vision QA round ${round + 1} failed — keeping current`);
+          await updateStored([], allFeedback.trim() || 'QA interrupted');
+          await new Promise(r => setTimeout(r, 1500));
+          break;
+        }
+      }
+    }
+
     setGenerationProgress('');
     setGenerationPhase('idle');
-  }, [aspectRatio, buildBrandVisualRules, presetEnabled, getFullPresetContext, researchEnabled, getResearchContext, getPresetContext, buildProductImagePlaceholders, prompt, uploadedImages, llmModel, campaign, persistImage, HTML_AD_SYSTEM_PROMPT, templateHtml, getAdLibraryContext, adLibraryEnabled]);
+  }, [prompt, aspectRatio, imageModel, campaign, presetEnabled,
+      getPresetContext, getFullPresetContext, buildBrandVisualRules, uploadedImages,
+      persistImage, visionFeedbackEnabled, visionRounds, getImageVisionFeedback, referenceStyle, renderCount]);
+
+  // ══════════════════════════════════════════════════════
+  // ██  REFERENCE COPY WRAPPER — handles auto-pick + batch
+  // ══════════════════════════════════════════════════════
+  const generateReferenceCopy = useCallback(async () => {
+    // Auto-pick if no explicit target selected
+    let targets: Array<{ base64: string; description: string; category: string; filename: string; path: string }> = [];
+
+    if (referenceCopyTarget) {
+      // Validate the selected target has a real image
+      const raw = referenceCopyTarget.base64?.includes(',')
+        ? referenceCopyTarget.base64.split(',')[1]
+        : referenceCopyTarget.base64;
+      if (!raw || raw.length < 2000) {
+        console.warn(`[RefCopy] Selected target "${referenceCopyTarget.filename}" has invalid image (${raw?.length || 0} chars)`);
+        setGenerationProgress(`Selected reference image appears blank — pick a different one`);
+        setTimeout(() => setGenerationProgress(''), 4000);
+        return;
+      }
+      targets = [referenceCopyTarget];
+    } else {
+      setGenerationProgress('Auto-picking reference ads...');
+      targets = await autoPickReferences(batchRefCount);
+      console.log(`[RefCopy] Auto-picked ${targets.length} targets (requested ${batchRefCount})`);
+      if (targets.length === 0) {
+        setGenerationProgress('No valid ad library references found — open Ad Library and pre-analyze first');
+        setTimeout(() => setGenerationProgress(''), 4000);
+        return;
+      }
+    }
+
+    // Batch mode: generate one ad per reference target
+    for (let tIdx = 0; tIdx < targets.length; tIdx++) {
+      if (generationAbortRef.current?.signal?.aborted) break;
+      const target = targets[tIdx];
+      const batchLabel = targets.length > 1 ? ` [${tIdx + 1}/${targets.length}]` : '';
+      setBatchCurrent(tIdx + 1);
+      await generateSingleReferenceCopy(target, batchLabel, tIdx);
+    }
+  }, [referenceCopyTarget, batchRefCount, autoPickReferences, generateSingleReferenceCopy]);
 
   // ══════════════════════════════════════════════════════
   // ██  RENDER SELECTED — HTML screenshot → Freepik image
@@ -1393,6 +2659,17 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
 
     if (toRender.length === 0) return;
 
+    // ── Pre-check: is Freepik server running? ──
+    setRenderProgress('Checking Freepik server...');
+    const serverOk = await checkServerStatus();
+    if (!serverOk) {
+      console.error('[Render] Freepik server not reachable at localhost:8890');
+      setRenderProgress('');
+      setGenerationProgress('Freepik server not running — start it first (port 8890)');
+      setTimeout(() => setGenerationProgress(''), 5000);
+      return;
+    }
+
     const abortController = new AbortController();
     renderAbortRef.current = abortController;
     const signal = abortController.signal;
@@ -1403,33 +2680,20 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
     setRenderCurrent(0);
     setRenderProgress('Starting render...');
 
-    const productImgs = uploadedImages.filter(img => img.type === 'product');
-    const productRefBase64s = productImgs.map(img => img.base64);
-    const brandRules = buildBrandVisualRules();
-    const presetContext = presetEnabled ? getPresetContext() : '';
+    const allUploadedBase64s = getCleanBase64s(uploadedImages);
 
     let renderIdx = 0;
     for (const variant of toRender) {
       if (signal.aborted) break;
 
-      // Build reference images: product images + HTML screenshot as layout guide
-      const allRefs = [...productRefBase64s, variant.screenshotBase64];
+      // Build reference images: ALL uploaded images + HTML screenshot as layout guide
+      const allRefs = [...allUploadedBase64s, variant.screenshotBase64];
       const layoutImgIdx = allRefs.length; // 1-indexed for @img tag
 
-      const productDesc = productImgs.length > 0
-        ? productImgs.map((img, j) =>
-            `@img${j + 1} (${img.label}: ${img.description || 'product shot'})`
-          ).join(', ')
-        : '';
+      const { colors: shortColors, font: shortFont } = getShortBrandContext(campaign);
 
-      const promptText = `Professional DTC advertising creative for paid social (Instagram/TikTok/Facebook).
-${campaign?.brand ? `Brand: ${campaign.brand}.` : ''}
-Ad concept: "${variant.strategyLabel}".
-${productDesc ? `Product references: ${productDesc}.` : ''}
-@img${layoutImgIdx} is the HTML AD LAYOUT — be INSPIRED by its composition, color placement, and visual hierarchy. Place elements in similar zones but create a polished, production-quality ad image.
-${presetContext ? `Brand context: ${presetContext}` : ''}
-${brandRules}
-The product must be prominently visible and the visual hero. This must look like a polished paid social ad, not a stock photo. Dynamic, scroll-stopping, brand-consistent.`;
+      // INSTRUCTION prompt — keep product as-is, brand colors for layout only
+      const promptText = `Recreate @img${layoutImgIdx} layout. Place @img1 product as-is — do NOT recolor it. Apply ${shortColors || 'brand'} colors to background and text only.${shortFont ? ` Font: ${shortFont}.` : ''} ${variant.strategyLabel}. ${prompt || ''}`.trim();
 
       for (let r = 0; r < renderCount; r++) {
         if (signal.aborted) break;
@@ -1555,7 +2819,7 @@ INSTRUCTIONS:
           editPrompt,
           `You are an HTML ad editor. You receive an existing HTML ad and a user's edit instruction. Apply the edit precisely and return the full modified HTML document. Output ONLY HTML.`,
           {
-            model: llmModel,
+            model: htmlLlmModel,
             signal: abortController.signal,
             onChunk: (chunk) => {
               htmlOutput += chunk;
@@ -1662,7 +2926,7 @@ INSTRUCTIONS:
       setRefineProgress('');
       refineAbortRef.current = null;
     }
-  }, [selectedImage, refinePrompt, isRefining, campaign, persistImage, llmModel, uploadedImages, HTML_AD_SYSTEM_PROMPT]);
+  }, [selectedImage, refinePrompt, isRefining, campaign, persistImage, llmModel, htmlLlmModel, uploadedImages, HTML_AD_SYSTEM_PROMPT]);
 
   // ── Delete image from IndexedDB + update local state (animated) ──
   const removeImage = useCallback(async (id: string) => {
@@ -1696,10 +2960,7 @@ INSTRUCTIONS:
     const presetContext = getPresetContext();
     const signal = generationAbortRef.current?.signal; // Access abort signal from ref
 
-    // Build variation context if in variation mode and we have a first concept
-    const variationHint = batchMode === 'variations' && lastConceptRef.current
-      ? `\n\nVARIATION MODE: Create a VARIATION of this concept — same core idea, different execution:\n${lastConceptRef.current}\nKeep the same product, angle, and message but change: composition, camera angle, lighting, color treatment, or model pose. Make it distinct but recognizably the same campaign.\n`
-      : '';
+    const variationHint = '';
     imageCountRef.current += 1;
     const nextLabel = `Ad ${imageCountRef.current}`;
     const pipelineType = !llmEnabled ? 'direct'
@@ -1739,14 +3000,14 @@ INSTRUCTIONS:
 
       setGenerationProgress(`Sending to ${modelName}...`);
 
-      // Only send product-type images to Freepik (not guidelines, brand assets, etc.)
-      const productRefBase64s = uploadedImages.filter(img => img.type === 'product').map(img => img.base64);
+      // Send ALL uploaded images to Freepik (product + layout refs)
+      const allRefBase64s = getCleanBase64s(uploadedImages);
       const result = await generateImage({
         prompt: finalImagePrompt,
         model: imageModel,
         aspectRatio,
         count: batchCount,  // Pass batch count to Freepik natively
-        referenceImages: productRefBase64s,
+        referenceImages: allRefBase64s,
         signal,
         onProgress: (msg) => setGenerationProgress(msg),
         onWarning: (msg) => setServerWarning(msg),
@@ -1768,8 +3029,8 @@ INSTRUCTIONS:
             pipeline: pipelineType,
             timestamp: Date.now(),
             label: `Ad ${imageCountRef.current}`,
-            referenceImageCount: productRefBase64s.length,
-            referenceImages: productRefBase64s.length > 0 ? productRefBase64s : undefined,
+            referenceImageCount: allRefBase64s.length,
+            referenceImages: allRefBase64s.length > 0 ? allRefBase64s : undefined,
             campaignId: campaign?.id,
             campaignBrand: campaign?.brand,
             heroImageBase64: undefined,
@@ -1789,7 +3050,13 @@ INSTRUCTIONS:
     // ── PATH 5: LLM only — enhance/refine the user prompt (JSON output) ──
     else if (llmEnabled && !presetEnabled && !researchEnabled && !htmlEnabled) {
       setLlmOutput('');
-      setGenerationProgress(`Enhancing prompt with ${llmModel}...`);
+      setGenerationProgress(`Thinking + warming up Freepik...`);
+
+      // Start Freepik warmup IN PARALLEL with LLM thinking
+      const freepikWarmup = checkServerStatus().then(ok => {
+        setFreepikReady(ok);
+        return ok;
+      });
 
       const settings = getSettingsContext();
       const llmPrompt = `Engineer a high-performance static AD CREATIVE as JSON.
@@ -1810,20 +3077,33 @@ Output a single JSON object. Every creative choice must have strategic intent �
           { model: llmModel, signal, onChunk: (chunk) => setLlmOutput(prev => prev + chunk) }
         );
 
+        // LLM done — check Freepik warmup result
+        const freepikOk = await freepikWarmup;
+        if (!freepikOk) {
+          setGenerationProgress('Freepik server not running — start it first');
+          await new Promise(r => setTimeout(r, 3000));
+          imageCountRef.current -= 1;
+          return false;
+        }
+
         // Capture first concept for variation mode
         if (!lastConceptRef.current) lastConceptRef.current = rawOutput.slice(0, 500);
 
-        const cleanPrompt = extractImagePrompt(rawOutput);
+        const { colors: shortColors } = getShortBrandContext(campaign);
+        const cleanPrompt = extractImagePrompt(rawOutput, {
+          shortColors,
+          imageCount: uploadedImages.length,
+        });
         setGenerationProgress(`Sending to ${modelName}...`);
         setServerWarning('');
 
-        const productRefBase64s = uploadedImages.filter(img => img.type === 'product').map(img => img.base64);
+        const allRefBase64s = getCleanBase64s(uploadedImages);
         const result = await generateImage({
           prompt: cleanPrompt,
           model: imageModel,
           aspectRatio,
           count: 1,
-          referenceImages: productRefBase64s,
+          referenceImages: allRefBase64s,
           signal,
           onProgress: (msg) => setGenerationProgress(msg),
           onWarning: (msg) => setServerWarning(msg),
@@ -1841,8 +3121,8 @@ Output a single JSON object. Every creative choice must have strategic intent �
             pipeline: pipelineType,
             timestamp: Date.now(),
             label: nextLabel,
-            referenceImageCount: productRefBase64s.length,
-            referenceImages: productRefBase64s.length > 0 ? productRefBase64s : undefined,
+            referenceImageCount: allRefBase64s.length,
+            referenceImages: allRefBase64s.length > 0 ? allRefBase64s : undefined,
             campaignId: campaign?.id,
             campaignBrand: campaign?.brand,
           };
@@ -1865,7 +3145,7 @@ Output a single JSON object. Every creative choice must have strategic intent �
 
     // ── PATH 4: Preset data → LLM generates ad angle + prompt (JSON) → Image model ──
     else if (llmEnabled && presetEnabled && !researchEnabled && !htmlEnabled) {
-      setGenerationProgress('Analyzing preset data...');
+      setGenerationProgress('Thinking + warming up Freepik...');
       setLlmOutput('');
       const fullPreset = getFullPresetContext();
 
@@ -1875,6 +3155,12 @@ Output a single JSON object. Every creative choice must have strategic intent �
         imageCountRef.current -= 1;
         return false;
       }
+
+      // Start Freepik warmup IN PARALLEL with LLM thinking
+      const freepikWarmup = checkServerStatus().then(ok => {
+        setFreepikReady(ok);
+        return ok;
+      });
 
       const settings = getSettingsContext();
       const llmPrompt = `You have the complete BRAND BIBLE below. Internalize every detail — colors, packaging, visual identity, audience psychology, competitive positioning. Then engineer a static AD CREATIVE that this brand would actually run.
@@ -1898,20 +3184,33 @@ Use the brand data to pick the strongest angle. Match the brand's visual identit
           { model: llmModel, signal, onChunk: (chunk) => setLlmOutput(prev => prev + chunk) }
         );
 
+        // LLM done — check Freepik warmup result
+        const freepikOk = await freepikWarmup;
+        if (!freepikOk) {
+          setGenerationProgress('Freepik server not running — start it first');
+          await new Promise(r => setTimeout(r, 3000));
+          imageCountRef.current -= 1;
+          return false;
+        }
+
         // Capture first concept for variation mode
         if (!lastConceptRef.current) lastConceptRef.current = rawOutput.slice(0, 500);
 
-        const cleanPrompt = extractImagePrompt(rawOutput);
+        const { colors: shortColors } = getShortBrandContext(campaign);
+        const cleanPrompt = extractImagePrompt(rawOutput, {
+          shortColors,
+          imageCount: uploadedImages.length,
+        });
         setGenerationProgress(`Sending to ${modelName}...`);
         setServerWarning('');
 
-        const productRefBase64s = uploadedImages.filter(img => img.type === 'product').map(img => img.base64);
+        const allRefBase64s = getCleanBase64s(uploadedImages);
         const result = await generateImage({
           prompt: cleanPrompt,
           model: imageModel,
           aspectRatio,
           count: 1,
-          referenceImages: productRefBase64s,
+          referenceImages: allRefBase64s,
           signal,
           onProgress: (msg) => setGenerationProgress(msg),
           onWarning: (msg) => setServerWarning(msg),
@@ -1929,8 +3228,8 @@ Use the brand data to pick the strongest angle. Match the brand's visual identit
             pipeline: pipelineType,
             timestamp: Date.now(),
             label: nextLabel,
-            referenceImageCount: productRefBase64s.length,
-            referenceImages: productRefBase64s.length > 0 ? productRefBase64s : undefined,
+            referenceImageCount: allRefBase64s.length,
+            referenceImages: allRefBase64s.length > 0 ? allRefBase64s : undefined,
             campaignId: campaign?.id,
             campaignBrand: campaign?.brand,
           };
@@ -1998,7 +3297,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
         const htmlGenPromise = ollamaService.generateStream(
           htmlPrompt,
           'You are a world-class ad layout designer. Output only valid HTML. No markdown fences, no explanation — just the HTML document.',
-          { model: llmModel, signal, onChunk: (chunk) => {
+          { model: htmlLlmModel, signal, onChunk: (chunk) => {
             htmlOutput += chunk;
             setLlmOutput(prev => prev + chunk);
           }}
@@ -2042,26 +3341,16 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
         // ── PHASE 2: Build image prompt from layout ──
         setLlmOutput(prev => prev + '\n─── PHASE 2: BUILDING AD PROMPT ───\n\n');
 
-        // Build reference images: only product images + layout screenshot
-        const productImgs = uploadedImages.filter(img => img.type === 'product');
-        const productRefBase64s = productImgs.map(img => img.base64);
-        const allRefs = layoutScreenshot ? [...productRefBase64s, layoutScreenshot] : productRefBase64s;
-        // @img tags are 1-indexed: product images first, layout screenshot last
+        // Build reference images: ALL uploaded images + layout screenshot
+        const allUploadedBase64s = getCleanBase64s(uploadedImages);
+        const allRefs = layoutScreenshot ? [...allUploadedBase64s, layoutScreenshot] : allUploadedBase64s;
+        // @img tags are 1-indexed: uploaded images first, layout screenshot last
         const layoutImgTag = layoutScreenshot ? `@img${allRefs.length}` : '';
 
-        const productDesc = productImgs.length > 0
-          ? `Product reference images: ${productImgs.map((img, i) => `@img${i + 1} (${img.label}: ${img.description || 'product shot'})`).join(', ')}.`
-          : '';
-        const layoutRef = layoutScreenshot
-          ? `${layoutImgTag} is the HTML LAYOUT WIREFRAME — use it as a COMPOSITION GUIDE for where to place elements (product zone, headline area, CTA area). Follow its visual hierarchy and color scheme.`
-          : '';
+        const { colors: shortColors, font: shortFont } = getShortBrandContext(campaign);
 
-        const imagePromptFromLayout = `Professional social media advertising creative for a DTC brand campaign. Create a polished, production-ready AD IMAGE following this composition layout.
-${productDesc}
-${layoutRef}
-The product must be prominently visible, recognizable, and PART OF A DYNAMIC SCENE — being used, held, or in action.
-Use the brand colors from the layout. Follow the visual hierarchy — product zone gets the product, headline zone stays clean for text overlay.
-This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock photo. Dynamic, scroll-stopping, brand-consistent.`;
+        // INSTRUCTION prompt — keep product as-is, brand colors for layout only
+        const imagePromptFromLayout = `Recreate ${layoutImgTag || 'this layout'}. ${uploadedImages.length > 0 ? 'Place @img1 product as-is — do NOT recolor it.' : ''}${shortColors ? ` Apply ${shortColors} to background and text only.` : ''}${shortFont ? ` Font: ${shortFont}.` : ''} ${prompt || 'Product hero, clean, polished ad.'}`.trim();
 
         setLlmOutput(prev => prev + imagePromptFromLayout + '\n');
 
@@ -2126,8 +3415,15 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
 
     // ── PATH 2: Research → LLM prompt (JSON) → Image model ──
     else if (llmEnabled && researchEnabled && !htmlEnabled) {
-      setGenerationProgress('Analyzing research...');
+      setGenerationProgress('Thinking + warming up Freepik...');
       setLlmOutput('');
+
+      // Start Freepik warmup IN PARALLEL with LLM thinking
+      const freepikWarmup = checkServerStatus().then(ok => {
+        setFreepikReady(ok);
+        return ok;
+      });
+
       const researchContext = getResearchContext();
       const settings = getSettingsContext();
 
@@ -2152,20 +3448,33 @@ The research tells you WHAT to say. Your ad expertise tells you HOW to say it vi
           { model: llmModel, signal, onChunk: (chunk) => setLlmOutput(prev => prev + chunk) }
         );
 
+        // LLM done — check Freepik warmup result
+        const freepikOk = await freepikWarmup;
+        if (!freepikOk) {
+          setGenerationProgress('Freepik server not running — start it first');
+          await new Promise(r => setTimeout(r, 3000));
+          imageCountRef.current -= 1;
+          return false;
+        }
+
         // Capture first concept for variation mode
         if (!lastConceptRef.current) lastConceptRef.current = rawOutput.slice(0, 500);
 
-        const cleanPrompt = extractImagePrompt(rawOutput);
+        const { colors: shortColors } = getShortBrandContext(campaign);
+        const cleanPrompt = extractImagePrompt(rawOutput, {
+          shortColors,
+          imageCount: uploadedImages.length,
+        });
         setGenerationProgress(`Sending to ${modelName}...`);
         setServerWarning('');
 
-        const productRefBase64s = uploadedImages.filter(img => img.type === 'product').map(img => img.base64);
+        const allRefBase64s = getCleanBase64s(uploadedImages);
         const result = await generateImage({
           prompt: cleanPrompt,
           model: imageModel,
           aspectRatio,
           count: 1,
-          referenceImages: productRefBase64s,
+          referenceImages: allRefBase64s,
           signal,
           onProgress: (msg) => setGenerationProgress(msg),
           onWarning: (msg) => setServerWarning(msg),
@@ -2183,8 +3492,8 @@ The research tells you WHAT to say. Your ad expertise tells you HOW to say it vi
             pipeline: pipelineType,
             timestamp: Date.now(),
             label: nextLabel,
-            referenceImageCount: productRefBase64s.length,
-            referenceImages: productRefBase64s.length > 0 ? productRefBase64s : undefined,
+            referenceImageCount: allRefBase64s.length,
+            referenceImages: allRefBase64s.length > 0 ? allRefBase64s : undefined,
             campaignId: campaign?.id,
             campaignBrand: campaign?.brand,
           };
@@ -2257,7 +3566,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
         const htmlGenPromise = ollamaService.generateStream(
           htmlPrompt,
           'You are a world-class ad layout designer. Output only valid HTML. No markdown fences, no explanation — just the HTML document.',
-          { model: llmModel, signal, onChunk: (chunk) => {
+          { model: htmlLlmModel, signal, onChunk: (chunk) => {
             htmlOutput += chunk;
             setLlmOutput(prev => prev + chunk);
           }}
@@ -2300,25 +3609,15 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
         // ── PHASE 2: Build image prompt from layout ──
         setLlmOutput(prev => prev + '\n─── PHASE 2: BUILDING AD PROMPT ───\n\n');
 
-        // Build reference images: only product images + layout screenshot
-        const productImgs = uploadedImages.filter(img => img.type === 'product');
-        const productRefBase64s = productImgs.map(img => img.base64);
-        const allRefs = layoutScreenshot ? [...productRefBase64s, layoutScreenshot] : productRefBase64s;
+        // Build reference images: ALL uploaded images + layout screenshot
+        const allUploadedBase64s = getCleanBase64s(uploadedImages);
+        const allRefs = layoutScreenshot ? [...allUploadedBase64s, layoutScreenshot] : allUploadedBase64s;
         const layoutImgTag = layoutScreenshot ? `@img${allRefs.length}` : '';
 
-        const productDesc = productImgs.length > 0
-          ? `Product reference images: ${productImgs.map((img, i) => `@img${i + 1} (${img.label}: ${img.description || 'product shot'})`).join(', ')}.`
-          : '';
-        const layoutRef = layoutScreenshot
-          ? `${layoutImgTag} is the HTML LAYOUT WIREFRAME — use it as a COMPOSITION GUIDE for where to place elements (product zone, headline area, CTA area). Follow its visual hierarchy and color scheme.`
-          : '';
+        const { colors: shortColors, font: shortFont } = getShortBrandContext(campaign);
 
-        const imagePromptFromLayout = `Professional social media advertising creative for a DTC brand campaign. Create a polished, production-ready AD IMAGE following this composition layout.
-${productDesc}
-${layoutRef}
-The product must be prominently visible, recognizable, and PART OF A DYNAMIC SCENE — being used, held, or in action.
-Use the brand colors from the layout. Follow the visual hierarchy — product zone gets the product, headline zone stays clean for text overlay.
-This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock photo. Dynamic, scroll-stopping, brand-consistent.`;
+        // INSTRUCTION prompt — keep product as-is, brand colors for layout only
+        const imagePromptFromLayout = `Recreate ${layoutImgTag || 'this layout'}. ${uploadedImages.length > 0 ? 'Place @img1 product as-is — do NOT recolor it.' : ''}${shortColors ? ` Apply ${shortColors} to background and text only.` : ''}${shortFont ? ` Font: ${shortFont}.` : ''} ${prompt || 'Product hero, clean, polished ad.'}`.trim();
 
         setLlmOutput(prev => prev + imagePromptFromLayout + '\n');
 
@@ -2382,13 +3681,73 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
     }
 
     return false;
-  }, [prompt, aspectRatio, campaign, imageModel, llmEnabled, presetEnabled, htmlEnabled, researchEnabled, llmModel, batchCount, uploadedImages, getResearchContext, getPresetContext, getFullPresetContext, getSettingsContext, buildImageContext, buildBrandVisualRules, persistImage, knowledgeContent]);
+  }, [prompt, aspectRatio, campaign, imageModel, llmEnabled, presetEnabled, htmlEnabled, researchEnabled, llmModel, htmlLlmModel, batchCount, uploadedImages, getResearchContext, getPresetContext, getFullPresetContext, getSettingsContext, buildImageContext, buildBrandVisualRules, persistImage, knowledgeContent]);
 
   // ══════════════════════════════════════════════════════
   // ██  BATCH GENERATE — orchestrates all generation modes
   // ══════════════════════════════════════════════════════
   const handleGenerate = useCallback(async () => {
-    if ((!llmEnabled && !prompt.trim()) || isGenerating || isRendering) return;
+    if (isGenerating || isRendering) return;
+    // Non-LLM non-refcopy mode requires a prompt
+    if (!llmEnabled && !referenceCopyEnabled && !prompt.trim()) return;
+
+    // Validation: Check for missing critical inputs
+    const warnings: string[] = [];
+    const hasPrompt = prompt.trim().length > 0;
+    const hasBrand = campaign?.presetData?.brand || campaign?.brand;
+    const hasResearch = currentCycle?.researchFindings &&
+      (currentCycle.researchFindings.deepDesires?.length ||
+       currentCycle.researchFindings.objections?.length ||
+       currentCycle.researchFindings.avatarLanguage?.length);
+
+    if (!hasPrompt && !hasBrand) {
+      warnings.push('⚠️ Missing: Add a prompt or load brand preset');
+    }
+    if (htmlEnabled && !hasPrompt && !hasResearch) {
+      warnings.push('⚠️ Tip: Add a prompt or run research for better results');
+    }
+
+    // Show warnings if any
+    if (warnings.length > 0) {
+      const warningText = warnings.join('\n');
+      setGenerationProgress(warningText);
+      await new Promise(r => setTimeout(r, 2500));
+      setGenerationProgress('');
+      // Don't block generation, just warn
+    }
+
+    // ── Research readiness gate — block if enabled + research is thin ──
+    if (researchReadinessCheck && researchEnabled) {
+      const rf = currentCycle?.researchFindings;
+      const desireCount = rf?.deepDesires?.length || 0;
+      const objectionCount = rf?.objections?.length || 0;
+      const languageCount = rf?.avatarLanguage?.length || 0;
+      const gapCount = rf?.competitorWeaknesses?.length || 0;
+      const total = desireCount + objectionCount + languageCount + gapCount;
+
+      if (total < 4) {
+        // Research data is too thin — block generation
+        const missing: string[] = [];
+        if (desireCount === 0) missing.push('customer desires');
+        if (objectionCount === 0) missing.push('purchase objections');
+        if (languageCount === 0) missing.push('customer language');
+        if (gapCount === 0) missing.push('competitor gaps');
+        const msg = `Research data insufficient — need more: ${missing.join(', ')}. Run research first or disable research readiness check.`;
+        setResearchReadinessWarning(msg);
+        setGenerationProgress(msg);
+        await new Promise(r => setTimeout(r, 4000));
+        setGenerationProgress('');
+        return; // BLOCK — don't generate with thin data
+      } else if (total < 8) {
+        // Thin but usable — warn but don't block
+        setResearchReadinessWarning(`Research is thin (${total} insights). Ads may be generic. Consider running more research.`);
+        // Continue to generation
+      } else {
+        setResearchReadinessWarning(''); // Sufficient
+      }
+    } else {
+      setResearchReadinessWarning('');
+    }
 
     // Create abort controller for cancellation
     const abortController = new AbortController();
@@ -2402,9 +3761,17 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
     setGeneratingForPrompt(prompt.trim() || '(LLM auto)');
     setGenerationStartTime(Date.now());
     setGenerationElapsed(0);
+    // Reset token counters for new generation run
+    chunkCountRef.current = 0;
+    chunkStartRef.current = 0;
+    stepChunkRef.current = 0;
+    stepStartRef.current = 0;
     setGenerationEta(MODEL_ETAS[imageModel] || 30);
     setBatchCurrent(0);
     setLlmOutput('');
+    // Clear previous vision history
+    setVisionHistory([]);
+    setShowVisionComparison(false);
 
     // Auto-scroll gallery to top so placeholder is visible
     requestAnimationFrame(() => {
@@ -2412,8 +3779,12 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
     });
 
     try {
+      // ── REFERENCE COPY MODE — ad library ref → Freepik direct (auto-pick if no target) ──
+      if (referenceCopyEnabled) {
+        await generateReferenceCopy();
+      }
       // ── HTML AD MODE (primary) ──
-      if (htmlEnabled && llmEnabled) {
+      else if (htmlEnabled && llmEnabled) {
         await generateHtmlAds(variantCount);
       }
       // ── FREEPIK MODE (fallback) ──
@@ -2456,31 +3827,49 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
         await new Promise(r => setTimeout(r, 2000));
       }
     } finally {
+      const wasCancelled = abortController.signal.aborted;
       generationAbortRef.current = null;
       setCurrentHtmlPreview('');
       setGenerationPhase('idle');
-      // Show completion briefly before clearing
-      const adsMade = htmlVariants.length;
-      if (adsMade > 0) {
-        setGenerationProgress(`Done — ${adsMade} ad${adsMade > 1 ? 's' : ''} created`);
-        await new Promise(r => setTimeout(r, 2500));
+      // Only show completion if not cancelled (cancel handler already updated UI)
+      if (!wasCancelled) {
+        const adsMade = htmlVariants.length;
+        if (adsMade > 0) {
+          setGenerationProgress(`Done — ${adsMade} ad${adsMade > 1 ? 's' : ''} created`);
+          await new Promise(r => setTimeout(r, 2500));
+        }
+        setIsGenerating(false);
+        setGeneratingForPrompt(null);
+        setGenerationProgress('');
       }
-      setIsGenerating(false);
-      setGeneratingForPrompt(null);
-      setGenerationProgress('');
       setBatchCurrent(0);
     }
-  }, [prompt, isGenerating, batchCount, variantCount, imageModel, llmEnabled, htmlEnabled, generateSingleImage, generateHtmlAds, htmlVariants.length]);
+  }, [prompt, isGenerating, batchCount, variantCount, imageModel, llmEnabled, htmlEnabled, generateSingleImage, generateHtmlAds, htmlVariants.length, referenceCopyEnabled, referenceCopyTarget, generateReferenceCopy, researchReadinessCheck, researchEnabled, currentCycle]);
 
   const handleCancelGeneration = useCallback(() => {
+    // Abort generation pipeline
     if (generationAbortRef.current) {
       generationAbortRef.current.abort();
-      setIsGenerating(false);
-      setGeneratingForPrompt(null);
-      setGenerationProgress('Cancelled');
-      setGenerationPhase('idle');
-      setTimeout(() => setGenerationProgress(''), 1500);
     }
+    // Also abort any active HTML render
+    if (renderAbortRef.current) {
+      renderAbortRef.current.abort();
+    }
+    // Also abort any active refine
+    if (refineAbortRef.current) {
+      refineAbortRef.current.abort();
+    }
+    // Force kill Playwright + orphaned Chrome processes
+    forceKillFreepik().then(() => {
+      setTimeout(() => checkServerStatus().then(setFreepikReady), 2000);
+    });
+    setIsGenerating(false);
+    setIsRendering(false);
+    setGeneratingForPrompt(null);
+    setGenerationProgress('Stopped — killing Freepik browser...');
+    setGenerationPhase('idle');
+    setCurrentHtmlPreview('');
+    setTimeout(() => setGenerationProgress(''), 2500);
   }, []);
 
   // ── Keyboard shortcut ──
@@ -2545,10 +3934,23 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
     }
   };
 
-  // ── Filtered + grouped images ──
-  const filteredImages = favoriteFilter
-    ? storedImages.filter(img => img.favorite)
-    : storedImages;
+  // ── Gallery filters ──
+  const [pipelineFilter, setPipelineFilter] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'favorites'>('newest');
+  const [gallerySelectMode, setGallerySelectMode] = useState(false);
+  const [gallerySelectedIds, setGallerySelectedIds] = useState<Set<string>>(new Set());
+
+  // Pipeline types present in current gallery
+  const availablePipelines = [...new Set(storedImages.map(img => img.pipeline).filter(Boolean))];
+
+  const filteredImages = storedImages
+    .filter(img => !favoriteFilter || img.favorite)
+    .filter(img => !pipelineFilter || img.pipeline === pipelineFilter)
+    .sort((a, b) => {
+      if (sortBy === 'favorites') return (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || b.timestamp - a.timestamp;
+      if (sortBy === 'oldest') return a.timestamp - b.timestamp;
+      return b.timestamp - a.timestamp;
+    });
 
   const groupedImages: [string, StoredImage[]][] = (() => {
     const map = new Map<string, StoredImage[]>();
@@ -2571,6 +3973,30 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
         {/* ── Main Content Area ── */}
         <div ref={galleryScrollRef} className="flex-1 h-full overflow-y-auto px-6 py-6 relative z-10 bg-transparent">
 
+          {/* ── Persistent Error Banner ── */}
+          {generationError && (
+            <div className={`sticky top-0 z-30 -mx-6 px-6 pt-2 pb-1 mb-2`}>
+              <div className={`rounded-xl border px-4 py-2.5 flex items-center gap-3 ${
+                theme === 'dark' ? 'bg-red-900/30 border-red-500/40 text-red-300' : 'bg-red-50 border-red-200 text-red-700'
+              }`}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="flex-shrink-0">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span className="text-xs font-medium flex-1">{generationError}</span>
+                <button
+                  onClick={() => setGenerationError(null)}
+                  className={`p-1 rounded-lg transition-colors ${theme === 'dark' ? 'hover:bg-red-800/50' : 'hover:bg-red-100'}`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ── Generation Status Bar ── */}
           {isGenerating && generatingForPrompt && (
             <div className={`sticky top-0 z-20 -mx-6 px-6 pt-2 pb-2 mb-2 bg-gradient-to-b ${theme === 'dark' ? 'from-zinc-900 via-zinc-900/95' : 'from-[#f7f7f8] via-[#f7f7f8]/95'} to-transparent`}>
@@ -2587,33 +4013,21 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                       {batchCurrent}/{htmlEnabled ? variantCount : batchCount}
                     </span>
                   )}
-                  {/* Status text with shimmer + rotating fun words */}
-                  <ShineText variant={theme === 'dark' ? 'dark' : 'light'} className="text-[11px] font-semibold">
-                    {generationPhase === 'streaming'
-                      ? (tokenInfo.isModelLoading ? getStatusWord('loading')
-                        : tokenInfo.isThinking ? getStatusWord('thinking')
-                        : getStatusWord('streaming'))
-                      : generationPhase === 'capturing' ? getStatusWord('capturing')
-                      : generationPhase === 'between' ? 'Next variant...'
-                      : generationProgress?.includes('Enhancing') ? getStatusWord('enhancing')
-                      : generationProgress?.includes('Freepik') || generationProgress?.includes('Sending to') ? getStatusWord('freepik')
-                      : generationProgress || 'Generating...'}
-                  </ShineText>
-                  {/* Token count (only when streaming) */}
-                  {generationPhase === 'streaming' && tokenInfo.liveTokens > 0 && (
-                    <span className={`text-[10px] font-mono tabular-nums flex-shrink-0 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                      {tokenInfo.liveTokens} tok
+                  {/* Phase label (bold gradient) + vibe word (light) */}
+                  <span className="text-[11px] font-bold bg-gradient-to-r from-zinc-800 via-zinc-600 to-zinc-800 dark:from-zinc-200 dark:via-zinc-400 dark:to-zinc-200 bg-clip-text text-transparent">
+                    {getPhaseLabel()}
+                  </span>
+                  {currentVibe && (
+                    <span className={`text-[10px] ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                      {currentVibe}
                     </span>
                   )}
-                  {/* HTML chars */}
-                  {generationPhase === 'streaming' && llmOutput && (
-                    <span className={`text-[10px] font-mono tabular-nums flex-shrink-0 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                      {(llmOutput.length / 1000).toFixed(1)}k chars
-                    </span>
-                  )}
-                  {/* Elapsed */}
-                  <span className={`text-[10px] font-medium tabular-nums flex-shrink-0 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                  {/* ── Stats: elapsed · tokens · t/s — always visible, one line ── */}
+                  <span className={`text-[10px] font-mono tabular-nums flex-shrink-0 ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
                     {generationElapsed}s
+                    {tokenInfo.liveTokens > 0 && ` · ${tokenInfo.liveTokens} tok`}
+                    {tokenInfo.tokensPerSec > 0 && ` · ${tokenInfo.tokensPerSec} t/s`}
+                    {generationPhase === 'streaming' && llmOutput && ` · ${(llmOutput.length / 1000).toFixed(1)}k`}
                   </span>
                   {/* Spacer */}
                   <div className="flex-1" />
@@ -2683,15 +4097,12 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                       )}
                     </>
                   ) : (
-                    <OrbitalLoader
-                      size={120}
-                      dark={theme === 'dark'}
-                      status={tokenInfo.isModelLoading ? getStatusWord('loading') : tokenInfo.isThinking ? getStatusWord('thinking') : getStatusWord('streaming')}
-                      detail={[
-                        tokenInfo.liveTokens > 0 ? `${tokenInfo.liveTokens} tok` : null,
-                        `${generationElapsed}s`,
-                      ].filter(Boolean).join(' · ')}
-                    />
+                    <div className="flex flex-col items-center">
+                      <OrbitalLoader
+                        size={100}
+                        dark={theme === 'dark'}
+                      />
+                    </div>
                   )}
                 </div>
               </div>
@@ -2915,10 +4326,29 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                               </button>
                             )}
                           </div>
+                          {/* Vision QA badge */}
+                          {variant.visionFeedback && (
+                            <div className="absolute top-2 right-2 z-10">
+                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-medium backdrop-blur-sm ${
+                                theme === 'dark' ? 'bg-violet-900/70 text-violet-300' : 'bg-violet-100/90 text-violet-700'
+                              }`}>
+                                QA
+                              </span>
+                            </div>
+                          )}
                           {/* Hover overlay */}
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
                         </div>
                       </div>
+                      {/* Vision feedback (collapsed by default, shown on click) */}
+                      {variant.visionFeedback && isExpanded && (
+                        <div className={`mt-1 rounded-lg border p-2.5 text-[11px] whitespace-pre-wrap leading-relaxed ${
+                          theme === 'dark' ? 'bg-violet-900/10 border-violet-800/30 text-zinc-300' : 'bg-violet-50 border-violet-200 text-zinc-700'
+                        }`}>
+                          <p className={`text-[9px] uppercase tracking-wider font-semibold mb-1 ${theme === 'dark' ? 'text-violet-400' : 'text-violet-600'}`}>Vision QA</p>
+                          {variant.visionFeedback}
+                        </div>
+                      )}
                       {/* Expandable render strip */}
                       {isExpanded && variant.renders.length > 0 && (
                         <div className={`mt-1 rounded-lg border overflow-hidden ${theme === 'dark' ? 'bg-zinc-800/50 border-zinc-700/50' : 'bg-zinc-50 border-zinc-200'}`}>
@@ -3008,37 +4438,260 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                     </select>
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                  {/* All / Saved */}
                   <button
-                    onClick={() => setFavoriteFilter(false)}
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors ${!favoriteFilter ? (theme === 'dark' ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-white') : (theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600')}`}
+                    onClick={() => { setFavoriteFilter(false); setPipelineFilter(null); }}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors ${!favoriteFilter && !pipelineFilter ? (theme === 'dark' ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-white') : (theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600')}`}
                   >All</button>
                   <button
-                    onClick={() => setFavoriteFilter(true)}
+                    onClick={() => { setFavoriteFilter(true); setPipelineFilter(null); }}
                     className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors flex items-center gap-1 ${favoriteFilter ? (theme === 'dark' ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-white') : (theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600')}`}
+                  >Saved</button>
+
+                  {/* Pipeline filter pills */}
+                  {availablePipelines.length > 1 && <>
+                    <span className={`text-[9px] mx-0.5 ${theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'}`}>|</span>
+                    {availablePipelines.map(p => {
+                      const label = p === 'html-ad' ? 'HTML' : p === 'reference-copy' ? 'Ref Copy' : p === 'html-to-render' ? 'Render' : p === 'direct' ? 'Direct' : p.split('-')[0];
+                      const active = pipelineFilter === p;
+                      const color = p === 'html-ad' ? 'emerald' : p === 'reference-copy' ? 'purple' : p === 'html-to-render' ? 'indigo' : 'zinc';
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => { setPipelineFilter(active ? null : p); setFavoriteFilter(false); }}
+                          className={`px-2 py-0.5 rounded-full text-[9px] font-medium transition-colors ${
+                            active
+                              ? `bg-${color}-500/20 text-${color}-${theme === 'dark' ? '300' : '600'} ring-1 ring-${color}-500/30`
+                              : theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'
+                          }`}
+                        >{label}</button>
+                      );
+                    })}
+                  </>}
+
+                  {/* Sort */}
+                  <span className={`text-[9px] mx-0.5 ${theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'}`}>|</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                    className={`text-[9px] font-medium py-0.5 px-1.5 rounded border appearance-none cursor-pointer ${
+                      theme === 'dark' ? 'bg-zinc-800 border-zinc-700 text-zinc-400' : 'bg-white border-zinc-200 text-zinc-500'
+                    }`}
                   >
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill={favoriteFilter ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.5">
-                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                    </svg>
-                    Saved
-                  </button>
-                  {filteredImages.length > 0 && (
+                    <option value="newest">Newest</option>
+                    <option value="oldest">Oldest</option>
+                    <option value="favorites">Saved first</option>
+                  </select>
+
+                  {/* Select mode + Export */}
+                  <button
+                    onClick={() => { setGallerySelectMode(!gallerySelectMode); setGallerySelectedIds(new Set()); }}
+                    className={`px-2 py-0.5 rounded-full text-[9px] font-medium transition-colors ${
+                      gallerySelectMode
+                        ? (theme === 'dark' ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-600')
+                        : (theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600')
+                    }`}
+                  >{gallerySelectMode ? `${gallerySelectedIds.size} selected` : 'Select'}</button>
+
+                  {gallerySelectMode && (
+                    <button
+                      onClick={() => {
+                        if (gallerySelectedIds.size === filteredImages.length) {
+                          setGallerySelectedIds(new Set());
+                        } else {
+                          setGallerySelectedIds(new Set(filteredImages.map(img => img.id)));
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-medium transition-colors ${theme === 'dark' ? 'text-zinc-400 hover:text-zinc-200' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    >{gallerySelectedIds.size === filteredImages.length ? 'Deselect all' : 'Select all'}</button>
+                  )}
+                  {gallerySelectMode && gallerySelectedIds.size > 0 && (
+                    <>
+                      <button
+                        onClick={async () => {
+                          const imgs = storedImages.filter(img => gallerySelectedIds.has(img.id));
+                          for (const img of imgs) {
+                            const link = document.createElement('a');
+                            link.href = img.imageBase64.startsWith('data:') ? img.imageBase64 : `data:image/png;base64,${img.imageBase64}`;
+                            link.download = `nomad-${img.label || img.id}-${img.pipeline || 'ad'}.png`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            await new Promise(r => setTimeout(r, 250));
+                          }
+                          setGallerySelectMode(false);
+                          setGallerySelectedIds(new Set());
+                        }}
+                        className={`px-2 py-0.5 rounded-full text-[9px] font-semibold transition-colors ${
+                          theme === 'dark' ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-blue-500 text-white hover:bg-blue-600'
+                        }`}
+                      >Export ({gallerySelectedIds.size})</button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Delete ${gallerySelectedIds.size} selected images?`)) return;
+                          const ids = Array.from(gallerySelectedIds);
+                          for (const id of ids) await storage.deleteImage(id);
+                          setStoredImages(prev => prev.filter(img => !gallerySelectedIds.has(img.id)));
+                          if (selectedImage && gallerySelectedIds.has(selectedImage.id)) setSelectedImage(null);
+                          setGallerySelectMode(false);
+                          setGallerySelectedIds(new Set());
+                        }}
+                        className={`px-2 py-0.5 rounded-full text-[9px] font-medium transition-colors ${
+                          theme === 'dark' ? 'text-red-400 hover:bg-red-900/30' : 'text-red-400 hover:text-red-600 hover:bg-red-50'
+                        }`}
+                      >Delete ({gallerySelectedIds.size})</button>
+                    </>
+                  )}
+
+                  {/* Clear all */}
+                  {filteredImages.length > 0 && !gallerySelectMode && (
                     <button
                       onClick={async () => {
                         if (!confirm(`Delete all ${filteredImages.length} images?`)) return;
-                        for (const img of filteredImages) {
-                          await storage.deleteImage(img.id);
-                        }
+                        for (const img of filteredImages) { await storage.deleteImage(img.id); }
                         setStoredImages(prev => prev.filter(img => !filteredImages.some(f => f.id === img.id)));
                         setSelectedImage(null);
                       }}
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors ${theme === 'dark' ? 'text-red-400 hover:bg-red-900/30' : 'text-red-400 hover:text-red-600 hover:bg-red-50'}`}
-                    >
-                      Clear all
-                    </button>
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-medium transition-colors ${theme === 'dark' ? 'text-red-400 hover:bg-red-900/30' : 'text-red-400 hover:text-red-600 hover:bg-red-50'}`}
+                    >Clear all</button>
                   )}
                 </div>
               </div>
+
+              {/* ── Vision QA Timeline ── */}
+              {showVisionComparison && visionHistory.length > 0 && (
+                <div className={`mb-6 rounded-xl border overflow-hidden ${theme === 'dark' ? 'bg-zinc-900/80 border-violet-500/30' : 'bg-violet-50/30 border-violet-200'}`}>
+                  {/* Header */}
+                  <div className={`flex items-center justify-between px-4 py-2.5 border-b ${theme === 'dark' ? 'border-violet-500/20' : 'border-violet-200/60'}`}>
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-2 h-2 rounded-full ${isGenerating ? 'bg-violet-500 animate-pulse' : 'bg-emerald-500'}`} />
+                      <span className={`text-xs font-semibold ${theme === 'dark' ? 'text-violet-300' : 'text-violet-700'}`}>
+                        Vision QA
+                      </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${theme === 'dark' ? 'bg-violet-500/15 text-violet-400' : 'bg-violet-100 text-violet-600'}`}>
+                        {visionHistory.length - 1} revision{visionHistory.length - 1 !== 1 ? 's' : ''}
+                      </span>
+                      {!isGenerating && visionHistory.length > 1 && (
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${theme === 'dark' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-100 text-emerald-600'}`}>
+                          done
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setShowVisionComparison(false)}
+                      className={`p-1 rounded transition-colors ${theme === 'dark' ? 'text-zinc-600 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+
+                  {/* Timeline — first + latest side by side, then scrollable history below */}
+                  <div className="p-4">
+                    {/* Before / After comparison */}
+                    {visionHistory.length >= 2 && (
+                      <div className="flex gap-4 mb-4">
+                        {/* Original */}
+                        <div className="flex-1">
+                          <p className={`text-[9px] uppercase tracking-widest font-bold mb-1.5 ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>Original</p>
+                          <div className={`relative rounded-lg overflow-hidden border ${theme === 'dark' ? 'border-zinc-700' : 'border-zinc-200'}`}>
+                            <img
+                              src={visionHistory[0].screenshot.startsWith('data:') ? visionHistory[0].screenshot : `data:image/png;base64,${visionHistory[0].screenshot}`}
+                              alt="Original"
+                              className="w-full object-contain"
+                              style={{ maxHeight: '280px' }}
+                            />
+                          </div>
+                        </div>
+                        {/* Arrow */}
+                        <div className="flex items-center pt-5">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={theme === 'dark' ? 'text-violet-500' : 'text-violet-400'}>
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                          </svg>
+                        </div>
+                        {/* Latest */}
+                        <div className="flex-1">
+                          <p className={`text-[9px] uppercase tracking-widest font-bold mb-1.5 ${theme === 'dark' ? 'text-violet-400' : 'text-violet-600'}`}>
+                            Round {visionHistory[visionHistory.length - 1].round}
+                          </p>
+                          <div className={`relative rounded-lg overflow-hidden border-2 ${theme === 'dark' ? 'border-violet-500/50 ring-1 ring-violet-500/20' : 'border-violet-400 ring-1 ring-violet-400/20'}`}>
+                            <img
+                              src={visionHistory[visionHistory.length - 1].screenshot.startsWith('data:') ? visionHistory[visionHistory.length - 1].screenshot : `data:image/png;base64,${visionHistory[visionHistory.length - 1].screenshot}`}
+                              alt="Latest"
+                              className="w-full object-contain"
+                              style={{ maxHeight: '280px' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Revision history — scrollable row of all intermediate steps */}
+                    {visionHistory.length > 2 && (
+                      <div>
+                        <p className={`text-[9px] uppercase tracking-widest font-bold mb-2 ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                          All revisions
+                        </p>
+                        <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollSnapType: 'x mandatory' }}>
+                          {visionHistory.map((snap, idx) => (
+                            <div key={idx} className="flex-shrink-0 flex flex-col gap-1" style={{ scrollSnapAlign: 'start', width: '120px' }}>
+                              <div className={`relative rounded-lg overflow-hidden border ${
+                                idx === visionHistory.length - 1
+                                  ? (theme === 'dark' ? 'border-violet-500' : 'border-violet-400')
+                                  : idx === 0
+                                    ? (theme === 'dark' ? 'border-zinc-600' : 'border-zinc-300')
+                                    : (theme === 'dark' ? 'border-zinc-700/50' : 'border-zinc-200')
+                              }`}>
+                                <img
+                                  src={snap.screenshot.startsWith('data:') ? snap.screenshot : `data:image/png;base64,${snap.screenshot}`}
+                                  alt={`Round ${snap.round}`}
+                                  className="w-full object-contain"
+                                  style={{ maxHeight: '120px' }}
+                                />
+                                <div className={`absolute top-0.5 left-0.5 px-1 py-0.5 rounded text-[8px] font-bold ${
+                                  idx === 0
+                                    ? 'bg-zinc-900/60 text-zinc-400'
+                                    : idx === visionHistory.length - 1
+                                      ? 'bg-violet-600/80 text-white'
+                                      : 'bg-zinc-800/60 text-zinc-400'
+                                }`}>
+                                  {idx === 0 ? 'v0' : `v${snap.round}`}
+                                </div>
+                              </div>
+                              {idx > 0 && snap.feedback && (
+                                <p className={`text-[8px] leading-tight line-clamp-2 ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`} title={snap.feedback}>
+                                  {snap.feedback.slice(0, 80)}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Single image (only original, no revisions yet) */}
+                    {visionHistory.length === 1 && (
+                      <div className="flex items-center gap-3">
+                        <div className={`w-24 rounded-lg overflow-hidden border ${theme === 'dark' ? 'border-zinc-700' : 'border-zinc-200'}`}>
+                          <img
+                            src={visionHistory[0].screenshot.startsWith('data:') ? visionHistory[0].screenshot : `data:image/png;base64,${visionHistory[0].screenshot}`}
+                            alt="Reviewing..."
+                            className="w-full object-contain"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <p className={`text-xs font-medium ${theme === 'dark' ? 'text-violet-300' : 'text-violet-600'}`}>
+                            {isGenerating ? 'Reviewing ad...' : 'Review complete'}
+                          </p>
+                          <p className={`text-[10px] mt-0.5 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>
+                            MiniCPM is checking brand compliance, copy accuracy, and visual quality
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Prompt groups */}
               {groupedImages.map(([promptText, images]) => {
@@ -3074,71 +4727,134 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                     </div>
 
                     {/* Image grid — configurable columns */}
-                    <div className="grid gap-1 items-start" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
+                    <div className="grid gap-2 items-start" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
                       {/* Placeholder card (generating for this group) */}
                       {isGeneratingForThisGroup && (
                         <div className={`col-span-2 ${getAspectClass(aspectRatio)} relative rounded-xl overflow-hidden border-2 border-dashed flex flex-col items-center justify-center shadow-inner ${theme === 'dark' ? 'border-zinc-600 bg-gradient-to-br from-zinc-800 via-zinc-800 to-zinc-700' : 'border-zinc-300 bg-gradient-to-br from-zinc-50 via-white to-zinc-100'}`}>
                           <OrbitalLoader
                             size={80}
                             dark={theme === 'dark'}
-                            status={generationProgress?.includes('Sending') ? getStatusWord('freepik') : `${generationElapsed}s`}
                           />
                         </div>
                       )}
 
-                      {images.map((img) => (
-                        <button
+                      {images.map((img) => {
+                        const isSelected = gallerySelectMode && gallerySelectedIds.has(img.id);
+                        const durationSec = img.generationDurationMs ? (img.generationDurationMs / 1000).toFixed(1) : null;
+                        const pipelineShort = img.pipeline === 'reference-copy' ? 'Clone' : img.pipeline?.includes('html') ? 'HTML' : img.pipeline === 'direct' ? 'Direct' : img.pipeline?.includes('llm') ? 'LLM' : null;
+                        const hasVisionQA = img.visionRounds && img.visionRounds.length > 1;
+                        const visionPassed = img.visionRounds?.some(r => r.status === 'passed');
+                        return (
+                        <div
                           key={img.id}
-                          onClick={() => !deletingIds.has(img.id) && setSelectedImage(selectedImage?.id === img.id ? null : img)}
-                          className={`group relative rounded-lg overflow-hidden border text-left transition-all duration-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.1),0_2px_4px_rgba(0,0,0,0.06)] hover:-translate-y-1 ${
-                            selectedImage?.id === img.id
-                              ? 'border-zinc-900 ring-1 ring-zinc-900/10 shadow-[0_4px_12px_rgba(0,0,0,0.12),0_2px_4px_rgba(0,0,0,0.06)] -translate-y-1'
-                              : 'border-zinc-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_1px_1px_rgba(0,0,0,0.03)] hover:border-zinc-300'
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => {
+                            if (deletingIds.has(img.id)) return;
+                            if (gallerySelectMode) {
+                              setGallerySelectedIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(img.id)) next.delete(img.id); else next.add(img.id);
+                                return next;
+                              });
+                            } else {
+                              setSelectedImage(selectedImage?.id === img.id ? null : img);
+                            }
+                          }}
+                          onKeyDown={(e) => e.key === 'Enter' && !deletingIds.has(img.id) && (gallerySelectMode
+                            ? setGallerySelectedIds(prev => { const next = new Set(prev); if (next.has(img.id)) next.delete(img.id); else next.add(img.id); return next; })
+                            : setSelectedImage(selectedImage?.id === img.id ? null : img)
+                          )}
+                          className={`group relative rounded-xl overflow-hidden text-left transition-all duration-200 cursor-pointer ${
+                            isSelected
+                              ? 'ring-2 ring-blue-500 shadow-[0_4px_16px_rgba(59,130,246,0.2)]'
+                              : selectedImage?.id === img.id
+                                ? 'ring-2 ' + (theme === 'dark' ? 'ring-white/30' : 'ring-zinc-900/20') + ' shadow-[0_4px_16px_rgba(0,0,0,0.15)] -translate-y-1'
+                                : 'ring-1 ' + (theme === 'dark' ? 'ring-zinc-800 hover:ring-zinc-600' : 'ring-zinc-200 hover:ring-zinc-300') + ' shadow-sm hover:shadow-md hover:-translate-y-0.5'
                           }`}
                           style={deletingIds.has(img.id) ? { animation: 'nomad-card-delete 0.35s ease-out forwards', pointerEvents: 'none' } : undefined}
                         >
-                          <div className={`${getAspectClass(img.aspectRatio)} overflow-hidden bg-zinc-100`}>
-                            <img src={`data:image/png;base64,${img.imageBase64}`} alt={img.label} className="w-full h-full object-cover" loading="lazy" />
+                          <div className={`${getAspectClass(img.aspectRatio)} overflow-hidden ${theme === 'dark' ? 'bg-zinc-900' : 'bg-zinc-100'}`}>
+                            <img src={`data:image/png;base64,${img.imageBase64}`} alt={img.label} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" loading="lazy" />
                           </div>
-                          {/* Hover: favorite */}
-                          <div className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); toggleFavorite(img.id); }}
-                              className="p-1 rounded-full bg-black/30 backdrop-blur-sm hover:bg-black/50 transition-colors"
-                            >
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill={img.favorite ? '#ef4444' : 'none'} stroke={img.favorite ? '#ef4444' : 'white'} strokeWidth="2.5">
-                                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                              </svg>
-                            </button>
-                          </div>
-                          {/* Hover: delete */}
-                          <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); removeImage(img.id); }}
-                              className="p-1 rounded-full bg-black/30 backdrop-blur-sm hover:bg-red-500/80 transition-colors"
-                            >
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
-                                <path d="M18 6L6 18M6 6l12 12" />
-                              </svg>
-                            </button>
-                          </div>
-                          {/* Bottom badge */}
-                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/40 to-transparent px-1.5 py-1 pt-4">
+                          {/* Select mode checkbox */}
+                          {gallerySelectMode && (
+                            <div className="absolute top-1.5 left-1.5 z-20">
+                              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
+                                isSelected ? 'bg-blue-500 border-blue-500' : 'bg-black/30 border-white/60 backdrop-blur-sm'
+                              }`}>
+                                {isSelected && (
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M20 6L9 17l-5-5" />
+                                  </svg>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          {/* Hover: favorite (hidden in select mode) */}
+                          {!gallerySelectMode && (
+                            <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); toggleFavorite(img.id); }}
+                                className="p-1 rounded-full bg-black/40 backdrop-blur-sm hover:bg-black/60 transition-colors"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill={img.favorite ? '#ef4444' : 'none'} stroke={img.favorite ? '#ef4444' : 'white'} strokeWidth="2">
+                                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                </svg>
+                              </button>
+                            </div>
+                          )}
+                          {/* Hover: delete (hidden in select mode) */}
+                          {!gallerySelectMode && (
+                            <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); removeImage(img.id); }}
+                                className="p-1 rounded-full bg-black/40 backdrop-blur-sm hover:bg-red-500/80 transition-colors"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
+                                  <path d="M18 6L6 18M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          )}
+                          {/* Vision QA badge — top right, always visible */}
+                          {hasVisionQA && (
+                            <div className="absolute top-1.5 right-1.5 z-10 group-hover:opacity-0 transition-opacity">
+                              <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded-full backdrop-blur-sm ${
+                                visionPassed
+                                  ? 'bg-green-500/80 text-white'
+                                  : 'bg-violet-500/80 text-white'
+                              }`}>
+                                {visionPassed ? 'QA' : `${img.visionRounds!.length}R`}
+                              </span>
+                            </div>
+                          )}
+                          {/* Bottom info bar */}
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent px-2 pb-1.5 pt-6">
                             <div className="flex items-center gap-1">
-                              <span className="text-[8px] font-semibold text-white/80 bg-white/20 px-1 py-0.5 rounded">{img.model === 'nano-banana-2' ? 'G' : 'S'}</span>
-                              <span className="text-[8px] text-white/60">{img.label}</span>
+                              {pipelineShort && (
+                                <span className={`text-[7px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                                  img.pipeline === 'reference-copy' ? 'bg-purple-500/50 text-purple-100' :
+                                  img.pipeline?.includes('html') ? 'bg-blue-500/50 text-blue-100' :
+                                  'bg-white/20 text-white/80'
+                                }`}>{pipelineShort}</span>
+                              )}
+                              {durationSec && (
+                                <span className="text-[8px] text-white/50 font-mono ml-auto">{durationSec}s</span>
+                              )}
                             </div>
                           </div>
-                          {/* Favorite indicator (always visible when favorited) */}
-                          {img.favorite && (
+                          {/* Favorite indicator (always visible when favorited, hidden in select mode) */}
+                          {img.favorite && !gallerySelectMode && (
                             <div className="absolute top-1 left-1 group-hover:opacity-0 transition-opacity">
                               <svg width="11" height="11" viewBox="0 0 24 24" fill="#ef4444" stroke="#ef4444" strokeWidth="2">
                                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
                               </svg>
                             </div>
                           )}
-                        </button>
-                      ))}
+                        </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -3148,23 +4864,25 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
 
           {/* ── Generating State (big loader when no variants yet and code drawer closed) ── */}
           {isGenerating && htmlEnabled && llmEnabled && htmlVariants.length === 0 && !codeDrawerOpen && (
-            <div className="flex flex-col items-center justify-center min-h-[400px]">
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-5">
               <OrbitalLoader
-                size={200}
+                size={160}
                 dark={theme === 'dark'}
-                status={
-                  tokenInfo.isModelLoading ? getStatusWord('loading') :
-                  tokenInfo.isThinking ? getStatusWord('thinking') :
-                  generationPhase === 'streaming' ? getStatusWord('streaming') :
-                  generationPhase === 'capturing' ? getStatusWord('capturing') :
-                  generationProgress || 'Generating...'
-                }
-                detail={[
-                  tokenInfo.liveTokens > 0 ? `${tokenInfo.liveTokens} tokens` : null,
-                  llmOutput ? `${(llmOutput.length / 1000).toFixed(1)}k chars` : null,
-                  `${generationElapsed}s`,
-                ].filter(Boolean).join(' · ')}
               />
+              {/* Phase label + vibe word */}
+              <div className="flex flex-col items-center gap-1">
+                <span className={`text-sm font-bold bg-gradient-to-r bg-clip-text text-transparent ${theme === 'dark' ? 'from-zinc-200 via-zinc-400 to-zinc-200' : 'from-zinc-700 via-zinc-500 to-zinc-700'}`}>
+                  {getPhaseLabel()}
+                </span>
+                {currentVibe && (
+                  <span className={`text-xs ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    {currentVibe}
+                  </span>
+                )}
+                <span className={`text-[10px] font-mono tabular-nums mt-1 ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                  {generationElapsed}s
+                </span>
+              </div>
             </div>
           )}
 
@@ -3211,7 +4929,82 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
         </div>
 
         {/* Prompt Input Area */}
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-[960px] mx-auto">
+          {/* Reference Copy target indicator + style brief */}
+          {referenceCopyEnabled && (
+            <div className={`mb-2 rounded-xl border ${
+              theme === 'dark' ? 'bg-purple-500/10 border-purple-500/30' : 'bg-purple-50 border-purple-200'
+            }`}>
+              <div className="flex items-center gap-3 px-3 py-2">
+                {referenceCopyTarget ? (
+                  <>
+                    <img
+                      src={referenceCopyTarget.base64}
+                      alt="Reference"
+                      className="w-12 h-12 rounded-lg object-cover border border-purple-400/30"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-semibold truncate ${theme === 'dark' ? 'text-purple-300' : 'text-purple-700'}`}>
+                        {referenceCopyTarget.filename}
+                      </p>
+                      <p className={`text-[10px] truncate ${theme === 'dark' ? 'text-purple-400/70' : 'text-purple-500'}`}>
+                        {referenceCopyTarget.category} — {referenceCopyTarget.description.slice(0, 80)}...
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowAdLibrary(true)}
+                      className={`text-[10px] px-2 py-1 rounded-md font-medium ${theme === 'dark' ? 'text-purple-300 hover:bg-purple-500/20' : 'text-purple-600 hover:bg-purple-100'}`}
+                    >
+                      Change
+                    </button>
+                    <button
+                      onClick={() => { setReferenceCopyTarget(null); localStorage.removeItem('make_reference_copy_target'); setReferenceStyle(''); localStorage.removeItem('make_reference_style'); }}
+                      className={`text-[10px] px-1.5 py-1 rounded-md ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}
+                    >
+                      ✕
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setShowAdLibrary(true)}
+                    className={`flex-1 text-xs font-medium py-2 text-center rounded-lg border border-dashed transition-colors ${
+                      theme === 'dark' ? 'text-purple-400 border-purple-500/40 hover:bg-purple-500/10' : 'text-purple-600 border-purple-300 hover:bg-purple-50'
+                    }`}
+                  >
+                    Select a reference ad from library to copy
+                  </button>
+                )}
+              </div>
+
+              {/* Style brief — describes the layout/composition/vibe to copy */}
+              {referenceCopyTarget && (
+                <div className={`px-3 pb-2.5 border-t ${theme === 'dark' ? 'border-purple-500/20' : 'border-purple-200/60'}`}>
+                  <div className="flex items-center justify-between mt-2 mb-1">
+                    <span className={`text-[9px] uppercase tracking-widest font-bold ${theme === 'dark' ? 'text-purple-400/60' : 'text-purple-400'}`}>
+                      Style brief
+                    </span>
+                    {referenceStyle && (
+                      <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${theme === 'dark' ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-600'}`}>
+                        {referenceStyle.split(/\s+/).length} words
+                      </span>
+                    )}
+                  </div>
+                  <textarea
+                    value={referenceStyle}
+                    onChange={(e) => { setReferenceStyle(e.target.value); localStorage.setItem('make_reference_style', e.target.value); }}
+                    placeholder="Describe the layout style to copy — e.g. &quot;minimalist white bg, product centered upper 60%, bold dark headline at top, ingredient pills across bottom third, brand logo bottom-right&quot;"
+                    rows={2}
+                    className={`w-full text-[11px] leading-relaxed rounded-lg px-2.5 py-2 resize-none focus:outline-none transition-colors placeholder:italic ${
+                      theme === 'dark'
+                        ? 'bg-zinc-900/50 text-purple-200 placeholder:text-purple-500/40 border border-purple-500/20 focus:border-purple-500/40'
+                        : 'bg-white text-purple-900 placeholder:text-purple-300 border border-purple-200 focus:border-purple-400'
+                    }`}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           <div className={`rounded-2xl border overflow-hidden transition-shadow duration-200 ${theme === 'dark' ? 'bg-zinc-800/60 border-zinc-700/60 shadow-[0_1px_3px_rgba(0,0,0,0.15),0_2px_8px_rgba(0,0,0,0.08)] focus-within:shadow-[0_2px_6px_rgba(0,0,0,0.2),0_4px_12px_rgba(0,0,0,0.12)]' : 'bg-zinc-50 border-zinc-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_2px_8px_rgba(0,0,0,0.03)] focus-within:shadow-[0_2px_6px_rgba(0,0,0,0.06),0_4px_12px_rgba(0,0,0,0.04)]'}`} onDragOver={handleImageDragOver} onDrop={handleImageDrop}>
             <textarea
               ref={promptRef}
@@ -3280,54 +5073,74 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
             )}
 
             {/* Bottom Row: Context chips + Controls */}
-            <div className={`flex items-center justify-between px-4 py-2.5 border-t ${theme === 'dark' ? 'border-zinc-800 bg-zinc-800/30' : 'border-zinc-100 bg-zinc-50'}`}>
-              <div className="flex items-center gap-2">
+            <div className={`flex items-center justify-between px-5 py-2.5 border-t ${theme === 'dark' ? 'border-zinc-800 bg-zinc-800/30' : 'border-zinc-100 bg-zinc-50'}`}>
+              <div className="flex items-center gap-2 min-w-0 overflow-x-auto">
                 {/* Pipeline label */}
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium ${theme === 'dark' ? 'bg-zinc-700 text-zinc-300' : 'bg-zinc-100 text-zinc-500'}`}>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap ${theme === 'dark' ? 'bg-zinc-700 text-zinc-300' : 'bg-zinc-100 text-zinc-500'}`}>
                   {htmlEnabled && llmEnabled ? (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
                   ) : (
-                    <span className={`w-1.5 h-1.5 rounded-full ${freepikReady ? 'bg-emerald-500' : freepikReady === false ? 'bg-red-400' : 'bg-zinc-300'}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${freepikReady ? 'bg-emerald-500' : freepikReady === false ? 'bg-red-400' : 'bg-zinc-300'}`} />
                   )}
-                  {htmlEnabled && llmEnabled ? 'HTML Ads' : getPipelineLabel()}
+                  {referenceCopyEnabled ? 'Reference Copy' : htmlEnabled && llmEnabled ? 'HTML Ads' : getPipelineLabel()}
                 </span>
-                {freepikReady === false && !(htmlEnabled && llmEnabled) && (
-                  <button
-                    onClick={async () => {
-                      setFreepikReady(null);
-                      const ok = await restartFreepikBrowser();
-                      if (ok) {
-                        setTimeout(() => checkServerStatus().then(setFreepikReady), 1000);
-                      } else {
-                        setFreepikReady(false);
-                      }
-                    }}
-                    className={`px-2 py-0.5 rounded-full text-[9px] font-medium transition-colors ${
-                      theme === 'dark' ? 'bg-red-900/30 text-red-400 hover:bg-red-900/50' : 'bg-red-50 text-red-600 hover:bg-red-100'
-                    }`}
-                    title="Force-restart the Freepik browser"
-                  >
-                    Restart
-                  </button>
+                {/* Freepik controls — always visible when Freepik pipeline is active */}
+                {!(htmlEnabled && llmEnabled) && (
+                  <>
+                    <button
+                      onClick={async () => {
+                        setFreepikReady(null);
+                        const ok = await restartFreepikBrowser();
+                        if (ok) {
+                          setTimeout(() => checkServerStatus().then(setFreepikReady), 1000);
+                        } else {
+                          setFreepikReady(false);
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-medium transition-colors whitespace-nowrap ${
+                        theme === 'dark' ? 'bg-zinc-700/50 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200'
+                      }`}
+                      title="Restart Freepik browser (soft)"
+                    >
+                      Restart
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setFreepikReady(null);
+                        setGenerationProgress('Force killing Playwright...');
+                        await forceKillFreepik();
+                        setTimeout(() => {
+                          checkServerStatus().then(setFreepikReady);
+                          setGenerationProgress('');
+                        }, 2000);
+                      }}
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-medium transition-colors whitespace-nowrap ${
+                        theme === 'dark' ? 'bg-red-900/30 text-red-400 hover:bg-red-900/50' : 'bg-red-50 text-red-600 hover:bg-red-100'
+                      }`}
+                      title="Force kill ALL Playwright + Chrome processes (nuclear option)"
+                    >
+                      Force Kill
+                    </button>
+                  </>
                 )}
 
                 {/* Preset indicator */}
                 {presetEnabled && campaign?.presetData && (
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium ${theme === 'dark' ? 'bg-amber-900/30 text-amber-400' : 'bg-amber-50 text-amber-600'}`}>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium whitespace-nowrap ${theme === 'dark' ? 'bg-amber-900/30 text-amber-400' : 'bg-amber-50 text-amber-600'}`}>
                     {campaign.brand} preset
                   </span>
                 )}
 
                 {/* Research status chips */}
                 {researchEnabled && researchComplete && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[11px] font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap ${theme === 'dark' ? 'bg-emerald-900/30 text-emerald-400' : 'bg-emerald-50 text-emerald-700'}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
                     Research
                   </span>
                 )}
                 {researchEnabled && tasteComplete && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-50 text-violet-700 rounded-full text-[11px] font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap ${theme === 'dark' ? 'bg-violet-900/30 text-violet-400' : 'bg-violet-50 text-violet-700'}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-violet-500 flex-shrink-0" />
                     Taste
                   </span>
                 )}
@@ -3335,7 +5148,7 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                 {/* Ad Library References toggle */}
                 <button
                   onClick={() => setAdLibraryEnabled(v => !v)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors ${
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors whitespace-nowrap ${
                     adLibraryEnabled
                       ? theme === 'dark' ? 'bg-violet-900/40 text-violet-300 border border-violet-500/30' : 'bg-violet-50 text-violet-600 border border-violet-200'
                       : theme === 'dark' ? 'text-zinc-600 hover:text-zinc-400 border border-transparent' : 'text-zinc-300 hover:text-zinc-500 border border-transparent'
@@ -3345,34 +5158,8 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                     : 'Ad library references OFF — LLM will generate without reference ads. Click to enable.'
                   }
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${adLibraryEnabled ? 'bg-violet-500' : theme === 'dark' ? 'bg-zinc-600' : 'bg-zinc-300'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${adLibraryEnabled ? 'bg-violet-500' : theme === 'dark' ? 'bg-zinc-600' : 'bg-zinc-300'}`} />
                   {adLibraryEnabled ? 'Refs ON' : 'Refs OFF'}
-                </button>
-
-                {/* Ad Library browser button */}
-                <button
-                  onClick={() => setShowAdLibrary(true)}
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] transition-colors ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100'}`}
-                  title="Browse ad library"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                    <circle cx="8.5" cy="8.5" r="1.5" />
-                    <polyline points="21 15 16 10 5 21" />
-                  </svg>
-                  Ad Library
-                </button>
-
-                {/* Upload button */}
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] transition-colors ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100'}`}
-                  title="Upload brand asset (image or PDF)"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
-                  </svg>
-                  Upload
                 </button>
                 <input
                   ref={fileInputRef}
@@ -3384,7 +5171,36 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                 />
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {/* Upload — Arrow up icon */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`p-2 rounded-lg transition-all relative ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}
+                  title="Upload brand asset (image or PDF)"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  {uploadedImages.length > 0 && (
+                    <span className={`absolute top-1 right-1 w-1.5 h-1.5 rounded-full ${theme === 'dark' ? 'bg-blue-500' : 'bg-blue-400'}`} />
+                  )}
+                </button>
+
+                {/* Ad Library — Image icon */}
+                <button
+                  onClick={() => setShowAdLibrary(true)}
+                  className={`p-2 rounded-lg transition-all relative ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}
+                  title="Browse ad library"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                </button>
+
                 {/* Knowledge — Brain icon */}
                 <button
                   onClick={() => setShowKnowledge(true)}
@@ -3438,225 +5254,259 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                   createPortal(
                     <div
                       ref={popoverRef}
-                      className={`fixed w-80 rounded-2xl p-5 z-[9999] flex flex-col max-h-[70vh] overflow-y-auto ${theme === 'dark' ? 'bg-zinc-900 shadow-[0_8px_30px_rgba(0,0,0,0.5),0_4px_12px_rgba(0,0,0,0.3),0_0_0_1px_rgba(0,0,0,0.6)]' : 'bg-white shadow-[0_8px_30px_rgba(0,0,0,0.12),0_4px_12px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.04)]'}`}
+                      className={`fixed w-[280px] rounded-xl z-[9999] flex flex-col max-h-[75vh] overflow-hidden ${theme === 'dark' ? 'bg-zinc-900 shadow-[0_8px_30px_rgba(0,0,0,0.5),0_0_0_1px_rgba(0,0,0,0.6)]' : 'bg-white shadow-[0_8px_30px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.04)]'}`}
                       style={{
                         bottom: `${popoverPos.bottom}px`,
                         right: `${popoverPos.right}px`,
                       }}
                     >
-                      <div className={`flex items-center justify-between mb-5 pb-4 border-b ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'}`}>
-                        <h3 className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>Settings</h3>
-                        <button
-                          onClick={() => setShowSettings(false)}
-                          className={`p-1.5 rounded-lg transition-colors ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100'}`}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                            <path d="M18 6L6 18M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
+                      <div className="overflow-y-auto px-4 py-3 space-y-3">
 
-                      <div className="space-y-4">
-
-                        {/* IMAGE MODEL (always visible) */}
+                        {/* ── OUTPUT ── */}
                         <div>
-                          <p className={`text-[10px] uppercase tracking-wider font-semibold mb-3 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>Image Model</p>
-                          <div className="flex items-center justify-between mb-3">
-                            <span className={`text-sm ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>Model</span>
-                            <select
-                              value={imageModel}
-                              onChange={(e) => setImageModel(e.target.value)}
-                              className={`text-sm font-medium rounded-lg px-3 py-2 focus:outline-none cursor-pointer ${
-                                theme === 'dark'
-                                  ? 'text-zinc-200 bg-zinc-800 border border-zinc-700 focus:border-zinc-500'
-                                  : 'text-zinc-800 bg-white border border-zinc-300 focus:border-zinc-500'
-                              }`}
-                            >
-                              <option value="nano-banana-2">Google Nano Banana 2</option>
-                              <option value="seedream-5-lite">Seedream 5 Lite</option>
-                            </select>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className={`text-sm ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>Aspect ratio</span>
-                            <select
-                              value={aspectRatio}
-                              onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
-                              className={`text-sm font-medium rounded-lg px-3 py-2 focus:outline-none cursor-pointer ${
-                                theme === 'dark'
-                                  ? 'text-zinc-200 bg-zinc-800 border border-zinc-700 focus:border-zinc-500'
-                                  : 'text-zinc-800 bg-white border border-zinc-300 focus:border-zinc-500'
-                              }`}
-                            >
-                              <option value="9:16">9:16 Story / Reels</option>
-                              <option value="4:5">4:5 Instagram</option>
-                              <option value="1:1">1:1 Feed</option>
-                              <option value="16:9">16:9 Landscape</option>
-                              <option value="2:3">2:3 Pinterest</option>
-                              <option value="3:4">3:4 Portrait</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* PIPELINE TOGGLES */}
-                        <div className={`border-t pt-4 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
-                          <p className={`text-[10px] uppercase tracking-wider font-semibold mb-3 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>Pipeline</p>
-
-                          {/* LLM toggle (master) */}
                           <div className="flex items-center justify-between mb-2">
-                            <div>
-                              <span className={`text-sm font-medium ${theme === 'dark' ? 'text-zinc-200' : 'text-zinc-700'}`}>LLM</span>
-                              <p className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>Enhance prompts + ad expertise</p>
-                            </div>
+                            <p className={`text-[9px] uppercase tracking-widest font-bold ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>Output</p>
                             <button
-                              onClick={() => {
-                                const next = !llmEnabled;
-                                setLlmEnabled(next);
-                                if (!next) { setPresetEnabled(false); setHtmlEnabled(false); setResearchEnabled(false); }
-                              }}
-                              className={`relative w-10 h-6 rounded-full transition-colors ${llmEnabled ? 'bg-blue-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
+                              onClick={() => setShowSettings(false)}
+                              className={`p-0.5 rounded transition-colors ${theme === 'dark' ? 'text-zinc-600 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}
                             >
-                              <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${llmEnabled ? 'left-5' : 'left-1'}`} />
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12" /></svg>
                             </button>
                           </div>
 
-                          {/* Sub-toggles (depend on LLM) */}
-                          <div className={`space-y-2 mb-3 pl-3 border-l-2 transition-opacity ${llmEnabled ? 'border-blue-200 opacity-100' : (theme === 'dark' ? 'border-zinc-700' : 'border-zinc-200') + ' opacity-40 pointer-events-none'}`}>
-                            {/* Preset Data */}
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <span className={`text-[13px] ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-600'}`}>Use preset</span>
-                                <p className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>Inject campaign/brand data</p>
-                              </div>
-                              <button
-                                onClick={() => setPresetEnabled(!presetEnabled)}
-                                disabled={!llmEnabled}
-                                className={`relative w-9 h-5 rounded-full transition-colors ${presetEnabled && llmEnabled ? 'bg-blue-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
-                              >
-                                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${presetEnabled && llmEnabled ? 'left-4' : 'left-0.5'}`} />
-                              </button>
-                            </div>
-
-                            {/* Use Research */}
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <span className={`text-[13px] ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-600'}`}>Use research</span>
-                                <p className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>Inject research findings</p>
-                                {researchEnabled && !hasResearchData && (
-                                  <p className="text-[10px] text-amber-500 font-medium">No research data yet</p>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => setResearchEnabled(!researchEnabled)}
-                                disabled={!llmEnabled}
-                                className={`relative w-9 h-5 rounded-full transition-colors ${researchEnabled && llmEnabled ? 'bg-blue-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
-                              >
-                                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${researchEnabled && llmEnabled ? 'left-4' : 'left-0.5'}`} />
-                              </button>
-                            </div>
-
-                            {/* HTML Layout */}
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <span className={`text-[13px] ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-600'}`}>HTML Ads</span>
-                                <p className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>Generate complete ad creatives as HTML</p>
-                              </div>
-                              <button
-                                onClick={() => setHtmlEnabled(!htmlEnabled)}
-                                disabled={!llmEnabled}
-                                className={`relative w-9 h-5 rounded-full transition-colors ${htmlEnabled && llmEnabled ? 'bg-blue-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
-                              >
-                                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${htmlEnabled && llmEnabled ? 'left-4' : 'left-0.5'}`} />
-                              </button>
-                            </div>
-
+                          {/* Aspect ratio */}
+                          <div className="flex flex-wrap gap-0.5 mb-2">
+                            {(['9:16', '4:5', '1:1', '16:9', '2:3', '3:4']).map(val => (
+                              <button key={val} onClick={() => setAspectRatio(val as AspectRatio)}
+                                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
+                                  aspectRatio === val
+                                    ? 'bg-zinc-900 text-white' + (theme === 'dark' ? ' !bg-zinc-200 !text-zinc-900' : '')
+                                    : theme === 'dark' ? 'text-zinc-600 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'
+                                }`}
+                              >{val}</button>
+                            ))}
                           </div>
 
-                          {/* LLM Model (visible when LLM on) */}
-                          {llmEnabled && (
-                            <div className="flex items-center justify-between mb-3">
-                              <span className={`text-sm ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>LLM model</span>
-                              <select
-                                value={llmModel}
-                                onChange={(e) => setLlmModel(e.target.value)}
-                                className={`text-xs font-medium rounded-lg px-2 py-1.5 focus:outline-none cursor-pointer ${
-                                  theme === 'dark'
-                                    ? 'text-zinc-200 bg-zinc-800 border border-zinc-700'
-                                    : 'text-zinc-800 bg-white border border-zinc-300'
+                          {/* Image model */}
+                          <div className={`flex rounded-md overflow-hidden border ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                            {[['nano-banana-2', 'Nano Banana'], ['seedream-5-lite', 'Seedream']].map(([val, label]) => (
+                              <button key={val} onClick={() => setImageModel(val)}
+                                className={`flex-1 py-1 text-[10px] font-medium transition-all ${
+                                  imageModel === val
+                                    ? 'bg-zinc-900 text-white' + (theme === 'dark' ? ' !bg-zinc-200 !text-zinc-900' : '')
+                                    : theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'
                                 }`}
-                              >
-                                <option value="glm-4.7-flash:q4_K_M">GLM 4.7 Flash</option>
-                                <option value="qwen3.5:9b">Qwen 3.5 9B</option>
-                                <option value="lfm2.5-thinking:latest">LFM 2.5 (1.2B)</option>
-                              </select>
-                            </div>
-                          )}
+                              >{label}</button>
+                            ))}
+                          </div>
+                        </div>
 
-                          {/* Research Summary (collapsible) */}
-                          {researchEnabled && hasResearchData && (
+                        {/* ── PIPELINE ── */}
+                        <div className={`border-t pt-3 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                          <p className={`text-[9px] uppercase tracking-widest font-bold mb-2 ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>Pipeline</p>
+
+                          {/* LLM toggle */}
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <span className={`text-[11px] font-medium ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'}`}>LLM thinking</span>
+                              <p className={`text-[9px] ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>{llmEnabled ? 'Analyses brand + refs before generating' : 'Off — prompt goes straight to Freepik'}</p>
+                            </div>
+                            <button onClick={() => { const next = !llmEnabled; setLlmEnabled(next); if (!next) { setPresetEnabled(false); setHtmlEnabled(false); setResearchEnabled(false); } }}
+                              className={`relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0 ml-3 ${llmEnabled ? 'bg-blue-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
+                            >
+                              <span className={`absolute top-[2px] w-[14px] h-[14px] bg-white rounded-full shadow transition-transform ${llmEnabled ? 'left-[14px]' : 'left-[2px]'}`} />
+                            </button>
+                          </div>
+
+                          {llmEnabled && (
                             <>
-                              <button
-                                onClick={() => setShowResearchSummary(!showResearchSummary)}
-                                className={`w-full text-left text-xs mb-2 font-medium transition-colors ${theme === 'dark' ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}
-                              >
-                                {showResearchSummary ? '▼' : '▶'} View research summary
-                              </button>
-                              {showResearchSummary && currentCycle?.researchFindings && (
-                                <div className={`rounded-lg p-3 text-[11px] space-y-1.5 border ${
-                                  theme === 'dark' ? 'bg-blue-900/20 border-blue-800/40 text-zinc-300' : 'bg-blue-50 border-blue-200 text-zinc-700'
-                                }`}>
-                                  {currentCycle.researchFindings.deepDesires?.length > 0 && (
-                                    <div><span className={`font-semibold ${theme === 'dark' ? 'text-blue-400' : 'text-blue-700'}`}>Desires:</span> {currentCycle.researchFindings.deepDesires.length}</div>
-                                  )}
-                                  {currentCycle.researchFindings.objections?.length > 0 && (
-                                    <div><span className={`font-semibold ${theme === 'dark' ? 'text-blue-400' : 'text-blue-700'}`}>Objections:</span> {currentCycle.researchFindings.objections.length}</div>
-                                  )}
-                                  {currentCycle.researchFindings.avatarLanguage?.length > 0 && (
-                                    <div><span className={`font-semibold ${theme === 'dark' ? 'text-blue-400' : 'text-blue-700'}`}>Language:</span> {currentCycle.researchFindings.avatarLanguage.length} samples</div>
-                                  )}
-                                  {currentCycle.researchFindings.competitorWeaknesses?.length > 0 && (
-                                    <div><span className={`font-semibold ${theme === 'dark' ? 'text-blue-400' : 'text-blue-700'}`}>Gaps:</span> {currentCycle.researchFindings.competitorWeaknesses.length}</div>
-                                  )}
-                                </div>
-                              )}
+                              {/* Data fed to LLM */}
+                              <div className="flex gap-1 mb-2">
+                                <button onClick={() => setPresetEnabled(!presetEnabled)}
+                                  className={`px-2 py-0.5 rounded text-[9px] font-medium transition-all border ${
+                                    presetEnabled
+                                      ? 'bg-blue-500/10 border-blue-400/30 text-blue-600' + (theme === 'dark' ? ' !text-blue-400' : '')
+                                      : theme === 'dark' ? 'border-zinc-700 text-zinc-600' : 'border-zinc-200 text-zinc-400'
+                                  }`}
+                                >{presetEnabled ? '●' : '○'} Brand data</button>
+                                <button onClick={() => setResearchEnabled(!researchEnabled)}
+                                  className={`px-2 py-0.5 rounded text-[9px] font-medium transition-all border ${
+                                    researchEnabled
+                                      ? 'bg-blue-500/10 border-blue-400/30 text-blue-600' + (theme === 'dark' ? ' !text-blue-400' : '')
+                                      : theme === 'dark' ? 'border-zinc-700 text-zinc-600' : 'border-zinc-200 text-zinc-400'
+                                  }`}
+                                >{researchEnabled ? '●' : '○'} Research</button>
+                              </div>
+
+                              {/* Mode */}
+                              <p className={`text-[9px] mb-1 ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>Mode</p>
+                              <div className={`flex rounded-md overflow-hidden border mb-2 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                                <button onClick={() => { setHtmlEnabled(false); setReferenceCopyEnabled(false); }}
+                                  className={`flex-1 py-1.5 text-[10px] font-medium transition-all ${
+                                    !htmlEnabled && !referenceCopyEnabled ? 'bg-blue-500 text-white' : theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'
+                                  }`}
+                                >Image</button>
+                                <button onClick={() => { setHtmlEnabled(true); setReferenceCopyEnabled(false); }}
+                                  className={`flex-1 py-1.5 text-[10px] font-medium transition-all border-x ${
+                                    htmlEnabled ? 'bg-blue-500 text-white border-blue-500' : (theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300 border-zinc-800' : 'text-zinc-400 hover:text-zinc-600 border-zinc-200')
+                                  }`}
+                                >HTML ad</button>
+                                <button onClick={() => { const next = !referenceCopyEnabled; setReferenceCopyEnabled(next); localStorage.setItem('make_reference_copy', String(next)); if (next) setHtmlEnabled(false); }}
+                                  className={`flex-1 py-1.5 text-[10px] font-medium transition-all ${
+                                    referenceCopyEnabled ? 'bg-purple-500 text-white' : theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'
+                                  }`}
+                                >Clone ref</button>
+                              </div>
                             </>
                           )}
+
+                          {/* HTML sub-options */}
+                          {htmlEnabled && llmEnabled && (
+                            <div className={`space-y-1.5 mb-2 pl-2 border-l-2 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>Variants</span>
+                                <input type="number" min="1" max="10" value={variantCount}
+                                  onChange={(e) => { setVariantCount(Math.max(1, Math.min(10, parseInt(e.target.value) || 1))); localStorage.setItem('html_variant_count', e.target.value); }}
+                                  className={`w-12 text-[10px] font-medium rounded px-1.5 py-0.5 text-center focus:outline-none ${theme === 'dark' ? 'text-zinc-200 bg-zinc-800 border border-zinc-700' : 'text-zinc-800 bg-white border border-zinc-200'}`}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>Freepik renders</span>
+                                <div className="flex gap-0.5">
+                                  {[1, 2, 5].map(n => (
+                                    <button key={n} onClick={() => setRenderCount(n)}
+                                      className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${renderCount === n ? 'bg-blue-500 text-white' : theme === 'dark' ? 'bg-zinc-800 text-zinc-500' : 'bg-zinc-100 text-zinc-500'}`}
+                                    >{n}</button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>Auto-render</span>
+                                <button onClick={() => { localStorage.setItem('html_auto_render', (!autoRenderHtml).toString()); window.location.reload(); }}
+                                  className={`relative w-7 h-[16px] rounded-full transition-colors ${autoRenderHtml ? 'bg-blue-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
+                                >
+                                  <span className={`absolute top-[2px] w-3 h-3 bg-white rounded-full shadow transition-transform ${autoRenderHtml ? 'left-[12px]' : 'left-[2px]'}`} />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Clone ref batch */}
+                          {referenceCopyEnabled && (
+                            <div className={`flex items-center justify-between mb-2 pl-2 border-l-2 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                              <span className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>Ads to make</span>
+                              <div className="flex gap-0.5">
+                                {[1, 3, 5].map(n => (
+                                  <button key={n} onClick={() => { setBatchRefCount(n); localStorage.setItem('make_batch_ref_count', String(n)); }}
+                                    className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${batchRefCount === n ? 'bg-purple-500 text-white' : theme === 'dark' ? 'bg-zinc-800 text-zinc-500' : 'bg-zinc-100 text-zinc-500'}`}
+                                  >{n}</button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
 
-                        {/* PIPELINE SUMMARY */}
-                        <div className={`border-t pt-3 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
-                          <div className={`rounded-lg p-3 text-[11px] leading-relaxed ${theme === 'dark' ? 'bg-zinc-800/80 text-zinc-400' : 'bg-zinc-50 text-zinc-500'}`}>
-                            <span>{getPipelineLabel()}</span>
+                        {/* ── MODELS ── */}
+                        {llmEnabled && (
+                          <div className={`border-t pt-3 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                            <p className={`text-[9px] uppercase tracking-widest font-bold mb-2 ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>Models</p>
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>Ad strategy</span>
+                                <select value={llmModel} onChange={(e) => { setLlmModel(e.target.value); localStorage.setItem('make_llm_model', e.target.value); }}
+                                  className={`text-[10px] font-medium rounded px-1.5 py-0.5 focus:outline-none cursor-pointer ${theme === 'dark' ? 'text-zinc-300 bg-zinc-800 border border-zinc-700' : 'text-zinc-700 bg-white border border-zinc-200'}`}
+                                >
+                                  <option value="qwen3.5:35b">Qwen 3.5 35B</option>
+                                  <option value="local:qwen3.5:35b">Qwen 35B Local</option>
+                                  <option value="qwen3.5:9b">Qwen 3.5 9B</option>
+                                  <option value="local:qwen3.5:9b">Qwen 9B Local</option>
+                                  <option value="qwen3.5:0.8b">Qwen 0.8B</option>
+                                  <option value="lfm2.5-thinking:latest">LFM 2.5</option>
+                                </select>
+                              </div>
+                              {htmlEnabled && (
+                                <div className="flex items-center justify-between">
+                                  <span className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>HTML coder</span>
+                                  <select value={htmlLlmModel} onChange={(e) => { setHtmlLlmModel(e.target.value); localStorage.setItem('make_html_llm_model', e.target.value); }}
+                                    className={`text-[10px] font-medium rounded px-1.5 py-0.5 focus:outline-none cursor-pointer ${theme === 'dark' ? 'text-zinc-300 bg-zinc-800 border border-zinc-700' : 'text-zinc-700 bg-white border border-zinc-200'}`}
+                                  >
+                                    <option value="qwen3.5:35b">Qwen 3.5 35B</option>
+                                    <option value="local:qwen3.5:35b">Qwen 35B Local</option>
+                                    <option value="qwen3.5:9b">Qwen 3.5 9B</option>
+                                    <option value="local:qwen3.5:9b">Qwen 9B Local</option>
+                                    <option value="qwen3.5:0.8b">Qwen 0.8B</option>
+                                    <option value="lfm2.5-thinking:latest">LFM 2.5</option>
+                                  </select>
+                                </div>
+                              )}
+                              {(htmlEnabled || referenceCopyEnabled) && (
+                                <div className="flex items-center justify-between">
+                                  <span className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>Vision QA</span>
+                                  <div className="flex items-center gap-1.5">
+                                    {visionFeedbackEnabled && (
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={50}
+                                        value={visionRounds}
+                                        onChange={(e) => { const v = Math.max(1, Math.min(50, parseInt(e.target.value) || 1)); setVisionRounds(v); localStorage.setItem('make_vision_rounds', String(v)); }}
+                                        className={`w-10 text-center text-[9px] font-medium rounded px-1 py-0.5 focus:outline-none ${theme === 'dark' ? 'text-violet-300 bg-zinc-800 border border-zinc-700' : 'text-violet-700 bg-white border border-zinc-200'}`}
+                                      />
+                                    )}
+                                    <button onClick={() => { const next = !visionFeedbackEnabled; setVisionFeedbackEnabled(next); localStorage.setItem('make_vision_feedback', String(next)); }}
+                                      className={`relative w-7 h-[16px] rounded-full transition-colors ${visionFeedbackEnabled ? 'bg-violet-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
+                                    >
+                                      <span className={`absolute top-[2px] w-3 h-3 bg-white rounded-full shadow transition-transform ${visionFeedbackEnabled ? 'left-[12px]' : 'left-[2px]'}`} />
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                              {/* Research readiness gate */}
+                              {researchEnabled && (
+                                <div className="flex items-center justify-between">
+                                  <span className={`text-[10px] ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>Research gate</span>
+                                  <button onClick={() => { const next = !researchReadinessCheck; setResearchReadinessCheck(next); localStorage.setItem('make_research_readiness', String(next)); }}
+                                    className={`relative w-7 h-[16px] rounded-full transition-colors ${researchReadinessCheck ? 'bg-amber-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
+                                  >
+                                    <span className={`absolute top-[2px] w-3 h-3 bg-white rounded-full shadow transition-transform ${researchReadinessCheck ? 'left-[12px]' : 'left-[2px]'}`} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
+                        )}
 
+                        {/* Research data */}
+                        {researchEnabled && hasResearchData && (
+                          <div className={`border-t pt-2 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                            <button onClick={() => setShowResearchSummary(!showResearchSummary)}
+                              className={`text-[10px] font-medium transition-colors ${theme === 'dark' ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}
+                            >{showResearchSummary ? '▾' : '▸'} Research</button>
+                            {showResearchSummary && currentCycle?.researchFindings && (
+                              <div className={`rounded p-2 mt-1 text-[9px] space-y-0.5 border ${theme === 'dark' ? 'bg-blue-900/20 border-blue-800/40 text-zinc-300' : 'bg-blue-50 border-blue-200 text-zinc-700'}`}>
+                                {currentCycle.researchFindings.deepDesires?.length > 0 && <div>Desires: {currentCycle.researchFindings.deepDesires.length}</div>}
+                                {currentCycle.researchFindings.objections?.length > 0 && <div>Objections: {currentCycle.researchFindings.objections.length}</div>}
+                                {currentCycle.researchFindings.avatarLanguage?.length > 0 && <div>Language: {currentCycle.researchFindings.avatarLanguage.length}</div>}
+                                {currentCycle.researchFindings.competitorWeaknesses?.length > 0 && <div>Gaps: {currentCycle.researchFindings.competitorWeaknesses.length}</div>}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                      </div>
+
+                      {/* Footer */}
+                      <div className={`px-4 py-2 border-t ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                        <p className={`text-[9px] font-mono ${theme === 'dark' ? 'text-zinc-700' : 'text-zinc-400'}`}>{getPipelineLabel()}</p>
                       </div>
                     </div>,
                     document.body
                   )}
 
-                {/* Batch mode toggle — only shows when > 1 */}
-                {batchCount > 1 && !(htmlEnabled && llmEnabled) && (
-                  <div className={`flex items-center rounded-full p-0.5 mr-2 ${theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-100'}`}>
-                    <button
-                      onClick={() => setBatchMode('concepts')}
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
-                        batchMode === 'concepts'
-                          ? theme === 'dark' ? 'bg-zinc-600 text-white' : 'bg-white text-zinc-900 shadow-sm'
-                          : theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'
-                      }`}
-                    >
-                      Concepts
-                    </button>
-                    <button
-                      onClick={() => setBatchMode('variations')}
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
-                        batchMode === 'variations'
-                          ? theme === 'dark' ? 'bg-zinc-600 text-white' : 'bg-white text-zinc-900 shadow-sm'
-                          : theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'
-                      }`}
-                    >
-                      Variations
-                    </button>
+                {/* Research readiness warning */}
+                {researchReadinessWarning && (
+                  <div className={`px-3 py-1.5 rounded-lg text-[10px] font-medium mb-1 ${theme === 'dark' ? 'bg-amber-900/30 text-amber-300 border border-amber-700/40' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                    {researchReadinessWarning}
                   </div>
                 )}
 
@@ -3840,6 +5690,131 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                     <p className={`text-[11px] leading-relaxed ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>{selectedImage.imagePrompt}</p>
                   </div>
                 )}
+
+                {/* Vision QA Iterations — round-by-round browser */}
+                {selectedImage.visionRounds && selectedImage.visionRounds.length > 0 ? (
+                  <div className={`rounded-lg border overflow-hidden ${theme === 'dark' ? 'bg-violet-900/10 border-violet-800/40' : 'bg-violet-50/50 border-violet-200'}`}>
+                    {/* Header */}
+                    <div className={`px-2.5 py-2 flex items-center justify-between ${theme === 'dark' ? 'bg-violet-900/20' : 'bg-violet-100/50'}`}>
+                      <p className={`text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-violet-400' : 'text-violet-600'}`}>
+                        Vision QA — {selectedImage.visionRounds.length} round{selectedImage.visionRounds.length > 1 ? 's' : ''}
+                      </p>
+                      {selectedImage.visionRounds.length > 1 && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setVisionRoundIdx(Math.max(0, visionRoundIdx - 1))}
+                            disabled={visionRoundIdx === 0}
+                            className={`w-5 h-5 flex items-center justify-center rounded text-[10px] transition-colors disabled:opacity-30 ${theme === 'dark' ? 'text-violet-300 hover:bg-violet-800/40' : 'text-violet-600 hover:bg-violet-200'}`}
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+                          </button>
+                          <span className={`text-[9px] font-mono font-semibold min-w-[2rem] text-center ${theme === 'dark' ? 'text-violet-300' : 'text-violet-700'}`}>
+                            {visionRoundIdx + 1}/{selectedImage.visionRounds.length}
+                          </span>
+                          <button
+                            onClick={() => setVisionRoundIdx(Math.min(selectedImage.visionRounds!.length - 1, visionRoundIdx + 1))}
+                            disabled={visionRoundIdx >= (selectedImage.visionRounds?.length || 1) - 1}
+                            className={`w-5 h-5 flex items-center justify-center rounded text-[10px] transition-colors disabled:opacity-30 ${theme === 'dark' ? 'text-violet-300 hover:bg-violet-800/40' : 'text-violet-600 hover:bg-violet-200'}`}
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Round thumbnail strip */}
+                    {selectedImage.visionRounds.length > 1 && (
+                      <div className={`px-2.5 py-1.5 flex gap-1 overflow-x-auto border-b ${theme === 'dark' ? 'border-violet-800/30' : 'border-violet-200/60'}`}>
+                        {selectedImage.visionRounds.map((round, ri) => (
+                          <button
+                            key={ri}
+                            onClick={() => setVisionRoundIdx(ri)}
+                            className={`shrink-0 relative rounded-md overflow-hidden transition-all ${
+                              ri === visionRoundIdx
+                                ? 'ring-2 ring-violet-500 shadow-md'
+                                : theme === 'dark' ? 'ring-1 ring-zinc-700 opacity-60 hover:opacity-90' : 'ring-1 ring-zinc-200 opacity-60 hover:opacity-90'
+                            }`}
+                            title={`Round ${round.round}: ${round.status}`}
+                          >
+                            <img
+                              src={`data:image/png;base64,${round.imageBase64}`}
+                              alt={`Round ${round.round}`}
+                              className="w-9 h-9 object-cover"
+                            />
+                            {/* Status dot */}
+                            <span className={`absolute bottom-0.5 right-0.5 w-2 h-2 rounded-full border border-white/50 ${
+                              round.status === 'passed' ? 'bg-green-400' :
+                              round.status === 'revised' ? 'bg-amber-400' :
+                              round.status === 'candidate' ? 'bg-blue-400' :
+                              'bg-zinc-400'
+                            }`} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Active round detail */}
+                    {(() => {
+                      const round = selectedImage.visionRounds![Math.min(visionRoundIdx, selectedImage.visionRounds!.length - 1)];
+                      if (!round) return null;
+                      return (
+                        <div className="px-2.5 py-2 space-y-1.5">
+                          {/* Status badge + round label */}
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                              round.status === 'passed' ? 'bg-green-500/20 text-green-400' :
+                              round.status === 'revised' ? 'bg-amber-500/20 text-amber-400' :
+                              round.status === 'candidate' ? 'bg-blue-500/20 text-blue-400' :
+                              theme === 'dark' ? 'bg-zinc-700 text-zinc-400' : 'bg-zinc-200 text-zinc-500'
+                            }`}>
+                              {round.status === 'original' ? 'Original' :
+                               round.status === 'candidate' ? `Candidate` :
+                               round.status === 'passed' ? 'Passed' :
+                               `Revision ${round.round}`}
+                            </span>
+                            <span className={`text-[9px] font-mono ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                              Round {round.round}
+                            </span>
+                          </div>
+
+                          {/* Feedback */}
+                          {round.feedback && round.feedback !== 'Original' && (
+                            <div>
+                              <p className={`text-[9px] font-semibold mb-0.5 ${theme === 'dark' ? 'text-violet-400' : 'text-violet-500'}`}>Feedback</p>
+                              <p className={`text-[10px] leading-relaxed ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>{round.feedback}</p>
+                            </div>
+                          )}
+
+                          {/* Prompt used */}
+                          {round.prompt && (
+                            <details className="group">
+                              <summary className={`text-[9px] font-semibold cursor-pointer select-none ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
+                                Prompt used
+                              </summary>
+                              <p className={`text-[10px] leading-relaxed mt-1 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>{round.prompt}</p>
+                            </details>
+                          )}
+
+                          {/* Click to preview this round's image */}
+                          {round.imageBase64 !== selectedImage.imageBase64 && (
+                            <button
+                              onClick={() => setSelectedImage(prev => prev ? { ...prev, imageBase64: round.imageBase64 } : prev)}
+                              className={`text-[9px] font-medium transition-colors ${theme === 'dark' ? 'text-violet-400 hover:text-violet-300' : 'text-violet-600 hover:text-violet-700'}`}
+                            >
+                              View this version
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : selectedImage.visionFeedback ? (
+                  /* Fallback: simple text feedback if no rounds array */
+                  <div className={`rounded-lg p-2.5 border ${theme === 'dark' ? 'bg-violet-900/20 border-violet-800/40' : 'bg-violet-50 border-violet-100'}`}>
+                    <p className={`text-[9px] uppercase tracking-wider font-semibold mb-1 ${theme === 'dark' ? 'text-violet-400' : 'text-violet-600'}`}>Vision QA</p>
+                    <p className={`text-[11px] leading-relaxed ${theme === 'dark' ? 'text-violet-300' : 'text-violet-700'}`}>{selectedImage.visionFeedback}</p>
+                  </div>
+                ) : null}
 
                 <div className={`rounded-lg p-2.5 ${theme === 'dark' ? 'bg-zinc-800/80' : 'bg-zinc-50'}`}>
                   <p className={`text-[9px] uppercase tracking-wider font-semibold mb-0.5 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>Created</p>
@@ -4139,21 +6114,16 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                               value={img.type}
                               onChange={(e) => {
                                 const newType = e.target.value as ReferenceImage['type'];
-                                // Max 1 layout — if selecting layout, check if another layout already exists
-                                if (newType === 'layout') {
-                                  const existingLayoutIdx = uploadedImages.findIndex((other, otherIdx) => otherIdx !== idx && other.type === 'layout');
-                                  if (existingLayoutIdx !== -1) {
-                                    // Demote existing layout to product
-                                    const updated = uploadedImages.map((im, i) => {
-                                      if (i === existingLayoutIdx) return { ...im, type: 'product' as const };
-                                      if (i === idx) return { ...im, type: newType };
-                                      return im;
-                                    });
-                                    updateCampaign({ referenceImages: updated });
-                                    return;
-                                  }
-                                }
-                                updateReferenceImage(idx, { type: newType });
+                                if (newType === img.type) return;
+                                // Max 1 layout — demote any existing layout to product
+                                const current = campaign?.referenceImages as ReferenceImage[] | undefined;
+                                if (!current) return;
+                                const updated = current.map((im, i) => {
+                                  if (i === idx) return { ...im, type: newType };
+                                  if (newType === 'layout' && im.type === 'layout') return { ...im, type: 'product' as const };
+                                  return im;
+                                });
+                                updateCampaign({ referenceImages: updated });
                               }}
                               className={`text-[10px] px-1.5 py-1 rounded-md border ${
                                 theme === 'dark'
@@ -4162,22 +6132,32 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
                               }`}
                             >
                               <option value="product">Product</option>
-                              <option value="layout">Layout{uploadedImages.some((other, otherIdx) => otherIdx !== idx && other.type === 'layout') ? ' (replaces current)' : ''}</option>
+                              <option value="layout">Layout</option>
                             </select>
-                            <button
-                              onClick={() => analyzeReferenceImage(idx)}
-                              disabled={analyzingImageIdx === idx}
-                              className={`px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors ${
-                                analyzingImageIdx === idx
-                                  ? 'bg-purple-500/20 text-purple-400 cursor-wait'
-                                  : theme === 'dark'
-                                    ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
-                                    : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
-                              }`}
-                              title="Analyze with vision model (minicpm-v) → summarize with Qwen 3.5"
-                            >
-                              {analyzingImageIdx === idx ? 'Scanning...' : 'Analyze'}
-                            </button>
+                            {analyzingImageIdx === idx ? (
+                              <button
+                                onClick={cancelAnalyze}
+                                className="px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors bg-red-500/20 text-red-400 hover:bg-red-500/30 cursor-pointer"
+                                title="Stop analysis"
+                              >
+                                Stop
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => analyzeReferenceImage(idx)}
+                                disabled={analyzingImageIdx !== null}
+                                className={`px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors ${
+                                  analyzingImageIdx !== null
+                                    ? 'opacity-40 cursor-not-allowed'
+                                    : theme === 'dark'
+                                      ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
+                                      : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
+                                }`}
+                                title="Analyze with vision model"
+                              >
+                                Analyze
+                              </button>
+                            )}
                             <button
                               onClick={() => removeUploadedImage(idx)}
                               className="p-1 rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
@@ -4449,6 +6429,11 @@ This must look like a PAID SOCIAL AD (Instagram/TikTok/Facebook), not a stock ph
             const withoutLayout = uploadedImages.filter(img => img.type !== 'layout');
             updateCampaign({ referenceImages: [...withoutLayout, newRef] });
           }}
+          onCopyTarget={referenceCopyEnabled ? (imageBase64, description, category, filename, path) => {
+            const target = { base64: imageBase64, description, category, filename, path };
+            setReferenceCopyTarget(target);
+            localStorage.setItem('make_reference_copy_target', JSON.stringify(target));
+          } : undefined}
         />
       )}
     </div>

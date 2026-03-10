@@ -34,7 +34,7 @@ export function useOllama() {
         onChunk?: (chunk: string) => void;
       }
     ) => {
-      const { model = 'glm-4.7-flash:q4_K_M', signal, onChunk } = options || {};
+      const { model = 'qwen3.5:9b', signal, onChunk } = options || {};
       setIsLoading(true);
       setError(null);
       setOutput('');
@@ -73,7 +73,7 @@ export function useOllama() {
         onError?: (error: Error) => void;
       }
     ) => {
-      const { model = 'glm-4.7-flash:q4_K_M', signal, onChunk, onError } = options || {};
+      const { model = 'qwen3.5:9b', signal, onChunk, onError } = options || {};
       setIsLoading(true);
       setError(null);
 

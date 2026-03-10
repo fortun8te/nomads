@@ -98,7 +98,9 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
   // Throttle React state updates to prevent UI freeze from per-token re-renders
   const lastUpdateRef = useRef<number>(0);
   const pendingUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestCycleRef = useRef<Cycle | null>(null);
   const throttledSetCycle = useCallback((cycle: Cycle) => {
+    latestCycleRef.current = cycle; // always store the latest
     const now = Date.now();
     if (now - lastUpdateRef.current >= 150) {
       lastUpdateRef.current = now;
@@ -111,7 +113,7 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
       pendingUpdateRef.current = setTimeout(() => {
         lastUpdateRef.current = Date.now();
         pendingUpdateRef.current = null;
-        setCurrentCycle(refreshCycleReference(cycle));
+        setCurrentCycle(refreshCycleReference(latestCycleRef.current!));
       }, 150);
     }
   }, []);
@@ -153,6 +155,7 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
       // Generate question using GLM
       const response = await generate(prompt, system, {
         model: getModelForStage('research'), // GLM for question generation
+        signal: abortControllerRef.current?.signal,
       });
 
       // Parse JSON response

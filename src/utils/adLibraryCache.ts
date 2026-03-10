@@ -228,17 +228,17 @@ export async function getRelevantReferences(
     `Reference #${i + 1}. [${d.category}] ${d.description}`
   ).join('\n');
 
-  return `\n--- REFERENCE ADS (${picked.length} top-performing ad designs for inspiration) ---
+  return `\n--- REFERENCE ADS (${picked.length} top-performing ad designs from competitors) ---
 ${lines}
 
-Be INSPIRED by these references — use them for creative direction, not exact reproduction:
-- Take LAYOUT inspiration from their compositions (spacing, hierarchy, visual flow)
-- Take COPY inspiration from their headlines, CTAs, and messaging patterns — adapt to your brand voice
-- Match their QUALITY LEVEL — polish, contrast, professional finish
-- Adapt their strongest elements to YOUR brand's unique visual identity
-- Each ad you create should feel original, not a copy of any reference
-Never reproduce a reference layout or copy exactly. Use them as creative fuel — same energy, your brand.
-In your HTML output, include <!-- Inspired by: Reference #N --> to note which reference most influenced your design.\n`;
+REPRODUCE these reference layouts as closely as possible:
+- COPY the exact LAYOUT structure — same zones, same proportions, same spatial arrangement
+- COPY the visual HIERARCHY — headline size, product placement, CTA position, spacing ratios
+- COPY the COPY FRAMEWORK — same type of headline (benefit, question, statistic), same CTA style, same info density
+- MATCH their polish level — gradients, shadows, rounded corners, badge styles
+- ONLY change: brand name, product images, specific copy text, and brand colors
+Think of it as a TEMPLATE you're filling in with different brand content — same skeleton, different skin.
+In your HTML output, include <!-- Inspired by: Reference #N --> to note which reference you reproduced.\n`;
 }
 
 // ── Clear cache ──

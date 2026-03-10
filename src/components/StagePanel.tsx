@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Cycle, StageName } from '../types';
 import { useTheme } from '../context/ThemeContext';
 import { ResearchOutput } from './ResearchOutput';
 import { ModelOutputDebug } from './ModelOutputDebug';
 import { MakeTestPanel } from './MakeTestPanel';
-import { tokenTracker, type TokenInfo } from '../utils/tokenStats';
+import { tokenTracker } from '../utils/tokenStats';
 import { ShineText } from './ShineText';
 import { WordCycler } from './WordCycler';
 
@@ -33,11 +33,7 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
   const outputRef = useRef<HTMLDivElement>(null);
   const [prevStage, setPrevStage] = useState<StageName | null>(null);
   const [, setTick] = useState(0);
-  const [tokenInfo, setTokenInfo] = useState<TokenInfo>(tokenTracker.get());
-
-  useEffect(() => {
-    return tokenTracker.subscribe(() => setTokenInfo(tokenTracker.get()));
-  }, []);
+  const tokenInfo = useSyncExternalStore(tokenTracker.subscribe, tokenTracker.getSnapshot);
 
   useEffect(() => {
     if (!isRunning) return;

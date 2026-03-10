@@ -122,7 +122,7 @@ export function useResearchAgent() {
    * Surface Problem → Layers → Deep Desire → Turning Point
    * Identifies NARROW sub-avatars with amplified desires
    */
-  const mapDeepDesires = async (campaign: Campaign, brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<DeepDesire[]> => {
+  const mapDeepDesires = async (campaign: Campaign, brainModel: string = 'qwen3.5:9b', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<DeepDesire[]> => {
     const brandCtx = buildBrandContext(campaign);
     const prompt = `You are a consumer psychology expert specializing in desire mapping.
 
@@ -225,7 +225,7 @@ Return ONLY valid JSON array, no other text.`;
   const analyzeRootCauseMechanism = async (
     campaign: Campaign,
     desires: DeepDesire[],
-    brainModel: string = 'glm-4.7-flash:q4_K_M',
+    brainModel: string = 'qwen3.5:9b',
     signal?: AbortSignal,
     onProgress?: (msg: string) => void
   ): Promise<RootCauseMechanism> => {
@@ -284,7 +284,7 @@ Return ONLY valid JSON.`;
    * What stops the deep desire from converting to purchase?
    * Why did previous solutions fail? What's different here?
    */
-  const identifyObjections = async (campaign: Campaign, desires: DeepDesire[], rootCause: RootCauseMechanism, brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<Objection[]> => {
+  const identifyObjections = async (campaign: Campaign, desires: DeepDesire[], rootCause: RootCauseMechanism, brainModel: string = 'qwen3.5:9b', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<Objection[]> => {
     const desiresText = desires.map(d =>
       `${d.targetSegment}: "${d.deepestDesire}" (turning point: ${d.turningPoint})`
     ).join('\n');
@@ -371,7 +371,7 @@ Example: [{"objection":"It is too expensive","frequency":"common","impact":"high
   const researchAvatarAndMarket = async (
     campaign: Campaign,
     desires: DeepDesire[],
-    brainModel: string = 'glm-4.7-flash:q4_K_M',
+    brainModel: string = 'qwen3.5:9b',
     signal?: AbortSignal,
     onProgress?: (msg: string) => void
   ) => {
@@ -443,7 +443,7 @@ Return ONLY valid JSON.`;
    * NEW: Competitor Landscape + Positioning Map
    * Who owns what? What's trapped? What's unclaimed?
    */
-  const mapCompetitorLandscape = async (campaign: Campaign, brainModel: string = 'glm-4.7-flash:q4_K_M', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<string[]> => {
+  const mapCompetitorLandscape = async (campaign: Campaign, brainModel: string = 'qwen3.5:9b', signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<string[]> => {
     const brandCtx5 = buildBrandContext(campaign);
     const prompt = `You are a competitive strategist. Map the competitor landscape for ${campaign.brand} targeting ${campaign.targetAudience}.
 
@@ -486,7 +486,7 @@ Return ONLY valid JSON array.`;
     rootCause: RootCauseMechanism,
     objections: Objection[],
     avatarData: any,
-    brainModel: string = 'glm-4.7-flash:q4_K_M',
+    brainModel: string = 'qwen3.5:9b',
     signal?: AbortSignal,
     onProgress?: (msg: string) => void
   ): Promise<AvatarPersona> => {
@@ -598,7 +598,7 @@ Return ONLY valid JSON.`;
   const executeResearch = async (
     campaign: Campaign,
     onProgress?: (msg: string) => void,
-    brainModel: string = 'glm-4.7-flash:q4_K_M',
+    brainModel: string = 'qwen3.5:9b',
     signal?: AbortSignal
   ): Promise<ResearchResult> => {
     const startTime = Date.now();
@@ -675,6 +675,8 @@ Return ONLY valid JSON.`;
       researchAvatarAndMarket(campaign, deepDesires, brainModel, signal, onProgress),
       mapCompetitorLandscape(campaign, brainModel, signal, onProgress),
     ]);
+
+    if (signal?.aborted) throw new Error('Aborted');
 
     const marketSoph = (avatarAndMarket.marketSophistication || 3) as MarketSophisticationLevel;
     onProgress?.(`  Market Sophistication: Level ${marketSoph}`);

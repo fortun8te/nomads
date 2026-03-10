@@ -132,7 +132,7 @@ Be specific and actionable.`;
     const result = await ollamaService.generateStream(
       prompt,
       'Synthesize visual competitive intelligence into actionable creative direction.',
-      { model: 'glm-4.7-flash:q4_K_M', signal }
+      { model: 'qwen3.5:9b', signal }
     );
 
     const extractSection = (key: string): string[] => {

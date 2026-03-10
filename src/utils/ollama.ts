@@ -1,20 +1,26 @@
-// All Ollama calls route through the Wayfarer proxy to avoid CORS issues.
-// Wayfarer (localhost:8889) forwards to the remote Ollama instance.
+// Ollama routing:
+//   Default: Wayfarer proxy (localhost:8889/ollama/...) → remote Ollama
+//   "local:" prefix: direct to localhost:11434 (no proxy needed, same-origin)
+// Wayfarer handles: CORS bypass, streaming, duplicate-header tolerance
 import { tokenTracker } from './tokenStats';
 
-const WAYFARER_HOST = 'http://localhost:8889';
+const WAYFARER_OLLAMA = 'http://localhost:8889/ollama';
+const LOCAL_OLLAMA = 'http://localhost:11434';
 
-function getOllamaApi(): string {
-  return `${WAYFARER_HOST}/ollama/api/generate`;
+/** Strip "local:" prefix and return [cleanModel, apiBase] */
+export function resolveModel(model: string): [string, string] {
+  if (model.startsWith('local:')) {
+    return [model.slice(6), LOCAL_OLLAMA];
+  }
+  return [model, WAYFARER_OLLAMA];
 }
 
-// Keep getOllamaHost for the Settings modal connection test
 export function getOllamaHost(): string {
-  if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('ollama_host');
-    if (saved) return saved;
-  }
-  return import.meta.env.VITE_OLLAMA_HOST || 'http://localhost:11434';
+  return WAYFARER_OLLAMA;
+}
+
+export function getLocalOllamaHost(): string {
+  return LOCAL_OLLAMA;
 }
 
 export interface OllamaOptions {
@@ -44,30 +50,43 @@ export const ollamaService = {
     systemPrompt: string,
     options: OllamaOptions = {}
   ): Promise<string> {
-    const { model = 'glm-4.7-flash:q4_K_M', temperature = 0.7, images, onChunk, onComplete, onError, signal } = options;
+    const { model = 'qwen3.5:9b', temperature = 0.7, images, onChunk, onComplete, onError, signal } = options;
+    const [cleanModel, apiBase] = resolveModel(model);
 
     const fullPrompt = `${systemPrompt}\n\n${prompt}`;
     let fullResponse = '';
 
     tokenTracker.startCall();
 
+    let timeoutId: NodeJS.Timeout | undefined;
     try {
-      const response = await fetch(getOllamaApi(), {
+      // Create a timeout signal that aborts after 300s (5 min) if no signal provided
+      let fetchSignal = signal;
+      if (!signal) {
+        const controller = new AbortController();
+        fetchSignal = controller.signal;
+        timeoutId = setTimeout(() => controller.abort(), 300000);
+      }
+
+      const response = await fetch(`${apiBase}/api/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          model,
+          model: cleanModel,
           prompt: fullPrompt,
           stream: true,
           temperature,
           top_p: 0.9,
           ...(images && images.length > 0 ? { images } : {}),
         }),
-        signal,
+        signal: fetchSignal,
       });
+
+      // Clear timeout once fetch connection is established
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = undefined; }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -143,6 +162,7 @@ export const ollamaService = {
       onComplete?.();
       return fullResponse;
     } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
       tokenTracker.endCall(); // mark as done even on error
       const err = error instanceof Error ? error : new Error(String(error));
       onError?.(err);
