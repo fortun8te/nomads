@@ -58,8 +58,10 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
   const { isDarkMode: themeDarkMode } = useTheme();
   const isDarkMode = propDarkMode !== undefined ? propDarkMode : themeDarkMode;
   const outputRef = useRef<HTMLDivElement>(null);
+  const thinkRef = useRef<HTMLDivElement>(null);
   const [prevStage, setPrevStage] = useState<StageName | null>(null);
   const [, setTick] = useState(0);
+  const [thinkExpanded, setThinkExpanded] = useState(true);
   const tokenInfo = useSyncExternalStore(tokenTracker.subscribe, tokenTracker.getSnapshot);
 
   useEffect(() => {
@@ -72,7 +74,10 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
     if (outputRef.current) {
       outputRef.current.scrollTo({ top: outputRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [cycle?.stages[cycle?.currentStage || 'research']?.agentOutput]);
+    if (thinkRef.current && thinkExpanded) {
+      thinkRef.current.scrollTo({ top: thinkRef.current.scrollHeight, behavior: 'smooth' });
+    }
+  }, [cycle?.stages[cycle?.currentStage || 'research']?.agentOutput, thinkExpanded]);
 
   useEffect(() => {
     if (cycle && cycle.currentStage !== prevStage && prevStage !== null) {
@@ -176,6 +181,50 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
           )}
         </div>
       </div>
+
+      {/* ── Think Mode: Live Token Stream ── */}
+      {isActive && stageData.agentOutput && (
+        <div className={`border-b ${isDarkMode ? 'border-zinc-800/60 bg-zinc-950' : 'border-zinc-100 bg-zinc-50/50'}`}>
+          {/* Think Mode header — always visible, click to toggle */}
+          <button
+            onClick={() => setThinkExpanded(!thinkExpanded)}
+            className={`w-full px-4 py-2 flex items-center gap-2 text-left transition-colors ${
+              isDarkMode ? 'hover:bg-zinc-800/30' : 'hover:bg-zinc-100/50'
+            }`}
+          >
+            <svg
+              width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+              className={`transition-transform duration-150 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'} ${thinkExpanded ? 'rotate-90' : ''}`}
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            <span className={`text-[10px] font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+              Live Tokens
+            </span>
+            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: BLUE }} />
+            {/* Collapsed preview — 1-line of latest tokens */}
+            {!thinkExpanded && (
+              <span className={`flex-1 text-[10px] font-mono truncate ml-1 ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                {stageData.agentOutput.slice(-120).replace(/\n/g, ' ')}
+              </span>
+            )}
+          </button>
+
+          {/* Think Mode expanded body — scrollable monospace container */}
+          {thinkExpanded && (
+            <div
+              ref={thinkRef}
+              className={`px-4 pb-3 max-h-[180px] overflow-y-auto overflow-x-hidden`}
+            >
+              <pre className={`text-[10px] font-mono leading-relaxed whitespace-pre-wrap break-words ${
+                isDarkMode ? 'text-zinc-500' : 'text-zinc-400'
+              }`}>
+                {stageData.agentOutput.slice(-2000)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Output Console — relative for sticky overlay */}
       <div className="relative">

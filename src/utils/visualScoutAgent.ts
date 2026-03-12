@@ -9,6 +9,20 @@ import type { Campaign, VisualAnalysis, VisualFindings } from '../types';
 const VISION_MODEL = 'minicpm-v:8b';
 
 // ─────────────────────────────────────────────────────────────
+// Progress event types for live UI visibility
+// ─────────────────────────────────────────────────────────────
+
+export type VisualProgressEvent =
+  | { type: 'screenshot_batch_start'; urls: string[] }
+  | { type: 'screenshot_start'; url: string; index: number; total: number }
+  | { type: 'screenshot_done'; url: string; index: number; total: number; thumbnail?: string; error?: string }
+  | { type: 'analysis_start'; url: string; index: number; total: number }
+  | { type: 'analysis_done'; url: string; index: number; total: number; findings: { tone?: string; colors?: string[]; layout?: string; insight?: string } }
+  | { type: 'synthesis_start'; count: number }
+  | { type: 'synthesis_done'; patterns: string[]; gaps: string[] }
+  | { type: 'complete'; totalScreenshots: number; totalAnalyzed: number };
+
+// ─────────────────────────────────────────────────────────────
 // Single screenshot analysis
 // ─────────────────────────────────────────────────────────────
 
@@ -205,15 +219,42 @@ export const visualScoutAgent = {
     urls: string[],
     campaign: Campaign,
     onChunk?: (chunk: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onProgress?: (event: VisualProgressEvent) => void
   ): Promise<VisualFindings> {
     onChunk?.(`[Visual Scout] Screenshotting ${urls.length} competitor pages...\n`);
+    onProgress?.({ type: 'screenshot_batch_start', urls });
 
-    // Step 1: Take screenshots in batch
-    const screenshots = await screenshotService.screenshotBatch(urls, {
-      quality: 60,
-      concurrency: 3,
-    });
+    // Step 1: Take screenshots in batch — emit per-URL progress
+    // We use individual screenshots to get per-URL events
+    const screenshots: ScreenshotResult[] = [];
+    for (let i = 0; i < urls.length; i++) {
+      if (signal?.aborted) break;
+      const url = urls[i];
+      onProgress?.({ type: 'screenshot_start', url, index: i, total: urls.length });
+      try {
+        const result = await screenshotService.screenshot(url, { quality: 60 });
+        screenshots.push(result);
+        onProgress?.({
+          type: 'screenshot_done',
+          url,
+          index: i,
+          total: urls.length,
+          // Send a small thumbnail (first 200 chars of base64 for preview indicator)
+          thumbnail: result.image_base64 ? result.image_base64.slice(0, 500) : undefined,
+          error: result.error ?? undefined,
+        });
+      } catch (err) {
+        screenshots.push({ url, image_base64: '', error: String(err), width: 0, height: 0 });
+        onProgress?.({
+          type: 'screenshot_done',
+          url,
+          index: i,
+          total: urls.length,
+          error: String(err),
+        });
+      }
+    }
 
     const validScreenshots = screenshots.filter(s => s.image_base64 && !s.error);
     onChunk?.(`[Visual Scout] Captured ${validScreenshots.length}/${urls.length} screenshots\n`);
@@ -229,6 +270,7 @@ export const visualScoutAgent = {
 
     if (validScreenshots.length === 0) {
       onChunk?.(`[Visual Scout] No screenshots captured — skipping visual analysis\n`);
+      onProgress?.({ type: 'complete', totalScreenshots: urls.length, totalAnalyzed: 0 });
       return emptyVisualFindings();
     }
 
@@ -239,22 +281,37 @@ export const visualScoutAgent = {
 
       const ss = validScreenshots[i];
       onChunk?.(`[Visual Scout] Analyzing ${i + 1}/${validScreenshots.length}: ${ss.url.slice(0, 60)}...\n`);
+      onProgress?.({ type: 'analysis_start', url: ss.url, index: i, total: validScreenshots.length });
 
       const analysis = await analyzeScreenshot(ss, campaign, signal);
       if (analysis) {
         analyses.push(analysis);
         onChunk?.(`[Visual Scout] → tone: ${analysis.visualTone}, colors: ${analysis.dominantColors.slice(0, 3).join(', ')}\n`);
+        onProgress?.({
+          type: 'analysis_done',
+          url: ss.url,
+          index: i,
+          total: validScreenshots.length,
+          findings: {
+            tone: analysis.visualTone,
+            colors: analysis.dominantColors,
+            layout: analysis.layoutStyle,
+            insight: analysis.competitiveInsight,
+          },
+        });
       }
     }
 
     onChunk?.(`[Visual Scout] Analyzed ${analyses.length} competitor visuals\n`);
 
     if (analyses.length === 0) {
+      onProgress?.({ type: 'complete', totalScreenshots: urls.length, totalAnalyzed: 0 });
       return emptyVisualFindings();
     }
 
     // Step 3: Synthesize across all analyses
     onChunk?.(`[Visual Scout] Synthesizing visual competitive landscape...\n`);
+    onProgress?.({ type: 'synthesis_start', count: analyses.length });
     const synthesis = await synthesizeVisualFindings(analyses, campaign, signal);
 
     if (synthesis.commonPatterns.length > 0) {
@@ -263,6 +320,13 @@ export const visualScoutAgent = {
     if (synthesis.visualGaps.length > 0) {
       onChunk?.(`[Visual Scout] Visual gaps found: ${synthesis.visualGaps.slice(0, 2).join('; ')}\n`);
     }
+
+    onProgress?.({
+      type: 'synthesis_done',
+      patterns: synthesis.commonPatterns,
+      gaps: synthesis.visualGaps,
+    });
+    onProgress?.({ type: 'complete', totalScreenshots: urls.length, totalAnalyzed: analyses.length });
 
     return {
       competitorVisuals: analyses,

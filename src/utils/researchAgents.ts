@@ -623,7 +623,33 @@ export const orchestrator = {
               visualScoutUrls.slice(0, 5), // Cap at 5 URLs
               state.campaign,
               onProgressUpdate,
-              signal
+              signal,
+              // Structured progress events → emit as rich text chunks
+              (event) => {
+                switch (event.type) {
+                  case 'screenshot_start':
+                    onProgressUpdate?.(`[Visual Scout] Capturing ${event.index + 1}/${event.total}: ${event.url}\n`);
+                    break;
+                  case 'screenshot_done':
+                    onProgressUpdate?.(`[Visual Scout] ${event.error ? 'Failed' : 'Captured'} ${event.index + 1}/${event.total}: ${event.url.slice(0, 60)}${event.error ? ` — ${event.error}` : ''}\n`);
+                    break;
+                  case 'analysis_start':
+                    onProgressUpdate?.(`[Visual Scout] Analyzing visual ${event.index + 1}/${event.total}: ${event.url.slice(0, 50)}...\n`);
+                    break;
+                  case 'analysis_done':
+                    if (event.findings) {
+                      onProgressUpdate?.(`[Visual Scout] → ${event.url.slice(0, 40)}: tone=${event.findings.tone || '?'}, colors=${(event.findings.colors || []).slice(0, 2).join(', ') || '?'}\n`);
+                    }
+                    break;
+                  case 'synthesis_start':
+                    onProgressUpdate?.(`[Visual Scout] Synthesizing patterns across ${event.count} sites...\n`);
+                    break;
+                  case 'synthesis_done':
+                    if (event.patterns.length) onProgressUpdate?.(`[Visual Scout] Patterns: ${event.patterns.slice(0, 2).join('; ')}\n`);
+                    if (event.gaps.length) onProgressUpdate?.(`[Visual Scout] Gaps: ${event.gaps.slice(0, 2).join('; ')}\n`);
+                    break;
+                }
+              }
             );
             (state as any)._visualFindings = visualFindings;
             onProgressUpdate?.(`[Visual Scout] Visual analysis complete — ${visualFindings.totalAnalyzed} sites analyzed\n`);
@@ -878,7 +904,8 @@ RESEARCH TO FILL GAPS:
 2. [query for geographic blind spot]
 3. [query for temporal blind spot]
 
-VISUAL_SCOUT: [competitor URLs to screenshot, if visual analysis lacking]`;
+VISUAL_SCOUT: [competitor URLs to screenshot, if visual analysis lacking]
+AD_SCOUT: [ad library / marketing URLs to screenshot, if ad creative analysis is missing]`;
 
         try {
           const response = await ollamaService.generateStream(coveragePrompt, 'Count data points. Find blind spots.', { model: reflectionModel, onChunk, signal });
@@ -886,29 +913,46 @@ VISUAL_SCOUT: [competitor URLs to screenshot, if visual analysis lacking]`;
           allAngles.push(...angles);
           onChunk?.(`  [Coverage Checker] Found ${angles.length} angles\n`);
 
-          // Check if coverage checker requested visual scouting
-          if (response.includes('VISUAL_SCOUT:') && !(state as any)._visualFindings) {
-            const visualMatch = response.match(/VISUAL_SCOUT:\s*(.+)/i);
-            if (visualMatch) {
-              const reflectionVisualUrls = visualMatch[1]
-                .split(/[,\s]+/)
-                .map(u => u.trim().replace(/[\[\]]/g, ''))
-                .filter(u => u.startsWith('http'));
-              if (reflectionVisualUrls.length > 0) {
-                onChunk?.(`\n[Visual Scout] Coverage Checker requested visual analysis of ${reflectionVisualUrls.length} URLs\n`);
-                try {
-                  const { visualScoutAgent } = await import('./visualScoutAgent');
-                  const visualFindings = await visualScoutAgent.analyzeCompetitorVisuals(
-                    reflectionVisualUrls.slice(0, 5),
-                    state.campaign,
-                    onChunk ? (msg: string | undefined) => onChunk(msg || '') : undefined,
-                    signal
-                  );
-                  (state as any)._visualFindings = visualFindings;
-                  onChunk?.(`[Visual Scout] Visual analysis complete — ${visualFindings.totalAnalyzed} sites analyzed\n`);
-                } catch (err) {
-                  onChunk?.(`[Visual Scout] Visual analysis failed: ${err}\n`);
-                }
+          // Check if coverage checker requested visual scouting (VISUAL_SCOUT or AD_SCOUT)
+          const scoutDirective = response.includes('VISUAL_SCOUT:') || response.includes('AD_SCOUT:');
+          if (scoutDirective && !(state as any)._visualFindings) {
+            // Collect URLs from both VISUAL_SCOUT and AD_SCOUT directives
+            const allScoutUrls: string[] = [];
+            for (const directive of ['VISUAL_SCOUT', 'AD_SCOUT']) {
+              const match = response.match(new RegExp(`${directive}:\\s*(.+)`, 'i'));
+              if (match) {
+                const urls = match[1]
+                  .split(/[,\s]+/)
+                  .map(u => u.trim().replace(/[\[\]]/g, ''))
+                  .filter(u => u.startsWith('http'));
+                allScoutUrls.push(...urls);
+              }
+            }
+            const dedupedUrls = [...new Set(allScoutUrls)];
+            if (dedupedUrls.length > 0) {
+              const hasAdScout = response.includes('AD_SCOUT:');
+              const label = hasAdScout ? 'Ad Scout' : 'Visual Scout';
+              onChunk?.(`\n[${label}] Coverage Checker requested visual analysis of ${dedupedUrls.length} URLs\n`);
+              try {
+                const { visualScoutAgent } = await import('./visualScoutAgent');
+                const visualFindings = await visualScoutAgent.analyzeCompetitorVisuals(
+                  dedupedUrls.slice(0, 5),
+                  state.campaign,
+                  onChunk ? (msg: string | undefined) => onChunk(msg || '') : undefined,
+                  signal,
+                  // Rich progress events
+                  (event) => {
+                    if (event.type === 'screenshot_start') onChunk?.(`[${label}] Capturing ${event.index + 1}/${event.total}: ${event.url}\n`);
+                    if (event.type === 'screenshot_done') onChunk?.(`[${label}] ${event.error ? 'Failed' : 'Captured'} ${event.index + 1}/${event.total}\n`);
+                    if (event.type === 'analysis_start') onChunk?.(`[${label}] Analyzing visual ${event.index + 1}/${event.total}...\n`);
+                    if (event.type === 'analysis_done' && event.findings) onChunk?.(`[${label}] → tone=${event.findings.tone || '?'}, colors=${(event.findings.colors || []).slice(0, 2).join(', ') || '?'}\n`);
+                    if (event.type === 'synthesis_start') onChunk?.(`[${label}] Synthesizing ${event.count} sites...\n`);
+                  }
+                );
+                (state as any)._visualFindings = visualFindings;
+                onChunk?.(`[${label}] Visual analysis complete — ${visualFindings.totalAnalyzed} sites analyzed\n`);
+              } catch (err) {
+                onChunk?.(`[${label}] Visual analysis failed: ${err}\n`);
               }
             }
           }
@@ -1131,6 +1175,35 @@ function parseOrchestratorDecision(decision: string): OrchestratorDecision[] {
     }
   }
 
+  // Parse AD_SCOUT: directive for ad creative / marketing page screenshot analysis
+  const adScoutLines = lines.filter(l => l.includes('AD_SCOUT:'));
+  if (adScoutLines.length > 0) {
+    const adUrls: string[] = [];
+    for (const al of adScoutLines) {
+      const urlPart = al.replace(/.*AD_SCOUT:\s*/i, '').trim();
+      const extracted = urlPart
+        .split(/[,\s]+/)
+        .map(u => u.trim().replace(/[\[\]]/g, ''))
+        .filter(u => u.startsWith('http'));
+      adUrls.push(...extracted);
+    }
+    if (adUrls.length > 0) {
+      // Merge into existing visualScoutUrls (same pipeline, different source directive)
+      if (topics.length > 0) {
+        const existing = topics[0].visualScoutUrls || [];
+        topics[0].visualScoutUrls = [...existing, ...adUrls];
+      } else {
+        topics.push({
+          query: '',
+          context: 'Visual analysis of ad creatives and marketing pages',
+          depth: 'thorough',
+          shouldContinue: true,
+          visualScoutUrls: adUrls,
+        });
+      }
+    }
+  }
+
   // No parseable queries found — end research
   if (topics.length === 0) {
     topics.push({
@@ -1323,6 +1396,7 @@ REJECT: trend-chasing, vague sentiment queries, celebrity gossip, generic trends
 GOOD: "reddit r/[subreddit] [product] real reviews 2024" | "amazon [competitor] 1 star reviews complaints" | "[competitor] meta ad library ads 2025" | "[product type] trustpilot reviews frustrated" | "who switched from [A] to [B] why reddit"
 
 VISUAL_SCOUT: [competitor URLs to screenshot] — when you've found landing pages worth analyzing visually
+AD_SCOUT: [ad library or visual marketing URLs to screenshot] — for analyzing competitor ad creatives, Facebook Ad Library pages, Google Ads previews, landing pages, and visual marketing sites
 
 If need user input: QUESTION: [question]
 ONLY if ALL 16 dimensions have 5+ specific data points AND ${limits.minSources}+ unique sources AND all 9 methodology steps addressed: COMPLETE: true${interactiveNote}`;
