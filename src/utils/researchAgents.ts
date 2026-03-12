@@ -295,7 +295,7 @@ export const researcherAgent = {
           url: src.url,
           query: query.topic,
           source: 'text', // text-only wayfarer
-          contentLength: src.raw_html?.length || 0,
+          contentLength: src.snippet?.length || 0,
           extractedSnippet: src.snippet,
         });
       });

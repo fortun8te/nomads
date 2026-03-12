@@ -491,6 +491,56 @@ async def crawl_links(req: CrawlRequest):
         return {"url": req.url, "links": [], "total": 0, "error": str(e)}
 
 
+# ── Batch crawl — crawl multiple URLs simultaneously ──
+
+
+class BatchCrawlRequest(BaseModel):
+    urls: list[str]
+    concurrency: int = 10
+    extract_mode: str = "article"
+
+
+@app.post("/crawl/batch")
+async def batch_crawl(req: BatchCrawlRequest):
+    """Crawl multiple URLs simultaneously with configurable concurrency.
+    Returns scraped text content for each URL.
+    """
+    sem = asyncio.Semaphore(req.concurrency)
+
+    async def _fetch_one(url: str) -> dict:
+        async with sem:
+            try:
+                from pvlwebtools import web_fetch, FetchConfig
+                page = await web_fetch(
+                    url,
+                    extract_mode=req.extract_mode,
+                    rate_limit=False,
+                    config=FetchConfig(request_timeout=15.0),
+                )
+                content = page.content if page else ""
+                return {
+                    "url": url,
+                    "content": content,
+                    "content_length": len(content),
+                    "error": None,
+                }
+            except Exception as e:
+                return {
+                    "url": url,
+                    "content": "",
+                    "content_length": 0,
+                    "error": str(e),
+                }
+
+    results = await asyncio.gather(*[_fetch_one(u) for u in req.urls])
+    success = sum(1 for r in results if not r["error"])
+    return {
+        "results": list(results),
+        "total": len(req.urls),
+        "success": success,
+    }
+
+
 # ── Ollama proxy (bypasses browser CORS) ──
 
 @app.api_route("/ollama/{path:path}", methods=["GET", "POST", "DELETE"])

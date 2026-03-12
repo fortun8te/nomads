@@ -29,8 +29,8 @@ function injectKeyframes() {
   style.textContent = `
     @keyframes nomad-shine {
       0% { background-position: 0; }
-      60% { background-position: 180px; }
-      100% { background-position: 180px; }
+      60% { background-position: 250px; }
+      100% { background-position: 250px; }
     }
   `;
   document.head.appendChild(style);
@@ -47,8 +47,8 @@ export function ShineText({
 
   const gradient =
     variant === 'light'
-      ? 'linear-gradient(to right, #a1a1aa 0, #18181b 10%, #a1a1aa 20%)'
-      : 'linear-gradient(to right, #71717a 0, #ffffff 10%, #71717a 20%)';
+      ? 'linear-gradient(to right, #a1a1aa 0, #18181b 15%, #a1a1aa 30%)'
+      : 'linear-gradient(to right, #71717a 0, #ffffff 15%, #71717a 30%)';
 
   const style: CSSProperties = animate
     ? {

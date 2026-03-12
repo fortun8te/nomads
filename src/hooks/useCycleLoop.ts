@@ -7,6 +7,7 @@ import { useOrchestratedResearch } from './useOrchestratedResearch';
 import { getSystemPrompt, getCheckpointQuestionPrompt } from '../utils/prompts';
 import { getModelForStage } from '../utils/modelConfig';
 import { playSound, startSoundLoop, stopSoundLoop } from './useSoundEngine';
+import { generateResearchReport } from '../utils/reportGenerator';
 
 
 const FULL_STAGE_ORDER: StageName[] = ['research', 'brand-dna', 'persona-dna', 'angles', 'strategy', 'copywriting', 'production', 'test'];
@@ -77,7 +78,8 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
   const throttledSetCycle = useCallback((cycle: Cycle) => {
     latestCycleRef.current = cycle; // always store the latest
     const now = Date.now();
-    if (now - lastUpdateRef.current >= 150) {
+    // 80ms throttle — matches tokenStats for smooth live streaming
+    if (now - lastUpdateRef.current >= 80) {
       lastUpdateRef.current = now;
       if (pendingUpdateRef.current) {
         clearTimeout(pendingUpdateRef.current);
@@ -89,7 +91,7 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
         lastUpdateRef.current = Date.now();
         pendingUpdateRef.current = null;
         setCurrentCycle(refreshCycleReference(latestCycleRef.current!));
-      }, 150);
+      }, 80);
     }
   }, []);
 
@@ -206,6 +208,27 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
 
           // Capture research findings for downstream stages
           cycle.researchFindings = researchResult.researchFindings;
+
+          // Generate research report (mini research paper)
+          try {
+            const report = await generateResearchReport(
+              cycle.researchFindings || {} as any,
+              cycle.researchFindings?.auditTrail,
+              researchResult.rawOutput?.slice(0, 12000) || '',
+              abortControllerRef.current?.signal,
+              (msg) => {
+                stage.agentOutput += msg;
+                throttledSetCycle(cycle);
+              }
+            );
+            if (cycle.researchFindings) {
+              cycle.researchFindings.researchReport = report;
+            }
+          } catch (reportErr) {
+            // Report generation is non-critical — don't fail the pipeline
+            console.warn('Report generation failed:', reportErr);
+            stage.agentOutput += '\n[REPORT] Generation failed — continuing pipeline\n';
+          }
         } else {
           // ── All non-research stages: generate with stage-specific prompt ──
           let prompt = '';

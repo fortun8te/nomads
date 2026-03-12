@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import { useSoundEngine } from '../hooks/useSoundEngine';
+import { glassCard } from '../styles/tokens';
 import type { BrandDNA, PersonaDNA, CreativeStrategy } from '../types';
 
 // ══════════════════════════════════════════════════════
@@ -46,6 +48,11 @@ export function BrandHubDrawer({
   const [activeTab, setActiveTab] = useState<HubTab>('dna');
   const [activePersonaIdx, setActivePersonaIdx] = useState(0);
 
+  // Play whoosh on drawer open
+  useEffect(() => {
+    if (isOpen) play('whoosh');
+  }, [isOpen, play]);
+
   if (!isOpen) return null;
 
   const brandName = presetBrand?.name || brandDNA?.name || '';
@@ -59,14 +66,23 @@ export function BrandHubDrawer({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
-      <div className={`absolute inset-0 ${isDarkMode ? 'bg-black/70' : 'bg-black/30'} backdrop-blur-sm`} />
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+    >
+      <div className={`absolute inset-0 ${isDarkMode ? 'bg-black/70' : 'bg-black/30'} backdrop-blur-md`} />
 
-      <div
-        className={`relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden ${
-          isDarkMode ? 'bg-zinc-950 border border-zinc-800' : 'bg-white'
-        }`}
+      <motion.div
+        className={`relative w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden ${glassCard(isDarkMode)}`}
         onClick={(e) => e.stopPropagation()}
+        initial={{ opacity: 0, y: 40, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.98 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       >
         {/* Close */}
         <button
@@ -83,7 +99,13 @@ export function BrandHubDrawer({
         {/* ── Hero Header ── */}
         <div className={`flex-shrink-0 px-8 pt-8 pb-5 ${isDarkMode ? 'border-b border-zinc-800/60' : 'border-b border-zinc-100'}`}>
           <div className="flex items-center gap-4">
-            <DNAIcon size={30} animated isDark={isDarkMode} />
+            <motion.div
+              whileHover={{ scale: 1.2 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+              style={{ perspective: 600, transformStyle: 'preserve-3d' }}
+            >
+              <DNAIcon size={32} animated isDark={isDarkMode} />
+            </motion.div>
             <div className="flex-1 min-w-0">
               <h1 className={`text-2xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-zinc-900'}`}>
                 {brandName || 'Brand DNA'}
@@ -112,23 +134,30 @@ export function BrandHubDrawer({
             </div>
           )}
 
-          {/* Tabs */}
-          <div className="flex items-center gap-1 mt-5 ml-[46px]">
+          {/* Tabs with animated underline */}
+          <div className="flex items-center gap-1 mt-5 ml-[46px] relative">
             {tabs.map(({ key, label }) => (
               <button
                 key={key}
                 onClick={() => { if (activeTab !== key) play('tab'); setActiveTab(key); }}
-                className={`px-4 py-1.5 rounded-lg text-[11px] font-semibold tracking-wide transition-all ${
+                className={`relative px-4 py-1.5 rounded-lg text-[11px] font-semibold tracking-wide transition-all ${
                   activeTab === key
                     ? isDarkMode
-                      ? 'bg-zinc-800 text-white'
-                      : 'bg-zinc-900 text-white'
+                      ? 'text-white'
+                      : 'text-white'
                     : isDarkMode
                       ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
                       : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'
                 }`}
               >
-                {label}
+                {activeTab === key && (
+                  <motion.div
+                    layoutId="brand-hub-tab"
+                    className={`absolute inset-0 rounded-lg ${isDarkMode ? 'bg-zinc-800' : 'bg-zinc-900'}`}
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  />
+                )}
+                <span className="relative z-10">{label}</span>
               </button>
             ))}
           </div>
@@ -164,8 +193,8 @@ export function BrandHubDrawer({
             />
           )}
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -179,45 +208,71 @@ export function DNAIcon({ size = 20, animated = false, isDark = false }: { size?
   const [uid] = useState(() => `dna-${++_dnaCounter}`);
   const violet = isDark ? '#a78bfa' : '#7c3aed';
   const indigo = isDark ? '#818cf8' : '#4f46e5';
+  const glow = isDark ? 'rgba(139,92,246,0.45)' : 'rgba(124,58,237,0.3)';
+  const glowLg = isDark ? 'rgba(139,92,246,0.2)' : 'rgba(124,58,237,0.12)';
 
   return (
     <div
-      className={`inline-flex items-center justify-center shrink-0 ${animated ? 'animate-[dna-spin_8s_linear_infinite]' : ''}`}
+      className="inline-flex items-center justify-center shrink-0"
       style={{
         width: size,
         height: size,
-        filter: size >= 18 ? `drop-shadow(0 0 ${size * 0.12}px ${isDark ? 'rgba(139,92,246,0.35)' : 'rgba(124,58,237,0.25)'})` : undefined,
+        perspective: animated ? 600 : undefined,
+        transformStyle: 'preserve-3d',
       }}
     >
-      <svg viewBox="0 0 24 24" width={size} height={size} fill="none">
-        <defs>
-          <linearGradient id={`${uid}-a`} x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor={isDark ? '#c4b5fd' : '#8b5cf6'} />
-            <stop offset="100%" stopColor={isDark ? '#8b5cf6' : '#6d28d9'} />
-          </linearGradient>
-          <linearGradient id={`${uid}-b`} x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor={isDark ? '#a5b4fc' : '#6366f1'} />
-            <stop offset="100%" stopColor={isDark ? '#6366f1' : '#4338ca'} />
-          </linearGradient>
-        </defs>
-        <path d="M8 2C8 2 16 6 16 12s-8 10-8 10" stroke={`url(#${uid}-a)`} strokeWidth="2" strokeLinecap="round" />
-        <path d="M16 2C16 2 8 6 8 12s8 10 8 10" stroke={`url(#${uid}-b)`} strokeWidth="2" strokeLinecap="round" />
-        <line x1="9.5" y1="5" x2="14.5" y2="5" stroke={violet} strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
-        <line x1="8" y1="9" x2="16" y2="9" stroke={indigo} strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
-        <line x1="8" y1="15" x2="16" y2="15" stroke={violet} strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
-        <line x1="9.5" y1="19" x2="14.5" y2="19" stroke={indigo} strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
-        {size >= 18 && (
-          <>
-            <circle cx="9" cy="6" r="0.7" fill="white" opacity={isDark ? 0.25 : 0.35} />
-            <circle cx="15" cy="14" r="0.5" fill="white" opacity={isDark ? 0.2 : 0.3} />
-          </>
-        )}
-      </svg>
+      <div
+        className={animated ? 'animate-[dna-spin_6s_linear_infinite]' : ''}
+        style={{
+          width: size,
+          height: size,
+          transformStyle: 'preserve-3d',
+          filter: size >= 18 ? `drop-shadow(0 0 ${size * 0.15}px ${glow}) drop-shadow(0 0 ${size * 0.4}px ${glowLg})` : undefined,
+        }}
+      >
+        <svg viewBox="0 0 24 24" width={size} height={size} fill="none">
+          <defs>
+            <linearGradient id={`${uid}-a`} x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor={isDark ? '#c4b5fd' : '#8b5cf6'} />
+              <stop offset="100%" stopColor={isDark ? '#8b5cf6' : '#6d28d9'} />
+            </linearGradient>
+            <linearGradient id={`${uid}-b`} x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor={isDark ? '#a5b4fc' : '#6366f1'} />
+              <stop offset="100%" stopColor={isDark ? '#6366f1' : '#4338ca'} />
+            </linearGradient>
+            {/* 3D glow filter */}
+            <filter id={`${uid}-glow`} x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="1" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+          </defs>
+          {/* Back helix strand (slightly transparent for depth) */}
+          <path d="M16 2C16 2 8 6 8 12s8 10 8 10" stroke={`url(#${uid}-b)`} strokeWidth="2" strokeLinecap="round" opacity="0.5" />
+          {/* Rungs (connecting bars) */}
+          <line x1="9.5" y1="5" x2="14.5" y2="5" stroke={violet} strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+          <line x1="8" y1="9" x2="16" y2="9" stroke={indigo} strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
+          <line x1="8" y1="15" x2="16" y2="15" stroke={violet} strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
+          <line x1="9.5" y1="19" x2="14.5" y2="19" stroke={indigo} strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+          {/* Front helix strand (fully opaque for 3D depth) */}
+          <path d="M8 2C8 2 16 6 16 12s-8 10-8 10" stroke={`url(#${uid}-a)`} strokeWidth="2.5" strokeLinecap="round" filter={size >= 18 ? `url(#${uid}-glow)` : undefined} />
+          {/* Specular highlights for 3D feel */}
+          {size >= 18 && (
+            <>
+              <circle cx="10" cy="5.5" r="1" fill="white" opacity={isDark ? 0.3 : 0.4} />
+              <circle cx="14" cy="12" r="0.8" fill="white" opacity={isDark ? 0.2 : 0.3} />
+              <circle cx="10" cy="18" r="0.6" fill="white" opacity={isDark ? 0.15 : 0.25} />
+            </>
+          )}
+        </svg>
+      </div>
       {animated && (
         <style>{`
           @keyframes dna-spin {
-            0% { transform: perspective(400px) rotateY(0deg); }
-            100% { transform: perspective(400px) rotateY(360deg); }
+            0% { transform: rotateY(0deg) rotateX(5deg); }
+            25% { transform: rotateY(90deg) rotateX(-3deg); }
+            50% { transform: rotateY(180deg) rotateX(5deg); }
+            75% { transform: rotateY(270deg) rotateX(-3deg); }
+            100% { transform: rotateY(360deg) rotateX(5deg); }
           }
         `}</style>
       )}
@@ -489,19 +544,19 @@ function PersonaContent({
               </CardSection>
             )}
 
-            {active.painPoints.length > 0 && (
+            {active.painPoints?.length > 0 && (
               <CardSection title="Pain Points" isDark={isDark}>
                 <BulletList items={active.painPoints} color="red" isDark={isDark} />
               </CardSection>
             )}
 
-            {active.desires.length > 0 && (
+            {active.desires?.length > 0 && (
               <CardSection title="Desires" isDark={isDark}>
                 <BulletList items={active.desires} color="emerald" isDark={isDark} />
               </CardSection>
             )}
 
-            {active.language.length > 0 && (
+            {active.language?.length > 0 && (
               <CardSection title="Their Language" isDark={isDark}>
                 <div className="flex flex-wrap gap-1.5 col-span-2">
                   {active.language.map((l, i) => (
@@ -513,13 +568,13 @@ function PersonaContent({
               </CardSection>
             )}
 
-            {active.objections.length > 0 && (
+            {active.objections?.length > 0 && (
               <CardSection title="Objections" isDark={isDark}>
                 <BulletList items={active.objections} color="amber" isDark={isDark} />
               </CardSection>
             )}
 
-            {active.buyingTriggers.length > 0 && (
+            {active.buyingTriggers?.length > 0 && (
               <CardSection title="Buying Triggers" isDark={isDark}>
                 <div className="flex flex-wrap gap-1.5 col-span-2">
                   {active.buyingTriggers.map((t, i) => (
@@ -534,7 +589,7 @@ function PersonaContent({
             {active.dayInLife && (
               <CardSection title="A Day in Their Life" isDark={isDark}>
                 <p className={`text-xs leading-relaxed italic col-span-2 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
-                  {active.dayInLife}
+                  {typeof active.dayInLife === 'string' ? active.dayInLife : Object.values(active.dayInLife).join(' · ')}
                 </p>
               </CardSection>
             )}
@@ -631,7 +686,16 @@ function PersonaContent({
 
           {/* Lifestyle */}
           <SectionHead text="Lifestyle" isDark={isDark} />
-          <GridField label="Day in Life" value={a.dayInLife} isDark={isDark} wide />
+          {typeof a.dayInLife === 'string' ? (
+            <GridField label="Day in Life" value={a.dayInLife} isDark={isDark} wide />
+          ) : a.dayInLife && typeof a.dayInLife === 'object' ? (
+            <>
+              <GridField label="Schedule" value={a.dayInLife.schedule} isDark={isDark} wide />
+              <GridField label="Hair Routine" value={a.dayInLife.hairRoutineExact} isDark={isDark} wide />
+              <GridField label="Friction Point" value={a.dayInLife.friction_point} isDark={isDark} wide />
+              <GridField label="Ideal Scenario" value={a.dayInLife.ideal_scenario} isDark={isDark} wide />
+            </>
+          ) : null}
           <GridField label="Hobbies" value={a.hobbies} isDark={isDark} />
           <GridField label="Fashion" value={a.fashionStyle} isDark={isDark} />
           <GridField label="Entertainment" value={a.entertainment} isDark={isDark} wide />
@@ -951,23 +1015,36 @@ function SectionHead({ text, isDark }: { text: string; isDark: boolean }) {
 /** Card section with title + children grid */
 function CardSection({ title, isDark, children }: { title: string; isDark: boolean; children: React.ReactNode }) {
   return (
-    <div className={`rounded-xl border p-4 ${isDark ? 'bg-zinc-800/30 border-zinc-800' : 'bg-zinc-50/80 border-zinc-200'}`}>
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className={`rounded-xl border p-4 ${isDark ? 'bg-zinc-800/30 border-zinc-800' : 'bg-zinc-50/80 border-zinc-200'}`}
+    >
       <h3 className={`text-[10px] font-semibold uppercase tracking-wider mb-3 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>{title}</h3>
       <div className="grid grid-cols-2 gap-2.5">
         {children}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
 /** Grid field — key/value card that sits in a 2-column grid */
-function GridField({ label, value, isDark, wide }: { label: string; value?: string | null; isDark: boolean; wide?: boolean }) {
+function GridField({ label, value, isDark, wide, index = 0 }: { label: string; value?: string | null | Record<string, any>; isDark: boolean; wide?: boolean; index?: number }) {
   if (!value) return null;
+  // Safely handle object values (from nested preset data)
+  const displayValue = typeof value === 'object' ? Object.values(value).filter(v => typeof v === 'string').join(' · ') : String(value);
+  if (!displayValue) return null;
   return (
-    <div className={`${fieldBg(isDark)} px-3 py-2.5 rounded-lg ${wide ? 'col-span-2' : ''}`}>
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05, type: 'spring', stiffness: 400, damping: 30 }}
+      className={`${fieldBg(isDark)} px-3 py-2.5 rounded-lg ${wide ? 'col-span-2' : ''}`}
+    >
       <Lbl text={label} isDark={isDark} />
-      <p className={`text-[11px] leading-relaxed mt-0.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>{value}</p>
-    </div>
+      <p className={`text-[11px] leading-relaxed mt-0.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>{displayValue}</p>
+    </motion.div>
   );
 }
 

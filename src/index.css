@@ -13,9 +13,14 @@ html {
 }
 
 body {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Inter Tight for headings / display text */
+h1, h2, h3, .font-display {
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
 }
 
 /* JetBrains Mono for all monospace text */
@@ -53,83 +58,18 @@ body {
   animation: slow-bounce 1.2s ease-in-out infinite;
 }
 
-/* ── Ant Design Dark Theme Overrides ── */
-/* Force monospace font across all Ant Design components */
-.ant-collapse,
-.ant-form,
-.ant-input,
-.ant-select,
-.ant-btn,
-.ant-card,
-.ant-upload,
-.ant-collapse-header-text,
-.ant-form-item-label > label {
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace !important;
+/* ── Content text defaults (white bg areas) ── */
+.content-text {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: rgb(65, 66, 67);
+  font-weight: 500;
+  font-size: 0.875rem;
+  line-height: 1.25;
 }
 
-/* Collapse panels — sharper, darker */
-.ant-collapse {
-  border-radius: 0 !important;
-  border-color: #1a1a1a !important;
-}
-.ant-collapse > .ant-collapse-item {
-  border-color: #1a1a1a !important;
-}
-.ant-collapse > .ant-collapse-item > .ant-collapse-header {
-  font-size: 11px !important;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  padding: 10px 12px !important;
-}
-.ant-collapse .ant-collapse-content {
-  border-color: #1a1a1a !important;
-}
-.ant-collapse .ant-collapse-content-box {
-  padding: 12px !important;
-}
-
-/* Form labels — small, monospace, uppercase */
-.ant-form-item-label > label {
-  font-size: 10px !important;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #71717a !important;
-}
-
-/* Inputs — flush with dark bg */
-.ant-input,
-.ant-input-affix-wrapper,
-textarea.ant-input {
-  border-radius: 0 !important;
-  font-size: 12px !important;
-}
-.ant-input::placeholder,
-textarea.ant-input::placeholder {
-  font-size: 11px !important;
-  color: #3f3f46 !important;
-}
-
-/* Select — flush corners */
-.ant-select .ant-select-selector {
-  border-radius: 0 !important;
-  font-size: 12px !important;
-}
-
-/* Cards — minimal, dark */
-.ant-card {
-  border-radius: 0 !important;
-}
-
-/* Upload — dark zone */
-.ant-upload-wrapper .ant-upload.ant-upload-select {
-  border-radius: 0 !important;
-  border-style: dashed !important;
-}
-
-/* Buttons — sharp */
-.ant-btn {
-  border-radius: 0 !important;
-  font-size: 10px !important;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+/* ── Shimmer bar animation ── */
+@keyframes nomad-shimmer-bar {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(250%); }
+  100% { transform: translateX(-100%); }
 }

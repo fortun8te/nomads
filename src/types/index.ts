@@ -264,6 +264,48 @@ export interface ResearchFindings {
   councilVerdict?: any;  // CouncilVerdict from council.ts (avoid circular import)
   // Research audit trail — complete provenance
   auditTrail?: ResearchAuditTrail;
+  // Research report — generated mini research paper
+  researchReport?: ResearchReport;
+}
+
+// ══════════════════════════════════════════════════════
+// ██  Research Report — Mini Research Paper
+// ══════════════════════════════════════════════════════
+
+export interface KeyInsight {
+  category: 'market' | 'audience' | 'competitor' | 'emotional' | 'behavioral' | 'opportunity';
+  insight: string;
+  supportingSources: string[];
+  confidence: number;  // 0-100
+  verbatimEvidence: string[];
+}
+
+export interface Contradiction {
+  topic: string;
+  claimA: { text: string; source: string };
+  claimB: { text: string; source: string };
+  resolution?: string;
+}
+
+export interface SourceCitation {
+  url: string;
+  title: string;
+  relevanceScore: number;  // 0-100
+  citedInInsights: number[];
+  fetchedAt: number;
+  contentType: string;
+}
+
+export interface ResearchReport {
+  executiveSummary: string;
+  keyInsights: KeyInsight[];
+  sources: SourceCitation[];
+  contradictions: Contradiction[];
+  confidenceScore: number;  // 0-100 overall
+  confidenceByDimension: Record<string, number>;
+  methodology: string;
+  limitations: string[];
+  generatedAt: number;
 }
 
 // ══════════════════════════════════════════════════════

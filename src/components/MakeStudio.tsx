@@ -5438,11 +5438,11 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                   )}
                 </button>
 
-                {/* Brand / Preset — Diamond icon */}
+                {/* Brand DNA — Diamond icon */}
                 <button
-                  onClick={() => setShowPreset(true)}
+                  onClick={() => window.dispatchEvent(new CustomEvent('nomad-open-brand-hub'))}
                   className={`p-2 rounded-lg transition-all relative ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}
-                  title="Brand preset & assets"
+                  title="Brand DNA"
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M6 3h12l4 6-10 13L2 9z" />

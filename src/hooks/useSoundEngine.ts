@@ -114,19 +114,18 @@ type SoundFn = (vol: number) => void;
 
 const sounds: Record<SoundType, SoundFn> = {
 
-  // ── Launch: Rising major chord (C5 + E5 + G5) with slight pitch drift ──
+  // ── Launch: Soft engine start — warm rising tone ──
   launch(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 3000);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 523, freqEnd: 540, sweepDuration: 0.18, attack: 0.006, hold: 0.12, release: 0.14, gain: 0.14 });
-    playTone(ac, g, t, { type: 'sine', freq: 659, freqEnd: 672, sweepDuration: 0.16, delay: 0.025, attack: 0.006, hold: 0.10, release: 0.16, gain: 0.09 });
-    playTone(ac, g, t, { type: 'sine', freq: 784, delay: 0.05, attack: 0.008, hold: 0.08, release: 0.20, gain: 0.05 });
-    // Subtle shimmer
-    playTone(ac, g, t, { type: 'sine', freq: 1568, delay: 0.06, attack: 0.01, hold: 0.04, release: 0.25, gain: 0.02, detune: 5 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 280, freqEnd: 450, sweepDuration: 0.15, attack: 0.008, hold: 0.08, release: 0.12, gain: 0.05 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 420, freqEnd: 600, sweepDuration: 0.12, delay: 0.03, attack: 0.006, hold: 0.06, release: 0.10, gain: 0.03 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 650, delay: 0.10, attack: 0.008, hold: 0.04, release: 0.15, gain: 0.02 });
   },
 
   // ── Stop: Descending tone with slight detuning ──
@@ -141,61 +140,69 @@ const sounds: Record<SoundType, SoundFn> = {
     playTone(ac, g, t, { type: 'sine', freq: 590, freqEnd: 412, sweepDuration: 0.12, attack: 0.005, hold: 0.06, release: 0.10, gain: 0.04, detune: -8 });
   },
 
-  // ── Click: Crisp triangle burst ──
+  // ── Click: Soft tactile tap — like touching glass ──
   click(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 2500);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'triangle', freq: 880, freqEnd: 1050, sweepDuration: 0.025, attack: 0.002, hold: 0.012, release: 0.04, gain: 0.06 });
+    // Soft thud with tiny bright edge
+    playTone(ac, lpf, t, { type: 'sine', freq: 600, freqEnd: 500, sweepDuration: 0.015, attack: 0.001, hold: 0.006, release: 0.025, gain: 0.03 });
+    playTone(ac, lpf, t, { type: 'triangle', freq: 180, attack: 0.001, hold: 0.004, release: 0.018, gain: 0.015 });
   },
 
-  // ── Tab: Soft sine pip ──
+  // ── Tab: Minimal air switch — barely audible ──
   tab(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 3000);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 1047, freqEnd: 1175, sweepDuration: 0.03, attack: 0.003, hold: 0.018, release: 0.05, gain: 0.04 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 800, freqEnd: 900, sweepDuration: 0.02, attack: 0.002, hold: 0.008, release: 0.03, gain: 0.02 });
   },
 
-  // ── Navigate: Main view switch — slightly richer than tab ──
+  // ── Navigate: Soft glass slide — premium feel ──
   navigate(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 3500);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 880, freqEnd: 1047, sweepDuration: 0.04, attack: 0.004, hold: 0.025, release: 0.06, gain: 0.05 });
-    playTone(ac, g, t, { type: 'sine', freq: 1320, delay: 0.015, attack: 0.004, hold: 0.02, release: 0.06, gain: 0.025 });
+    // Soft tone with gentle harmonic
+    playTone(ac, lpf, t, { type: 'sine', freq: 600, freqEnd: 720, sweepDuration: 0.04, attack: 0.003, hold: 0.015, release: 0.05, gain: 0.025 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 900, delay: 0.01, attack: 0.003, hold: 0.01, release: 0.04, gain: 0.012 });
   },
 
-  // ── Open: Rising fifth (A4 → E5) ──
+  // ── Open: Soft rising breath — like a drawer sliding ──
   open(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 2800);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 440, freqEnd: 659, sweepDuration: 0.09, attack: 0.006, hold: 0.07, release: 0.14, gain: 0.07 });
-    playTone(ac, g, t, { type: 'sine', freq: 554, freqEnd: 831, sweepDuration: 0.09, delay: 0.02, attack: 0.006, hold: 0.05, release: 0.14, gain: 0.035 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 350, freqEnd: 500, sweepDuration: 0.08, attack: 0.005, hold: 0.04, release: 0.10, gain: 0.035 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 500, freqEnd: 650, sweepDuration: 0.07, delay: 0.015, attack: 0.005, hold: 0.03, release: 0.08, gain: 0.018 });
   },
 
-  // ── Close: Falling fifth (E5 → A4) ──
+  // ── Close: Soft falling breath ──
   close(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 2500);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 659, freqEnd: 440, sweepDuration: 0.08, attack: 0.005, hold: 0.05, release: 0.12, gain: 0.06 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 500, freqEnd: 350, sweepDuration: 0.06, attack: 0.004, hold: 0.03, release: 0.08, gain: 0.03 });
   },
 
   // ── Success: Ascending E5 → G#5 → B5 (major triad arpeggio) ──
@@ -238,15 +245,16 @@ const sounds: Record<SoundType, SoundFn> = {
     playTone(ac, g, t, { type: 'sine', freq: 831, freqEnd: 415, sweepDuration: 0.12, delay: 0.01, attack: 0.005, hold: 0.06, release: 0.10, gain: 0.03 });
   },
 
-  // ── Toggle: Quick blip ──
+  // ── Toggle: Minimal switch tick ──
   toggle(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 3000);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'triangle', freq: 988, freqEnd: 1100, sweepDuration: 0.025, attack: 0.002, hold: 0.015, release: 0.04, gain: 0.045 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 700, freqEnd: 800, sweepDuration: 0.015, attack: 0.001, hold: 0.008, release: 0.025, gain: 0.025 });
   },
 
   // ── Typing: Deep mellow keyboard thud — tiktok-trendy warm tactile feel ──
@@ -286,27 +294,29 @@ const sounds: Record<SoundType, SoundFn> = {
     playTone(ac, g, t, { type: 'sine', freq: 3136, delay: 0.28, attack: 0.012, hold: 0.03, release: 0.40, gain: 0.012, detune: -5 });
   },
 
-  // ── Hover: Magnetic micro-attraction — tiny air-gap sine ──
+  // ── Hover: Barely-there whisper — ultra subtle ──
   hover(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 4000);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 1200, freqEnd: 1350, sweepDuration: 0.02, attack: 0.002, hold: 0.008, release: 0.03, gain: 0.018 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 900, freqEnd: 1000, sweepDuration: 0.015, attack: 0.002, hold: 0.005, release: 0.02, gain: 0.01 });
   },
 
-  // ── Select: Confirmatory double-ping — two ascending notes ──
+  // ── Select: Soft confirm tap — single subtle tone ──
   select(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 3000);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 880, attack: 0.003, hold: 0.02, release: 0.04, gain: 0.05 });
-    playTone(ac, g, t, { type: 'sine', freq: 1109, delay: 0.04, attack: 0.003, hold: 0.025, release: 0.06, gain: 0.045 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 650, freqEnd: 720, sweepDuration: 0.025, attack: 0.002, hold: 0.012, release: 0.035, gain: 0.025 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 900, delay: 0.015, attack: 0.002, hold: 0.008, release: 0.03, gain: 0.012 });
   },
 
   // ── Delete: Soft descending whomp — confirmation of removal ──
@@ -360,19 +370,18 @@ const sounds: Record<SoundType, SoundFn> = {
     playTone(ac, g, t, { type: 'sine', freq: 784, freqEnd: 523, sweepDuration: 0.07, attack: 0.004, hold: 0.03, release: 0.06, gain: 0.035 });
   },
 
-  // ── Whoosh: Fast stereo transition — panning sweep ──
+  // ── Whoosh: Soft air movement — like a page turning ──
   whoosh(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
     g.gain.value = vol;
+    const lpf = createLPF(ac, g, 3000);
     g.connect(out);
 
-    // Quick rising + falling noise-like sweep
-    playTone(ac, g, t, { type: 'sine', freq: 300, freqEnd: 1800, sweepDuration: 0.06, attack: 0.002, hold: 0.01, release: 0.05, gain: 0.03 });
-    playTone(ac, g, t, { type: 'triangle', freq: 400, freqEnd: 2200, sweepDuration: 0.05, delay: 0.005, attack: 0.002, hold: 0.008, release: 0.04, gain: 0.015, detune: 7 });
-    // Tail shimmer
-    playTone(ac, g, t, { type: 'sine', freq: 1600, freqEnd: 800, sweepDuration: 0.04, delay: 0.04, attack: 0.003, hold: 0.01, release: 0.06, gain: 0.012 });
+    // Gentle sweep — more breath than whoosh
+    playTone(ac, lpf, t, { type: 'sine', freq: 250, freqEnd: 800, sweepDuration: 0.06, attack: 0.003, hold: 0.01, release: 0.05, gain: 0.018 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 400, freqEnd: 600, sweepDuration: 0.04, delay: 0.01, attack: 0.003, hold: 0.008, release: 0.04, gain: 0.01 });
   },
 
   // ── Drop: Item landed/attached — satisfying plop ──
@@ -403,23 +412,22 @@ interface ActiveLoop {
 
 const activeLoops = new Map<string, ActiveLoop>();
 
-/** Play the "thinking" pattern — 4 ascending pips */
+/** Play the "thinking" pattern — soft ambient pulse, not melodic pips */
 function playThinkingPattern(ac: AudioContext, dest: AudioNode, vol: number) {
   const t = ac.currentTime;
-  // 4 ascending sine pips: A4→C5→D5→E5 spaced 100ms apart
-  const notes = [440, 523, 587, 659];
-  notes.forEach((freq, i) => {
-    playTone(ac, dest, t, {
-      type: 'sine',
-      freq,
-      freqEnd: freq * 1.02,
-      sweepDuration: 0.03,
-      delay: i * 0.10,
-      attack: 0.003,
-      hold: 0.025,
-      release: 0.04,
-      gain: vol * 0.035,
-    });
+  const lpf = ac.createBiquadFilter();
+  lpf.type = 'lowpass';
+  lpf.frequency.value = 1200;
+  lpf.Q.value = 0.5;
+  lpf.connect(dest);
+  // Two soft breathy tones — more like a heartbeat than a melody
+  playTone(ac, lpf, t, {
+    type: 'sine', freq: 300, freqEnd: 340, sweepDuration: 0.08,
+    attack: 0.01, hold: 0.04, release: 0.12, gain: vol * 0.015,
+  });
+  playTone(ac, lpf, t, {
+    type: 'sine', freq: 320, freqEnd: 360, sweepDuration: 0.08,
+    delay: 0.25, attack: 0.01, hold: 0.03, release: 0.10, gain: vol * 0.01,
   });
 }
 

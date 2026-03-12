@@ -447,6 +447,40 @@ async def preload(req: PreloadRequest):
                     except Exception:
                         pass
 
+                # ── Dismiss style panel if it appeared after model change ──
+                try:
+                    await page.wait_for_timeout(500)
+                    style_panel = page.locator('[data-cy="style-selector"], [data-cy="style-panel"], [data-cy="tti-style-selector"]').first
+                    if await style_panel.count() > 0:
+                        if req.style:
+                            style_option = style_panel.locator(f'button:has-text("{req.style}")').first
+                            if await style_option.count() > 0:
+                                await style_option.click()
+                                await page.wait_for_timeout(600)
+                            else:
+                                await page.keyboard.press('Escape')
+                                await page.wait_for_timeout(300)
+                        else:
+                            for skip_sel in ['button:has-text("None")', 'button:has-text("No style")', 'button:has-text("Skip")', 'button:has-text("Close")', '[data-cy="style-none"]', '[data-cy="no-style"]']:
+                                btn = page.locator(skip_sel).first
+                                if await btn.count() > 0:
+                                    await btn.click()
+                                    await page.wait_for_timeout(500)
+                                    break
+                            else:
+                                await page.keyboard.press('Escape')
+                                await page.wait_for_timeout(300)
+                    open_dialog = page.locator('[data-state="open"][role="dialog"]').first
+                    if await open_dialog.count() > 0:
+                        await page.keyboard.press('Escape')
+                        await page.wait_for_timeout(400)
+                except Exception:
+                    try:
+                        await page.keyboard.press('Escape')
+                        await page.wait_for_timeout(200)
+                    except Exception:
+                        pass
+
                 # ── Set aspect ratio ──
                 try:
                     ratio_btn = page.locator('[data-cy="image-aspect-ratio-input"]').first
@@ -817,6 +851,62 @@ async def generate(req: GenerateRequest):
                         yield _ndjson('progress', message=f'Model selection failed: {e}')
                         try:
                             await page.keyboard.press('Escape')
+                        except Exception:
+                            pass
+
+                    # ── 4b. Dismiss style selection if it appeared after model change ──
+                    # Freepik sometimes shows a mandatory style picker after model selection.
+                    # If user has no style selected, we need to skip/dismiss it.
+                    try:
+                        await page.wait_for_timeout(500)
+                        # Check for style panel/modal that may have appeared
+                        style_panel = page.locator('[data-cy="style-selector"], [data-cy="style-panel"], [data-cy="tti-style-selector"]').first
+                        if await style_panel.count() > 0:
+                            if req.style:
+                                yield _ndjson('progress', message=f'Style panel detected — looking for: {req.style}')
+                                style_option = style_panel.locator(f'button:has-text("{req.style}")').first
+                                if await style_option.count() > 0:
+                                    await style_option.click()
+                                    await page.wait_for_timeout(600)
+                                    yield _ndjson('progress', message=f'Style "{req.style}" selected')
+                                else:
+                                    yield _ndjson('progress', message=f'Style "{req.style}" not found — skipping')
+                                    await page.keyboard.press('Escape')
+                                    await page.wait_for_timeout(300)
+                            else:
+                                yield _ndjson('progress', message='Style panel detected — no style needed, dismissing...')
+                                # Try clicking "None" / "No style" / skip button first
+                                for skip_sel in [
+                                    'button:has-text("None")',
+                                    'button:has-text("No style")',
+                                    'button:has-text("Skip")',
+                                    'button:has-text("Close")',
+                                    '[data-cy="style-none"]',
+                                    '[data-cy="no-style"]',
+                                ]:
+                                    btn = page.locator(skip_sel).first
+                                    if await btn.count() > 0:
+                                        await btn.click()
+                                        await page.wait_for_timeout(500)
+                                        yield _ndjson('progress', message='Style panel dismissed')
+                                        break
+                                else:
+                                    # Fallback: just Escape
+                                    await page.keyboard.press('Escape')
+                                    await page.wait_for_timeout(300)
+                                    yield _ndjson('progress', message='Style panel escaped')
+
+                        # Also check for any open dialog/popover that might be blocking
+                        open_dialog = page.locator('[data-state="open"][role="dialog"]').first
+                        if await open_dialog.count() > 0:
+                            yield _ndjson('progress', message='Open dialog detected after model — dismissing...')
+                            await page.keyboard.press('Escape')
+                            await page.wait_for_timeout(400)
+                    except Exception as e:
+                        yield _ndjson('progress', message=f'Style dismiss check: {e} — continuing')
+                        try:
+                            await page.keyboard.press('Escape')
+                            await page.wait_for_timeout(200)
                         except Exception:
                             pass
 

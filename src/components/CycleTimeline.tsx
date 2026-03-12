@@ -1,5 +1,5 @@
 import type { Cycle, StageName } from '../types';
-import { useTheme } from '../context/ThemeContext';
+import { motion } from 'framer-motion';
 
 // Stage groups map to the 3 views
 const ALL_STAGES: { name: StageName; label: string; group: 'research' | 'make' | 'test' }[] = [
@@ -20,12 +20,7 @@ interface CycleTimelineProps {
 }
 
 export function CycleTimeline({ cycle, selectedStage, onSelectStage }: CycleTimelineProps) {
-  const { isDarkMode } = useTheme();
-
   if (!cycle) return null;
-
-  const borderClass = isDarkMode ? 'border-zinc-800/70' : 'border-zinc-200';
-  const secondaryTextClass = isDarkMode ? 'text-zinc-600' : 'text-zinc-500';
 
   // Filter stages based on mode
   const stages = cycle.mode === 'concepting'
@@ -41,22 +36,24 @@ export function CycleTimeline({ cycle, selectedStage, onSelectStage }: CycleTime
   }
 
   return (
-    <div className={`border ${borderClass} p-3`}>
-      <div className="flex items-center justify-between mb-2.5">
-        <div className="flex items-center gap-3">
-          <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${secondaryTextClass}`}>Cycle {cycle.cycleNumber}</span>
+    <div className="pb-1">
+      {/* Cycle label */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2.5">
+          <span className="text-[10px] font-medium text-zinc-400 tracking-wide uppercase">Cycle {cycle.cycleNumber}</span>
           {cycle.mode === 'concepting' && (
-            <span className={`font-mono text-[10px] px-2 py-0.5 ${isDarkMode ? 'bg-zinc-800/80 text-zinc-500' : 'bg-zinc-100 text-zinc-500'}`}>Concepting</span>
+            <span className="text-[9px] px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500 font-medium">Concepting</span>
           )}
         </div>
         {cycle.completedAt && (
-          <span className={`font-mono text-[10px] ${secondaryTextClass}`}>
+          <span className="text-[10px] text-zinc-400">
             {new Date(cycle.completedAt).toLocaleTimeString()}
           </span>
         )}
       </div>
 
-      <div className="flex gap-px">
+      {/* Stage pills */}
+      <div className="flex items-center gap-1 flex-wrap">
         {stages.map((stage, idx) => {
           const stageData = cycle.stages[stage.name];
           const isActive = cycle.currentStage === stage.name;
@@ -64,36 +61,47 @@ export function CycleTimeline({ cycle, selectedStage, onSelectStage }: CycleTime
           const isViewing = selectedStage === stage.name;
           const canClick = isComplete || isActive;
 
-          let stageClass = '';
-          if (isViewing) {
-            stageClass = isDarkMode
-              ? 'bg-white text-black border-t-2 border-t-white'
-              : 'bg-black text-white border-t-2 border-t-black';
-          } else if (isActive) {
-            stageClass = isDarkMode
-              ? 'bg-zinc-700 text-zinc-200 border-t-2 border-t-zinc-500'
-              : 'bg-zinc-400 text-white border-t-2 border-t-zinc-600';
-          } else if (isComplete) {
-            stageClass = isDarkMode
-              ? 'bg-zinc-800/80 text-zinc-400 border-t-2 border-t-transparent hover:bg-zinc-700/80 hover:text-zinc-300'
-              : 'bg-zinc-200 text-zinc-600 border-t-2 border-t-transparent hover:bg-zinc-300';
-          } else {
-            stageClass = isDarkMode
-              ? 'bg-zinc-900/50 text-zinc-700 border-t-2 border-t-transparent'
-              : 'bg-zinc-100 text-zinc-400 border-t-2 border-t-transparent';
-          }
-
-          // Add left margin at group boundaries for visual separation
-          const groupGap = groupBoundaries.has(idx) ? 'ml-1' : '';
+          // Group separator
+          const showSep = groupBoundaries.has(idx);
 
           return (
-            <button
-              key={stage.name}
-              onClick={() => canClick && onSelectStage?.(stage.name)}
-              className={`flex-1 py-2 px-1.5 text-center transition-all duration-150 ${stageClass} ${canClick ? 'cursor-pointer' : 'cursor-default'} ${groupGap}`}
-            >
-              <div className="font-mono text-[9px] font-semibold uppercase tracking-wider">{stage.label}</div>
-            </button>
+            <div key={stage.name} className="flex items-center">
+              {showSep && <div className="w-px h-4 bg-zinc-200 mx-1" />}
+              <button
+                onClick={() => canClick && onSelectStage?.(stage.name)}
+                className={`relative px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-150 ${
+                  canClick ? 'cursor-pointer' : 'cursor-default'
+                } ${
+                  isViewing
+                    ? 'bg-[#414243] text-white shadow-sm'
+                    : isActive
+                    ? 'bg-zinc-200 text-zinc-700'
+                    : isComplete
+                    ? 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-600'
+                    : 'bg-transparent text-zinc-300'
+                }`}
+              >
+                {isViewing && (
+                  <motion.div
+                    layoutId="stage-pill-active"
+                    className="absolute inset-0 bg-[#414243] rounded-lg"
+                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    style={{ zIndex: -1 }}
+                  />
+                )}
+                <span className="relative flex items-center gap-1.5">
+                  {isComplete && !isViewing && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                  )}
+                  {isActive && !isViewing && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  )}
+                  {stage.label}
+                </span>
+              </button>
+            </div>
           );
         })}
       </div>

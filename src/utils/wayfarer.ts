@@ -79,7 +79,41 @@ export const wayfarerService = {
     }
   },
 
+  /** Batch crawl multiple URLs simultaneously (no search, direct fetch) */
+  async batchCrawl(urls: string[], concurrency: number = 10, signal?: AbortSignal): Promise<BatchCrawlResult> {
+    try {
+      const resp = await fetch(`${getHost()}/crawl/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls, concurrency, extract_mode: 'article' }),
+        signal,
+      });
+
+      if (!resp.ok) {
+        return { results: [], total: urls.length, success: 0 };
+      }
+
+      return await resp.json();
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      console.error('Batch crawl error:', error);
+      return { results: [], total: urls.length, success: 0 };
+    }
+  },
 };
+
+export interface CrawlPageResult {
+  url: string;
+  content: string;
+  content_length: number;
+  error: string | null;
+}
+
+export interface BatchCrawlResult {
+  results: CrawlPageResult[];
+  total: number;
+  success: number;
+}
 
 function emptyResult(query: string): WayfarerResult {
   return {
