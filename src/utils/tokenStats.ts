@@ -38,6 +38,10 @@ export interface TokenInfo {
   activeModel: string;
   /** Total number of Ollama calls made this session */
   callCount: number;
+  /** Last ~800 chars of internal thinking tokens (model reasoning) for this call */
+  liveThinkSnippet: string;
+  /** Last ~600 chars of response tokens for this call — raw output preview */
+  liveResponseSnippet: string;
 }
 
 // ─── Internal mutable state ───
@@ -52,7 +56,12 @@ const state: TokenInfo = {
   callStartTime: null,
   activeModel: '',
   callCount: 0,
+  liveThinkSnippet: '',
+  liveResponseSnippet: '',
 };
+
+const THINK_MAX = 800;
+const RESPONSE_MAX = 600;
 
 /** Time of first response token — for live t/s computation */
 let firstResponseTokenTime: number | null = null;
@@ -144,6 +153,8 @@ export const tokenTracker = {
     state.callStartTime = Date.now();
     state.activeModel = modelName || '';
     state.callCount++;
+    state.liveThinkSnippet = '';
+    state.liveResponseSnippet = '';
     firstResponseTokenTime = null;
     notifyNow(); // Immediate — important state change
 
@@ -159,17 +170,20 @@ export const tokenTracker = {
   },
 
   /** Call for each thinking token (internal model reasoning) */
-  tickThinking() {
+  tickThinking(text?: string) {
     if (state.isModelLoading) {
       state.isModelLoading = false;
     }
     state.isThinking = true;
     state.liveTokens++;
+    if (text) {
+      state.liveThinkSnippet = (state.liveThinkSnippet + text).slice(-THINK_MAX);
+    }
     notify();
   },
 
   /** Call for each response token (actual output) */
-  tick() {
+  tick(text?: string) {
     // ALWAYS set isGenerating — if tick() is called, we ARE generating
     state.isModelLoading = false;
     state.isThinking = false;
@@ -178,6 +192,9 @@ export const tokenTracker = {
     state.responseTokens++;
     if (!firstResponseTokenTime) {
       firstResponseTokenTime = Date.now();
+    }
+    if (text) {
+      state.liveResponseSnippet = (state.liveResponseSnippet + text).slice(-RESPONSE_MAX);
     }
     notify();
   },
@@ -198,6 +215,7 @@ export const tokenTracker = {
     state.isModelLoading = false;
     state.isThinking = false;
     state.isGenerating = false;
+    // Keep snippets visible after completion (cleared on next startCall)
     firstResponseTokenTime = null;
     notifyNow(); // Immediate — important state change
   },

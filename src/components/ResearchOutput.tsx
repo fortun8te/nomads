@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { ShineText } from './ShineText';
 import { playSound } from '../hooks/useSoundEngine';
+import { visualProgressStore } from '../utils/visualProgressStore';
+import type { VisualBatchState } from '../utils/visualProgressStore';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -818,6 +820,92 @@ function SummaryStrip({ sections, dark }: { sections: Section[]; dark: boolean }
 }
 
 // ─────────────────────────────────────────────────────────────
+// Visual Progress Panel — live screenshot thumbnails + analysis
+// ─────────────────────────────────────────────────────────────
+
+function VisualProgressPanel({ batch, dark }: { batch: VisualBatchState; dark: boolean }) {
+  const statusDot = (status: string) => {
+    if (status === 'pending') return { color: dark ? '#3f3f46' : '#d4d4d8', pulse: false };
+    if (status === 'capturing') return { color: '#f59e0b', pulse: true };
+    if (status === 'captured') return { color: '#2B79FF', pulse: false };
+    if (status === 'analyzing') return { color: '#7c3aed', pulse: true };
+    if (status === 'done') return { color: '#10b981', pulse: false };
+    return { color: '#ef4444', pulse: false }; // error
+  };
+
+  return (
+    <div className={`mt-2 rounded-lg overflow-hidden border ${dark ? 'border-zinc-800/60 bg-[#0f0f0f]' : 'border-zinc-200 bg-zinc-50'}`}>
+      {/* Thumbnail grid */}
+      <div className="flex flex-wrap gap-2 p-3">
+        {batch.sites.map((site) => {
+          const dot = statusDot(site.status);
+          const hostname = (() => { try { return new URL(site.url).hostname.replace('www.', ''); } catch { return site.url.slice(0, 30); } })();
+          return (
+            <div key={site.url} className="flex flex-col gap-1" style={{ width: 120 }}>
+              {/* Thumbnail or placeholder */}
+              <div className={`relative rounded overflow-hidden flex items-center justify-center ${dark ? 'bg-zinc-900' : 'bg-zinc-100'}`} style={{ width: 120, height: 72 }}>
+                {site.thumbnail ? (
+                  <img
+                    src={`data:image/jpeg;base64,${site.thumbnail}`}
+                    alt={hostname}
+                    className="w-full h-full object-cover"
+                    style={{ filter: site.status === 'analyzing' ? 'brightness(0.6)' : 'none', transition: 'filter 0.3s' }}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-1">
+                    <span className={`w-2 h-2 rounded-full ${dot.pulse ? 'animate-pulse' : ''}`} style={{ backgroundColor: dot.color }} />
+                    <span className={`text-[8px] ${dark ? 'text-zinc-700' : 'text-zinc-400'}`}>
+                      {site.status === 'pending' ? 'queued' : site.status}
+                    </span>
+                  </div>
+                )}
+                {/* Status overlay for active states */}
+                {(site.status === 'capturing' || site.status === 'analyzing') && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: dot.color }} />
+                  </div>
+                )}
+                {/* Status dot bottom-right */}
+                <div className="absolute bottom-1 right-1">
+                  <span className={`w-1.5 h-1.5 rounded-full block ${dot.pulse ? 'animate-pulse' : ''}`} style={{ backgroundColor: dot.color }} />
+                </div>
+              </div>
+              {/* Label */}
+              <div className="px-0.5">
+                <p className={`text-[8px] truncate leading-tight ${dark ? 'text-zinc-500' : 'text-zinc-500'}`} title={site.url}>{hostname}</p>
+                {site.findings && (
+                  <p className={`text-[8px] truncate leading-tight ${dark ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    {site.findings.tone || ''}{site.findings.colors?.length ? ` · ${site.findings.colors[0]}` : ''}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Synthesis results */}
+      {batch.synthesisStatus === 'done' && (batch.commonPatterns?.length || batch.visualGaps?.length) && (
+        <div className={`border-t px-3 py-2 ${dark ? 'border-zinc-800/60' : 'border-zinc-200'}`}>
+          {batch.commonPatterns?.length ? (
+            <p className={`text-[9px] leading-relaxed ${dark ? 'text-zinc-500' : 'text-zinc-500'}`}>
+              <span className={`font-medium ${dark ? 'text-zinc-400' : 'text-zinc-600'}`}>Patterns: </span>
+              {batch.commonPatterns.slice(0, 2).join(' · ')}
+            </p>
+          ) : null}
+          {batch.visualGaps?.length ? (
+            <p className={`text-[9px] leading-relaxed mt-0.5 ${dark ? 'text-teal-600' : 'text-teal-700'}`}>
+              <span className="font-medium">Gaps: </span>
+              {batch.visualGaps.slice(0, 2).join(' · ')}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────
 
@@ -832,6 +920,7 @@ export function ResearchOutput({ output, isDarkMode }: ResearchOutputProps) {
   const [sections, setSections] = useState<Section[]>([]);
   const cacheRef = useRef<{ len: number; sections: Section[] }>({ len: 0, sections: [] });
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const visualBatches = useSyncExternalStore(visualProgressStore.subscribe, visualProgressStore.getSnapshot);
 
   // Incremental parsing
   useEffect(() => {
@@ -967,14 +1056,25 @@ export function ResearchOutput({ output, isDarkMode }: ResearchOutputProps) {
       {/* Feed */}
       <div>
         {sections.map((section, idx) => (
-          <SectionRow
-            key={idx}
-            section={section}
-            isExpanded={expanded.has(idx)}
-            isLast={idx === sections.length - 1}
-            onToggle={() => toggle(idx)}
-            dark={isDarkMode}
-          />
+          <div key={idx}>
+            <SectionRow
+              section={section}
+              isExpanded={expanded.has(idx)}
+              isLast={idx === sections.length - 1}
+              onToggle={() => toggle(idx)}
+              dark={isDarkMode}
+            />
+            {/* Visual progress panel after visual sections */}
+            {section.kind === 'visual' && visualBatches.length > 0 && (() => {
+              // Find the batch that matches this visual section (latest batch)
+              const batch = visualBatches[visualBatches.length - 1];
+              return batch && batch.sites.length > 0 ? (
+                <div className="px-4 pb-2">
+                  <VisualProgressPanel batch={batch} dark={isDarkMode} />
+                </div>
+              ) : null;
+            })()}
+          </div>
         ))}
       </div>
     </div>

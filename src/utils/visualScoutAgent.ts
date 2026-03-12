@@ -240,8 +240,7 @@ export const visualScoutAgent = {
           url,
           index: i,
           total: urls.length,
-          // Send a small thumbnail (first 200 chars of base64 for preview indicator)
-          thumbnail: result.image_base64 ? result.image_base64.slice(0, 500) : undefined,
+          thumbnail: result.image_base64 || undefined, // full base64 for live thumbnail display
           error: result.error ?? undefined,
         });
       } catch (err) {

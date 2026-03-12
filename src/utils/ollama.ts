@@ -119,14 +119,14 @@ export const ollamaService = {
               if (json.response) {
                 fullResponse += json.response;
                 onChunk?.(json.response);
-                tokenTracker.tick();
+                tokenTracker.tick(json.response);
               }
 
               // Thinking tokens (GLM-4.7, Qwen3, etc.) — model is reasoning internally.
               // Don't add to fullResponse (we only want the final answer),
               // but tick so the UI shows "thinking" instead of "loading model".
               if (json.thinking) {
-                tokenTracker.tickThinking();
+                tokenTracker.tickThinking(json.thinking);
               }
 
               if (json.done) {
@@ -146,10 +146,10 @@ export const ollamaService = {
           if (json.response) {
             fullResponse += json.response;
             onChunk?.(json.response);
-            tokenTracker.tick();
+            tokenTracker.tick(json.response);
           }
           if (json.thinking) {
-            tokenTracker.tickThinking();
+            tokenTracker.tickThinking(json.thinking);
           }
           if (json.done) {
             tokenTracker.endCall(json.eval_count, json.eval_duration);

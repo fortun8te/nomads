@@ -619,34 +619,45 @@ export const orchestrator = {
           onProgressUpdate?.(`\n[Visual Scout] Orchestrator requested visual analysis of ${visualScoutUrls.length} URLs\n`);
           try {
             const { visualScoutAgent } = await import('./visualScoutAgent');
+            const { visualProgressStore } = await import('./visualProgressStore');
+            const cappedUrls = visualScoutUrls.slice(0, 5);
             const visualFindings = await visualScoutAgent.analyzeCompetitorVisuals(
-              visualScoutUrls.slice(0, 5), // Cap at 5 URLs
+              cappedUrls,
               state.campaign,
               onProgressUpdate,
               signal,
-              // Structured progress events → emit as rich text chunks
+              // Structured progress events → text chunks + visual store
               (event) => {
                 switch (event.type) {
+                  case 'screenshot_batch_start':
+                    visualProgressStore.startBatch(event.urls);
+                    break;
                   case 'screenshot_start':
                     onProgressUpdate?.(`[Visual Scout] Capturing ${event.index + 1}/${event.total}: ${event.url}\n`);
+                    visualProgressStore.setCapturing(event.url);
                     break;
                   case 'screenshot_done':
                     onProgressUpdate?.(`[Visual Scout] ${event.error ? 'Failed' : 'Captured'} ${event.index + 1}/${event.total}: ${event.url.slice(0, 60)}${event.error ? ` — ${event.error}` : ''}\n`);
+                    visualProgressStore.setCaptured(event.url, event.thumbnail, event.error);
                     break;
                   case 'analysis_start':
                     onProgressUpdate?.(`[Visual Scout] Analyzing visual ${event.index + 1}/${event.total}: ${event.url.slice(0, 50)}...\n`);
+                    visualProgressStore.setAnalyzing(event.url);
                     break;
                   case 'analysis_done':
                     if (event.findings) {
                       onProgressUpdate?.(`[Visual Scout] → ${event.url.slice(0, 40)}: tone=${event.findings.tone || '?'}, colors=${(event.findings.colors || []).slice(0, 2).join(', ') || '?'}\n`);
+                      visualProgressStore.setAnalyzed(event.url, event.findings);
                     }
                     break;
                   case 'synthesis_start':
                     onProgressUpdate?.(`[Visual Scout] Synthesizing patterns across ${event.count} sites...\n`);
+                    visualProgressStore.setSynthesisStatus('running');
                     break;
                   case 'synthesis_done':
                     if (event.patterns.length) onProgressUpdate?.(`[Visual Scout] Patterns: ${event.patterns.slice(0, 2).join('; ')}\n`);
                     if (event.gaps.length) onProgressUpdate?.(`[Visual Scout] Gaps: ${event.gaps.slice(0, 2).join('; ')}\n`);
+                    visualProgressStore.setSynthesisStatus('done', event.patterns, event.gaps);
                     break;
                 }
               }
@@ -935,18 +946,21 @@ AD_SCOUT: [ad library / marketing URLs to screenshot, if ad creative analysis is
               onChunk?.(`\n[${label}] Coverage Checker requested visual analysis of ${dedupedUrls.length} URLs\n`);
               try {
                 const { visualScoutAgent } = await import('./visualScoutAgent');
+                const { visualProgressStore } = await import('./visualProgressStore');
                 const visualFindings = await visualScoutAgent.analyzeCompetitorVisuals(
                   dedupedUrls.slice(0, 5),
                   state.campaign,
                   onChunk ? (msg: string | undefined) => onChunk(msg || '') : undefined,
                   signal,
-                  // Rich progress events
+                  // Rich progress events → text chunks + visual store
                   (event) => {
-                    if (event.type === 'screenshot_start') onChunk?.(`[${label}] Capturing ${event.index + 1}/${event.total}: ${event.url}\n`);
-                    if (event.type === 'screenshot_done') onChunk?.(`[${label}] ${event.error ? 'Failed' : 'Captured'} ${event.index + 1}/${event.total}\n`);
-                    if (event.type === 'analysis_start') onChunk?.(`[${label}] Analyzing visual ${event.index + 1}/${event.total}...\n`);
-                    if (event.type === 'analysis_done' && event.findings) onChunk?.(`[${label}] → tone=${event.findings.tone || '?'}, colors=${(event.findings.colors || []).slice(0, 2).join(', ') || '?'}\n`);
-                    if (event.type === 'synthesis_start') onChunk?.(`[${label}] Synthesizing ${event.count} sites...\n`);
+                    if (event.type === 'screenshot_batch_start') { visualProgressStore.startBatch(event.urls); }
+                    if (event.type === 'screenshot_start') { onChunk?.(`[${label}] Capturing ${event.index + 1}/${event.total}: ${event.url}\n`); visualProgressStore.setCapturing(event.url); }
+                    if (event.type === 'screenshot_done') { onChunk?.(`[${label}] ${event.error ? 'Failed' : 'Captured'} ${event.index + 1}/${event.total}\n`); visualProgressStore.setCaptured(event.url, event.thumbnail, event.error); }
+                    if (event.type === 'analysis_start') { onChunk?.(`[${label}] Analyzing visual ${event.index + 1}/${event.total}...\n`); visualProgressStore.setAnalyzing(event.url); }
+                    if (event.type === 'analysis_done' && event.findings) { onChunk?.(`[${label}] → tone=${event.findings.tone || '?'}, colors=${(event.findings.colors || []).slice(0, 2).join(', ') || '?'}\n`); visualProgressStore.setAnalyzed(event.url, event.findings); }
+                    if (event.type === 'synthesis_start') { onChunk?.(`[${label}] Synthesizing ${event.count} sites...\n`); visualProgressStore.setSynthesisStatus('running'); }
+                    if (event.type === 'synthesis_done') { visualProgressStore.setSynthesisStatus('done', event.patterns, event.gaps); }
                   }
                 );
                 (state as any)._visualFindings = visualFindings;

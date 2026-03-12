@@ -8,6 +8,7 @@ import { getSystemPrompt, getCheckpointQuestionPrompt } from '../utils/prompts';
 import { getModelForStage } from '../utils/modelConfig';
 import { playSound, startSoundLoop, stopSoundLoop } from './useSoundEngine';
 import { generateResearchReport } from '../utils/reportGenerator';
+import { visualProgressStore } from '../utils/visualProgressStore';
 
 
 const FULL_STAGE_ORDER: StageName[] = ['research', 'brand-dna', 'persona-dna', 'angles', 'strategy', 'copywriting', 'production', 'test'];
@@ -530,8 +531,9 @@ RANKING + VERDICT:
       setIsRunning(true);
       setError(null);
 
-      // Reset user answers for this cycle
+      // Reset per-run stores
       userAnswersRef.current = {};
+      visualProgressStore.reset();
 
       // Pre-research checkpoint
       const stageOutputs: Record<string, string> = {};

@@ -55,7 +55,9 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
   const { isDarkMode: themeDarkMode } = useTheme();
   const isDark = propDarkMode !== undefined ? propDarkMode : themeDarkMode;
   const outputRef = useRef<HTMLDivElement>(null);
+  const thinkRef = useRef<HTMLDivElement>(null);
   const [, setTick] = useState(0);
+  const [thinkExpanded, setThinkExpanded] = useState(true);
   const tokenInfo = useSyncExternalStore(tokenTracker.subscribe, tokenTracker.getSnapshot);
 
   useEffect(() => {
@@ -69,6 +71,13 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
       outputRef.current.scrollTo({ top: outputRef.current.scrollHeight, behavior: 'smooth' });
     }
   }, [cycle?.stages[cycle?.currentStage || 'research']?.agentOutput]);
+
+  // Auto-scroll the think panel to bottom when new tokens arrive
+  useEffect(() => {
+    if (thinkExpanded && thinkRef.current) {
+      thinkRef.current.scrollTop = thinkRef.current.scrollHeight;
+    }
+  }, [tokenInfo.liveThinkSnippet, tokenInfo.liveResponseSnippet, thinkExpanded]);
 
   if (!cycle) return null;
 
@@ -135,6 +144,71 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
           </div>
         )}
       </div>
+
+      {/* ── Think mode panel ── live raw token stream, collapsible ── */}
+      {isActive && (tokenInfo.isThinking || tokenInfo.isGenerating || tokenInfo.liveThinkSnippet || tokenInfo.liveResponseSnippet) && (
+        <div className={`flex-shrink-0 border-b ${isDark ? 'border-zinc-800/60 bg-[#0c0c0c]' : 'border-zinc-200 bg-zinc-50'}`}>
+          {/* think panel header */}
+          <button
+            onClick={() => setThinkExpanded(e => !e)}
+            className={`w-full flex items-center gap-2 px-4 py-1.5 text-left transition-colors group ${
+              isDark ? 'hover:bg-zinc-800/30' : 'hover:bg-zinc-100/60'
+            }`}
+          >
+            <span className="w-3 h-3 flex items-center justify-center flex-shrink-0">
+              {tokenInfo.isThinking ? (
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: '#7c3aed' }} />
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isDark ? '#3f3f46' : '#d4d4d8' }} />
+              )}
+            </span>
+            <span className="text-[10px] font-medium flex-1 truncate" style={{
+              color: tokenInfo.isThinking ? '#7c3aed' : isDark ? '#52525b' : '#a1a1aa'
+            }}>
+              {tokenInfo.isThinking
+                ? (tokenInfo.liveThinkSnippet.slice(-80).split('\n').at(-1) || 'Thinking…')
+                : (tokenInfo.liveResponseSnippet.slice(-80).split('\n').at(-1) || 'Output')}
+            </span>
+            <svg
+              width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+              className={`flex-shrink-0 transition-transform duration-150 opacity-30 group-hover:opacity-60 ${thinkExpanded ? '' : '-rotate-90'}`}
+              style={{ color: isDark ? '#71717a' : '#a1a1aa' }}
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+
+          {/* think panel body */}
+          {thinkExpanded && (
+            <div
+              ref={thinkRef}
+              className="overflow-y-auto px-4 pb-3"
+              style={{ maxHeight: 160 }}
+            >
+              {tokenInfo.liveThinkSnippet && (
+                <pre className="text-[10px] leading-relaxed whitespace-pre-wrap break-words" style={{
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  color: isDark ? '#6d28d9' : '#7c3aed',
+                  opacity: 0.7,
+                }}>
+                  {tokenInfo.liveThinkSnippet}
+                </pre>
+              )}
+              {tokenInfo.liveResponseSnippet && (
+                <pre className={`text-[10px] leading-relaxed whitespace-pre-wrap break-words mt-1 ${
+                  tokenInfo.liveThinkSnippet ? 'border-t border-zinc-800/40 pt-1' : ''
+                }`} style={{
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  color: isDark ? '#a1a1aa' : '#71717a',
+                  opacity: 0.8,
+                }}>
+                  {tokenInfo.liveResponseSnippet}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Output area ── */}
       <div
