@@ -5,6 +5,7 @@ import { useCampaign } from '../context/CampaignContext';
 import { ResearchOutput } from './ResearchOutput';
 import { ModelOutputDebug } from './ModelOutputDebug';
 import { MakeTestPanel } from './MakeTestPanel';
+import { TestResultsPanel } from './TestResultsPanel';
 import { tokenTracker } from '../utils/tokenStats';
 import { ShineText } from './ShineText';
 
@@ -282,6 +283,11 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
                   </div>
                 ))}
               </div>
+              {currentStage === 'test' && cycle.testVerdict && (
+                <div className="mt-4">
+                  <TestResultsPanel cycle={cycle} isDarkMode={isDark} />
+                </div>
+              )}
               <ModelOutputDebug
                 rawOutput={stageData.rawOutput}
                 model={stageData.model}
@@ -297,18 +303,7 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
           {currentStage === 'production' && !isRunning ? (
             <MakeTestPanel isDarkMode={isDark} />
           ) : currentStage === 'test' && !isRunning ? (
-            <div className="flex flex-col items-center gap-3 py-12">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isDark ? 'bg-zinc-800/60' : 'bg-zinc-100'}`}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isDark ? '#52525b' : '#a1a1aa'} strokeWidth="1.5" strokeLinecap="round">
-                  <path d="M9 3h6M12 3v3M8 6h8l1.5 15H6.5L8 6z" /><path d="M10 10c0 2 4 2 4 0" />
-                </svg>
-              </div>
-              <span className={`text-[13px] font-semibold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>A/B Testing</span>
-              <span className={`text-[11px] ${isDark ? 'text-zinc-600' : 'text-zinc-400'}`}>Coming Soon</span>
-              <p className={`text-[10px] max-w-[220px] text-center leading-relaxed ${isDark ? 'text-zinc-700' : 'text-zinc-400'}`}>
-                Automated creative testing with audience panels, heatmaps, and conversion prediction.
-              </p>
-            </div>
+            <TestResultsPanel cycle={cycle} isDarkMode={isDark} />
           ) : isRunning ? (
             <>
               <div className="w-24 h-0.5 rounded-full overflow-hidden" style={{ backgroundColor: isDark ? 'rgba(43,121,255,0.08)' : 'rgba(43,121,255,0.06)' }}>

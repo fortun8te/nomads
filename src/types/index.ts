@@ -449,6 +449,32 @@ export interface CreativeStrategy {
 }
 
 // ══════════════════════════════════════════════════════
+// ██  Test Stage — Creative Evaluation Verdict
+// ══════════════════════════════════════════════════════
+
+export interface TestConceptScore {
+  desireActivation: number;     // 1-10
+  rootCauseReveal: number;      // 1-10
+  emotionalLogical: number;     // 1-10
+  audienceLanguage: number;     // 1-10
+  competitiveDiff: number;      // 1-10
+}
+
+export interface TestConceptVerdict {
+  name: string;
+  scores: TestConceptScore;
+  totalScore: number;
+  verdict: 'lead' | 'test' | 'skip';
+  notes: string;
+}
+
+export interface TestVerdict {
+  concepts: TestConceptVerdict[];
+  winner: string;
+  nextCycleImprovement: string;
+}
+
+// ══════════════════════════════════════════════════════
 // ██  Legacy Taste/Make types (kept for compatibility)
 // ══════════════════════════════════════════════════════
 
@@ -546,6 +572,8 @@ export interface Cycle {
   strategies?: StrategyEval[];
   copyBlocks?: CopyBlock[];
   creativeStrategy?: CreativeStrategy;
+  // Test stage verdict
+  testVerdict?: TestVerdict;
 }
 
 export type ResearchMode = 'interactive' | 'autonomous';

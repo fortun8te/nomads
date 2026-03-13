@@ -423,16 +423,35 @@ MARKET SOPHISTICATION: Level ${findings.marketSophistication || 3}` : ''}
 CREATIVE ASSETS TO EVALUATE:
 ${productionOutput || 'No production output available'}
 
-Evaluate each concept against:
-1. DESIRE ACTIVATION — does it tap deep desire or just surface?
-2. ROOT CAUSE REVEAL — does it explain the "aha"?
-3. SYSTEM 1 + SYSTEM 2 — emotional hook AND logical proof?
-4. AUDIENCE LANGUAGE — their words or brand speak?
-5. COMPETITIVE DIFFERENTIATION — owns a gap competitors can't claim?
+Score each concept on these 5 dimensions (1-10 scale):
+1. desireActivation — does it tap deep desire or just surface?
+2. rootCauseReveal — does it explain the "aha" mechanism?
+3. emotionalLogical — emotional hook (System 1) AND logical proof (System 2)?
+4. audienceLanguage — uses their actual words or generic brand speak?
+5. competitiveDiff — owns a gap competitors can't claim?
 
-RANKING + VERDICT:
-[Lead with X, test Y as variant, skip Z because...]
-[Key improvement for next cycle]`;
+For each concept assign a verdict: "lead" (run as primary), "test" (run as A/B variant), or "skip" (not worth testing).
+
+Output your evaluation as ONLY a valid JSON object with this exact structure (no markdown, no explanation outside JSON):
+{
+  "concepts": [
+    {
+      "name": "concept name or identifier",
+      "scores": {
+        "desireActivation": 7,
+        "rootCauseReveal": 5,
+        "emotionalLogical": 8,
+        "audienceLanguage": 6,
+        "competitiveDiff": 9
+      },
+      "totalScore": 35,
+      "verdict": "lead",
+      "notes": "brief evaluation notes"
+    }
+  ],
+  "winner": "name of the winning concept",
+  "nextCycleImprovement": "key improvement recommendation for next cycle"
+}`;
           }
 
           // Create abort controller for this stage
@@ -475,6 +494,22 @@ RANKING + VERDICT:
           } catch {
             // Strategy output wasn't valid JSON — keep raw text
             console.warn('Failed to parse creative strategy JSON');
+          }
+        }
+
+        // Parse test stage JSON into structured TestVerdict
+        if (stageName === 'test' && result) {
+          try {
+            const jsonMatch = result.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (parsed.concepts && Array.isArray(parsed.concepts)) {
+                cycle.testVerdict = parsed;
+              }
+            }
+          } catch {
+            // Test output wasn't valid JSON — keep raw text
+            console.warn('Failed to parse test verdict JSON');
           }
         }
 

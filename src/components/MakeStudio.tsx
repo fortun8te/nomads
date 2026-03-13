@@ -3087,6 +3087,7 @@ INSTRUCTIONS:
   // ██  GENERATE — single image (called by batch wrapper)
   // ══════════════════════════════════════════════════════
   const generateSingleImage = useCallback(async (): Promise<boolean> => {
+   try {
     const dim = aspectDimensions[aspectRatio];
     const imageContext = buildImageContext();
     const brandRules = buildBrandVisualRules();
@@ -3135,7 +3136,7 @@ INSTRUCTIONS:
 
       // Send ALL uploaded images to Freepik (product + layout refs)
       const allRefBase64s = getCleanBase64s(uploadedImages);
-      const result = await generateImage({
+      let result = await generateImage({
         prompt: finalImagePrompt,
         model: imageModel,
         aspectRatio,
@@ -3148,6 +3149,32 @@ INSTRUCTIONS:
         onWarning: (msg) => setServerWarning(msg),
         onEtaUpdate: (secs) => setGenerationEta(secs),
       });
+
+      // Retry once after 2s if first attempt failed (non-abort)
+      if (!result.success && !signal?.aborted) {
+        console.warn('[PATH 3] First Freepik attempt failed, retrying in 2s...', result.error);
+        setGenerationProgress('First attempt failed — retrying in 2s...');
+        await new Promise(r => setTimeout(r, 2000));
+        if (!signal?.aborted) {
+          setGenerationProgress(`Retrying ${imageModel === 'nano-banana-2' ? 'Nano Banana 2' : 'Seedream 5 Lite'}...`);
+          result = await generateImage({
+            prompt: finalImagePrompt,
+            model: imageModel,
+            aspectRatio,
+            count: batchCount,
+            style: imageStyle,
+            styleReference: customStyleImage || undefined,
+            referenceImages: allRefBase64s,
+            signal,
+            onProgress: (msg) => setGenerationProgress(msg),
+            onWarning: (msg) => setServerWarning(msg),
+            onEtaUpdate: (secs) => setGenerationEta(secs),
+          });
+          if (!result.success) {
+            console.error('[PATH 3] Retry also failed:', result.error);
+          }
+        }
+      }
 
       if (result.success && result.imageBase64) {
         // Freepik may return multiple images natively
@@ -3856,6 +3883,12 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
     }
 
     return false;
+   } catch (err: any) {
+    console.error('[generateSingleImage] Unhandled error caught at top level:', err?.message || err);
+    setGenerationProgress(`Generation error: ${(err?.message || String(err)).slice(0, 80)}`);
+    await new Promise(r => setTimeout(r, 2000));
+    return false;
+   }
   }, [prompt, aspectRatio, campaign, imageModel, llmEnabled, presetEnabled, htmlEnabled, researchEnabled, llmModel, htmlLlmModel, batchCount, uploadedImages, getResearchContext, getPresetContext, getFullPresetContext, getSettingsContext, buildImageContext, buildBrandVisualRules, persistImage, knowledgeContent]);
 
   // ══════════════════════════════════════════════════════
@@ -4007,17 +4040,18 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
       generationAbortRef.current = null;
       setCurrentHtmlPreview('');
       setGenerationPhase('idle');
-      // Only show completion if not cancelled (cancel handler already updated UI)
+      // Only show completion message if not cancelled (cancel handler already updated UI)
       if (!wasCancelled) {
         const adsMade = htmlVariants.length;
         if (adsMade > 0) {
           setGenerationProgress(`Done — ${adsMade} ad${adsMade > 1 ? 's' : ''} created`);
           await new Promise(r => setTimeout(r, 2500));
         }
-        setIsGenerating(false);
         setGeneratingForPrompt(null);
         setGenerationProgress('');
       }
+      // ALWAYS clear isGenerating — prevents stuck state from unhandled errors
+      setIsGenerating(false);
       targetDesireRef.current = null;
       setGeneratingDesireId(null);
       setBatchCurrent(0);

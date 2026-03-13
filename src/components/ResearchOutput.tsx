@@ -304,14 +304,26 @@ const SECTION_HEADER_RE = /\[PHASE [1-6]\]|Competitor Ad Intelligence|ORCHESTRAT
 
 const MORPH_KEYFRAMES = `
 @keyframes manus-morph {
+  /* Circle — pause */
   0%    { border-radius: 50%; transform: rotate(0deg) scale(1); }
-  12.5% { border-radius: 35%; transform: rotate(45deg) scale(1.08); }
+  8%    { border-radius: 50%; transform: rotate(0deg) scale(1); }
+  /* Transition to square */
+  18%   { border-radius: 30%; transform: rotate(55deg) scale(1.1); }
+  /* Square — pause */
   25%   { border-radius: 22%; transform: rotate(90deg) scale(1.12); }
-  37.5% { border-radius: 35%; transform: rotate(135deg) scale(1.08); }
+  33%   { border-radius: 22%; transform: rotate(90deg) scale(1.12); }
+  /* Transition to circle */
+  43%   { border-radius: 35%; transform: rotate(145deg) scale(1.06); }
+  /* Circle — pause */
   50%   { border-radius: 50%; transform: rotate(180deg) scale(1); }
-  62.5% { border-radius: 35%; transform: rotate(225deg) scale(1.08); }
+  58%   { border-radius: 50%; transform: rotate(180deg) scale(1); }
+  /* Transition to square */
+  68%   { border-radius: 30%; transform: rotate(235deg) scale(1.1); }
+  /* Square — pause */
   75%   { border-radius: 22%; transform: rotate(270deg) scale(1.12); }
-  87.5% { border-radius: 35%; transform: rotate(315deg) scale(1.08); }
+  83%   { border-radius: 22%; transform: rotate(270deg) scale(1.12); }
+  /* Transition to circle */
+  93%   { border-radius: 35%; transform: rotate(325deg) scale(1.06); }
   100%  { border-radius: 50%; transform: rotate(360deg) scale(1); }
 }
 @keyframes manus-glow {
@@ -331,7 +343,7 @@ function ManusBlob({ size = 14 }: { size?: number }) {
           className="absolute inset-0"
           style={{
             background: 'radial-gradient(circle, rgba(59,130,246,0.35) 0%, transparent 70%)',
-            animation: 'manus-glow 6s ease-in-out infinite',
+            animation: 'manus-glow 3.9s ease-in-out infinite',
             transform: 'scale(2)',
           }}
         />
@@ -341,7 +353,7 @@ function ManusBlob({ size = 14 }: { size?: number }) {
             width: size,
             height: size,
             background: '#3b82f6',
-            animation: 'manus-morph 6s linear infinite',
+            animation: 'manus-morph 3.9s ease-in-out infinite',
             boxShadow: '0 0 10px rgba(59,130,246,0.3), inset 0 -1px 3px rgba(0,0,0,0.2), inset 0 1px 3px rgba(147,197,253,0.3)',
           }}
         />
