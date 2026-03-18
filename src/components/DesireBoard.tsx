@@ -120,7 +120,7 @@ export function DesireBoard({
         </p>
         <button
           onClick={onSwitchToResearch}
-          className="text-xs px-4 py-1.5 rounded-full bg-indigo-500 text-white hover:bg-indigo-600 transition-colors"
+          className="text-xs px-4 py-1.5 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors"
         >
           Go to Research
         </button>
@@ -237,7 +237,7 @@ function AvatarCard({ persona, theme }: { persona: AvatarPersona; theme: 'light'
       <div className="flex items-start gap-3">
         {/* Avatar icon */}
         <div className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-lg ${
-          isDark ? 'bg-indigo-950/50 text-indigo-400' : 'bg-indigo-50 text-indigo-500'
+          isDark ? 'bg-blue-950/50 text-blue-400' : 'bg-blue-50 text-blue-500'
         }`}>
           &#128100;
         </div>
@@ -368,7 +368,7 @@ function DesireCard({
     <div
       className={`rounded-xl border transition-all duration-200 cursor-pointer group ${
         isExpanded
-          ? isDark ? 'border-indigo-700 bg-indigo-950/20 ring-1 ring-indigo-800/50' : 'border-indigo-300 bg-indigo-50/30 ring-1 ring-indigo-200'
+          ? isDark ? 'border-blue-700 bg-blue-950/20 ring-1 ring-blue-800/50' : 'border-blue-300 bg-blue-50/30 ring-1 ring-blue-200'
           : isDark ? 'border-zinc-800 bg-zinc-900/80 hover:border-zinc-700' : 'border-zinc-200 bg-white hover:border-zinc-300'
       }`}
     >
@@ -451,7 +451,7 @@ function DesireCard({
           className={`flex-1 text-[11px] font-medium py-1.5 rounded-lg transition-colors ${
             isGenerating
               ? isDark ? 'bg-zinc-800 text-zinc-500 cursor-wait' : 'bg-zinc-100 text-zinc-400 cursor-wait'
-              : 'bg-indigo-500 text-white hover:bg-indigo-600 active:bg-indigo-700'
+              : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
           }`}
         >
           {isGenerating ? 'Generating...' : `Generate ${generateCount}`}
@@ -588,7 +588,7 @@ function ExpandedDesirePanel({
         className={`w-full text-xs font-medium py-2 rounded-lg transition-colors ${
           isGenerating
             ? isDark ? 'bg-zinc-800 text-zinc-500 cursor-wait' : 'bg-zinc-100 text-zinc-400 cursor-wait'
-            : 'bg-indigo-500 text-white hover:bg-indigo-600'
+            : 'bg-blue-500 text-white hover:bg-blue-600'
         }`}
       >
         {isGenerating ? 'Generating...' : `Generate ${ads.length === 0 ? '4' : 'More'} Ads`}

@@ -199,7 +199,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     }
   }, [stop, getCyclesByCampaign]);
 
-  const value: CampaignContextType & { clearCampaign: () => void; stopCycle: () => void; resetResearch: () => Promise<void>; loadCampaignById: (id: string) => Promise<void> } = {
+  const value: CampaignContextType = {
     campaign,
     cycles,
     currentCycle,

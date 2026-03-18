@@ -24,12 +24,12 @@ export function PresetDetailsModal({ campaign, isDarkMode, onClose }: PresetDeta
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const borderClass = isDarkMode ? 'border-zinc-800/70' : 'border-zinc-200';
-  const bgClass = isDarkMode ? 'bg-zinc-900/50' : 'bg-zinc-50';
-  const contentBgClass = isDarkMode ? 'bg-zinc-800/30' : 'bg-zinc-100/50';
-  const textClass = isDarkMode ? 'text-zinc-300' : 'text-zinc-700';
-  const secondaryTextClass = isDarkMode ? 'text-zinc-600' : 'text-zinc-500';
-  const headerClass = isDarkMode ? 'text-zinc-300' : 'text-zinc-800';
+  const borderClass = isDarkMode ? 'border-white/[0.08]' : 'border-zinc-200';
+  const bgClass = isDarkMode ? 'bg-[#0f0f0f]' : 'bg-zinc-50';
+  const contentBgClass = isDarkMode ? 'bg-white/[0.03]' : 'bg-zinc-100/50';
+  const textClass = isDarkMode ? 'text-white/[0.55]' : 'text-zinc-700';
+  const secondaryTextClass = isDarkMode ? 'text-white/[0.30]' : 'text-zinc-500';
+  const headerClass = isDarkMode ? 'text-white/[0.85]' : 'text-zinc-800';
 
   const renderSection = (title: string, data: any) => {
     if (!data) return null;
@@ -40,13 +40,13 @@ export function PresetDetailsModal({ campaign, isDarkMode, onClose }: PresetDeta
         <button
           onClick={() => toggleSection(title)}
           className={`w-full flex items-center justify-between gap-2 p-4 hover:bg-opacity-50 transition-colors`}
-          style={{ backgroundColor: isDarkMode ? 'rgba(39, 39, 42, 0.5)' : 'rgba(228, 228, 231, 0.5)' }}
+          style={{ backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(228, 228, 231, 0.5)' }}
         >
           <span className={`font-mono text-sm uppercase tracking-[0.15em] font-bold ${headerClass}`}>
             {title}
           </span>
-          <span className={`text-xs ${secondaryTextClass} transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
-            ▶
+          <span className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </span>
         </button>
 

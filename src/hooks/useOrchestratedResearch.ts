@@ -17,7 +17,7 @@ interface OrchestratedResearchResult {
  * Orchestrated Research Hook
  *
  * FLIPPED FLOW — Web research first, then brains analyze enriched data:
- *   Phase 1: Web Research — gather real-world data (Wayfarer + SearXNG)
+ *   Phase 1: Web Research — gather real-world data (Wayfayer + SearXNG)
  *   Phase 2: Desire-Driven Deep Dive — 4-layer structured analysis
  *   Phase 3: Council of Marketing Brains — 7 brains analyze sequentially with all data
  *   Phase 4: Council Re-run — if confidence < 8, re-analyze with all context
@@ -147,7 +147,7 @@ export function useOrchestratedResearch() {
         }
 
         // Merge visual findings if captured
-        const visualFindings = (orchestratorState as any)._visualFindings;
+        const visualFindings = orchestratorState._visualFindings;
         if (visualFindings) {
           researchFindings.visualFindings = visualFindings;
         }
@@ -185,7 +185,7 @@ export function useOrchestratedResearch() {
         if (signal?.aborted) throw err;
         const errMsg = err instanceof Error ? err.message : String(err);
         onProgress?.(`\n[PHASE 1 ERROR] Web research failed: ${errMsg}\n`);
-        onProgress?.('  → Is Wayfarer running on port 8889? Is SearXNG up on port 8888?\n');
+        onProgress?.('  → Is Wayfayer running on port 8889? Is SearXNG up on port 8888?\n');
         onProgress?.('  → Continuing with LLM analysis only.\n\n');
         console.error('Web research error:', err);
       }
@@ -367,7 +367,7 @@ RESEARCH COMPLETE
 ${'═'.repeat(68)}
 
 Phases completed:
-- Phase 1: Web research (Wayfarer + SearXNG) — ${new Set(([] as string[]).concat(...(researchFindings.avatarLanguage || []))).size > 0 ? 'verbatim data gathered' : 'web data gathered'}
+- Phase 1: Web research (Wayfayer + SearXNG) — ${new Set(([] as string[]).concat(...(researchFindings.avatarLanguage || []))).size > 0 ? 'verbatim data gathered' : 'web data gathered'}
 - Phase 2: 4-layer desire analysis — desires, root cause, objections, market
 - Phase 3: Council of Marketing Brains — 7 brains → 3 heads → verdict
 ${researchFindings.visualFindings ? '- Visual competitive intelligence\n' : ''}${researchFindings.competitorAds ? '- Competitor ad intelligence\n' : ''}
@@ -386,7 +386,7 @@ Ready for: Brand DNA → Persona DNA → Angles`;
     return {
       processedOutput: finalOutput,
       rawOutput: finalOutput,
-      model: `wayfarer + council + ${getResearchModelConfig().orchestratorModel}`,
+      model: `wayfayer + council + ${getResearchModelConfig().orchestratorModel}`,
       processingTime: Date.now() - startTime,
       researchFindings,
     };

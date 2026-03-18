@@ -18,7 +18,7 @@ interface DebugTest {
   message: string;
 }
 
-// All Ollama calls go through Wayfarer proxy (handles CORS + streaming)
+// All Ollama calls go through Wayfayer proxy (handles CORS + streaming)
 const OLLAMA_PROXY = 'http://localhost:8889/ollama';
 
 interface OllamaModel {
@@ -50,7 +50,7 @@ function OllamaModelControl({ isDarkMode }: { isDarkMode: boolean }) {
         allModels.push({ name: m.name, size: m.size || 0, loaded: loadedNames.has(m.name) });
       }
     } catch (err) {
-      setError(`Ollama: ${err instanceof Error ? err.message : 'unreachable'} — is Wayfarer running?`);
+      setError(`Ollama: ${err instanceof Error ? err.message : 'unreachable'} — is Wayfayer running?`);
     }
 
     setModels(allModels);
@@ -218,7 +218,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundVolume, setSoundVolume] = useState(50);
   const [ollamaHost, setOllamaHost] = useState('');
-  const [wayfarerHost, setWayfarerHost] = useState('');
+  const [wayfayerHost, setWayfayerHost] = useState('');
   const [maxResearchTime, setMaxResearchTime] = useState('10');
   const [maxIterations, setMaxIterations] = useState('3');
   const [pipelineMode, setPipelineMode] = useState<'auto' | 'interactive'>('interactive');
@@ -240,7 +240,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
   const [debugTests, setDebugTests] = useState<DebugTest[]>([
     { name: 'Ollama Connection', status: 'pending', message: 'Not tested' },
     { name: 'Ollama Models', status: 'pending', message: 'Not tested' },
-    { name: 'Wayfarer (Web Research)', status: 'pending', message: 'Not tested' },
+    { name: 'Wayfayer (Web Research)', status: 'pending', message: 'Not tested' },
   ]);
 
   useEffect(() => {
@@ -252,8 +252,8 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
 
     setOllamaHost('localhost:8889/ollama → 100.74.135.83:11435');
     localStorage.removeItem('ollama_host');
-    const savedWayfarer = localStorage.getItem('wayfarer_host');
-    setWayfarerHost(savedWayfarer || 'http://localhost:8889');
+    const savedWayfayer = localStorage.getItem('wayfayer_host');
+    setWayfayerHost(savedWayfayer || 'http://localhost:8889');
     const savedTime = localStorage.getItem('max_research_time_minutes');
     setMaxResearchTime(savedTime || '45');
     const savedIter = localStorage.getItem('max_research_iterations');
@@ -298,7 +298,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
   };
 
   const saveResearchSettings = () => {
-    localStorage.setItem('wayfarer_host', wayfarerHost);
+    localStorage.setItem('wayfayer_host', wayfayerHost);
     localStorage.setItem('max_research_time_minutes', maxResearchTime);
     localStorage.setItem('max_research_iterations', maxIterations);
   };
@@ -307,7 +307,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
     setDebugTests([
       { name: 'Ollama Connection', status: 'testing', message: 'Connecting...' },
       { name: 'Ollama Models', status: 'testing', message: 'Checking...' },
-      { name: 'Wayfarer (Web Research)', status: 'testing', message: 'Testing...' },
+      { name: 'Wayfayer (Web Research)', status: 'testing', message: 'Testing...' },
     ]);
 
     try {
@@ -345,9 +345,9 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
     }
 
     try {
-      const wfHost = localStorage.getItem('wayfarer_host') || 'http://localhost:8889';
-      const wayfarerResp = (await fetchWithTimeout(`${wfHost}/health`, 5000)) as Response;
-      if (wayfarerResp.ok) {
+      const wfHost = localStorage.getItem('wayfayer_host') || 'http://localhost:8889';
+      const wayfayerResp = (await fetchWithTimeout(`${wfHost}/health`, 5000)) as Response;
+      if (wayfayerResp.ok) {
         const testResp = await fetch(`${wfHost}/research`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -369,13 +369,13 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
       } else {
         setDebugTests((prev) => [
           prev[0], prev[1],
-          { ...prev[2], status: 'error', message: `Error: ${wayfarerResp.status}` },
+          { ...prev[2], status: 'error', message: `Error: ${wayfayerResp.status}` },
         ]);
       }
     } catch (err: unknown) {
       setDebugTests((prev) => [
         prev[0], prev[1],
-        { ...prev[2], status: 'error', message: `${err instanceof Error ? err.message : 'Unavailable'} — is Wayfarer running?` },
+        { ...prev[2], status: 'error', message: `${err instanceof Error ? err.message : 'Unavailable'} — is Wayfayer running?` },
       ]);
     }
   };
@@ -671,11 +671,11 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
                     </button>
 
                     <div>
-                      <label className={`block text-[11px] font-medium mb-1 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>Wayfarer</label>
+                      <label className={`block text-[11px] font-medium mb-1 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>Wayfayer</label>
                       <input
                         type="text"
-                        value={wayfarerHost}
-                        onChange={(e) => setWayfarerHost(e.target.value)}
+                        value={wayfayerHost}
+                        onChange={(e) => setWayfayerHost(e.target.value)}
                         className={`w-full px-3 py-2 rounded-xl text-xs transition-colors ${
                           isDarkMode ? 'bg-zinc-800 border-zinc-700/50 text-zinc-300 focus:border-zinc-600' : 'bg-zinc-50 border-zinc-200 text-zinc-700 focus:border-zinc-300'
                         } border outline-none`}
@@ -898,7 +898,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
                           : isDarkMode ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700/50' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 border border-zinc-200'
                       }`}
                     >
-                      {adCacheRunning ? 'Analyzing...' : adCacheInfo?.totalAnalyzed ? 'Re-analyze All' : 'Pre-analyze Ad Library (minicpm-v)'}
+                      {adCacheRunning ? 'Analyzing...' : adCacheInfo?.totalAnalyzed ? 'Re-analyze All' : 'Pre-analyze Ad Library'}
                     </button>
                     {adCacheRunning && (
                       <button
@@ -928,7 +928,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
 
                 <div className={`pt-3 border-t ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
                   <p className={`text-[11px] ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                    SearXNG :8888 → Wayfarer :8889 → Full pages
+                    SearXNG :8888 → Wayfayer :8889 → Full pages
                   </p>
                 </div>
               </div>

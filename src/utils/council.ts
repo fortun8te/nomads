@@ -17,7 +17,7 @@ import {
   buildBrainAnalysisPrompt,
   type BrainOutput,
 } from './marketingBrains';
-import { getResearchModelConfig, getBrainTemperature } from './modelConfig';
+import { getResearchModelConfig, getBrainTemperature, getVisionModel } from './modelConfig';
 import type { Campaign, ResearchFindings } from '../types';
 
 // ─────────────────────────────────────────────────────────────
@@ -379,7 +379,7 @@ Return ONLY valid JSON.`;
     let rawOutput = '';
     try {
       rawOutput = await ollamaService.generateStream(prompt, visualBrain.systemPrompt, {
-        model: visualBrain.model,
+        model: getVisionModel(),
         images: competitorScreenshots,
         signal,
         onChunk: (chunk) => onProgress(chunk),

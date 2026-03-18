@@ -957,7 +957,7 @@ export const SIMPLETICS_PRESET = {
       totalSearchesRun: 'Tracks how many search queries executed across all phases',
       visualAnalyzesRun: 'Tracks how many images analyzed via minicpm-v',
       subagentsDeployed: 'Tracks how many parallel researcher subagents active',
-      webPagesScraped: 'Tracks how many unique pages fetched via Wayfarer',
+      webPagesScraped: 'Tracks how many unique pages fetched via Wayfayer',
       apiCallsUsed: 'Tracks API usage across LFM, GLM, minicpm-v',
       topicsResearched: 'Topics covered (audience, competitive, messaging, etc)',
       timelinePerPhase: 'Elapsed time per research phase',
@@ -1766,11 +1766,11 @@ export const SIMPLETICS_PRESET = {
     researchMetricsForUI: {
       description: 'Track and display research effort + confidence to build credibility in findings',
       metricsToTrack: {
-        totalSearchesRun: 'Count of Wayfarer queries executed (label: "Searches run")',
+        totalSearchesRun: 'Count of Wayfayer queries executed (label: "Searches run")',
         visualAnalyzesRun: 'Count of images analyzed via minicpm-v (label: "Visual analyses")',
         subagentsDeployed: 'Count of parallel LFM researchers launched (label: "Subagents deployed")',
         webPagesScraped: 'Count of pages fetched + parsed (label: "Pages scraped")',
-        apiCallsUsed: 'Count of API calls to Wayfarer + Ollama (label: "API calls")',
+        apiCallsUsed: 'Count of API calls to Wayfayer + Ollama (label: "API calls")',
         topicsResearched: 'Count of distinct research dimensions covered (label: "Topics covered")',
         confidenceLevelPerTopic: 'Per-topic confidence: High (3+ sources) | Medium (2 sources) | Low (1 source)',
         timelinePerPhase: 'Time spent: Phase 1 (Desire-Driven), Phase 2 (Web Research), Phase 3 (Competitor Ads)',

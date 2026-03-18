@@ -1,12 +1,13 @@
-// Visual Scout Agent — screenshots competitor URLs + analyzes with minicpm-v:8b
+// Visual Scout Agent — screenshots competitor URLs + analyzes with vision model
 // Returns structured VisualFindings for downstream pipeline stages
 
 import { ollamaService } from './ollama';
-import { screenshotService, type ScreenshotResult } from './wayfarer';
+import { screenshotService, type ScreenshotResult } from './wayfayer';
 import { recordResearchSource } from './researchAudit';
+import { getVisionModel } from './modelConfig';
 import type { Campaign, VisualAnalysis, VisualFindings } from '../types';
 
-const VISION_MODEL = 'minicpm-v:8b';
+const VISION_MODEL = getVisionModel();
 
 // ─────────────────────────────────────────────────────────────
 // Progress event types for live UI visibility

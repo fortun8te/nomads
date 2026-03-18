@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useCampaign } from '../context/CampaignContext';
 import { useSoundEngine } from '../hooks/useSoundEngine';
 import { ollamaService } from '../utils/ollama';
-import { getResearchModelConfig } from '../utils/modelConfig';
+import { getChatModel, CHAT_MODEL_OPTIONS } from '../utils/modelConfig';
 import { glassCard } from '../styles/tokens';
 import type { BrandDNA, PersonaDNA, CreativeStrategy } from '../types';
 
@@ -30,7 +30,7 @@ interface BrandHubDrawerProps {
   presetPersonas?: any[];
 }
 
-type HubTab = 'dna' | 'persona' | 'strategy' | 'chat';
+type HubTab = 'dna' | 'persona' | 'strategy';
 
 export function BrandHubDrawer({
   isOpen,
@@ -50,6 +50,7 @@ export function BrandHubDrawer({
   const { play } = useSoundEngine();
   const [activeTab, setActiveTab] = useState<HubTab>('dna');
   const [activePersonaIdx, setActivePersonaIdx] = useState(0);
+  const [editOpen, setEditOpen] = useState(false);
 
   // Play whoosh on drawer open
   useEffect(() => {
@@ -66,7 +67,6 @@ export function BrandHubDrawer({
     { key: 'dna', label: 'DNA' },
     { key: 'persona', label: 'Persona' },
     { key: 'strategy', label: 'Strategy' },
-    { key: 'chat', label: 'Edit' },
   ];
 
   return (
@@ -111,9 +111,25 @@ export function BrandHubDrawer({
               <DNAIcon size={32} animated isDark={isDarkMode} />
             </motion.div>
             <div className="flex-1 min-w-0">
-              <h1 className={`text-2xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-zinc-900'}`}>
-                {brandName || 'Brand DNA'}
-              </h1>
+              <div className="flex items-center gap-3">
+                <h1 className={`text-2xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-zinc-900'}`}>
+                  {brandName || 'Brand DNA'}
+                </h1>
+                <button
+                  onClick={() => { play('tab'); setEditOpen(prev => !prev); }}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold tracking-wide transition-all ${
+                    editOpen
+                      ? isDarkMode
+                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                        : 'bg-blue-100 text-blue-700 border border-blue-200'
+                      : isDarkMode
+                        ? 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 border border-zinc-800/60'
+                        : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
+                  }`}
+                >
+                  {editOpen ? 'Close Editor' : 'Edit'}
+                </button>
+              </div>
               {positioning && (
                 <p className={`text-[13px] leading-relaxed mt-1 max-w-2xl ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
                   {positioning}
@@ -168,37 +184,52 @@ export function BrandHubDrawer({
         </div>
 
         {/* ── Scrollable Content ── */}
-        <div className="flex-1 overflow-y-auto">
-          {activeTab === 'dna' && (
-            <DNAContent
-              brandDNA={brandDNA}
-              presetBrand={presetBrand}
-              presetProduct={presetProduct}
-              isDark={isDarkMode}
-            />
-          )}
-          {activeTab === 'persona' && (
-            <PersonaContent
-              personas={personas}
-              presetAudience={presetAudience}
-              presetPersonas={presetPersonas}
-              activeIdx={activePersonaIdx}
-              onSelectIdx={(idx) => { play('select'); setActivePersonaIdx(idx); }}
-              isDark={isDarkMode}
-            />
-          )}
-          {activeTab === 'strategy' && (
-            <StrategyContent
-              strategy={creativeStrategy}
-              presetStrategy={presetStrategy}
-              presetCompetitive={presetCompetitive}
-              presetMessaging={presetMessaging}
-              isDark={isDarkMode}
-            />
-          )}
-          {activeTab === 'chat' && (
-            <ChatContent isDark={isDarkMode} />
-          )}
+        <div className="flex-1 overflow-y-auto flex flex-col">
+          {/* Inline Edit Panel (slide-down) */}
+          <motion.div
+            initial={false}
+            animate={{
+              height: editOpen ? 'auto' : 0,
+              opacity: editOpen ? 1 : 0,
+            }}
+            transition={{ type: 'spring', stiffness: 350, damping: 32 }}
+            className="overflow-hidden flex-shrink-0"
+          >
+            <div className={`border-b ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-100'}`}>
+              <ChatContent isDark={isDarkMode} />
+            </div>
+          </motion.div>
+
+          {/* Tab content */}
+          <div className="flex-1">
+            {activeTab === 'dna' && (
+              <DNAContent
+                brandDNA={brandDNA}
+                presetBrand={presetBrand}
+                presetProduct={presetProduct}
+                isDark={isDarkMode}
+              />
+            )}
+            {activeTab === 'persona' && (
+              <PersonaContent
+                personas={personas}
+                presetAudience={presetAudience}
+                presetPersonas={presetPersonas}
+                activeIdx={activePersonaIdx}
+                onSelectIdx={(idx) => { play('select'); setActivePersonaIdx(idx); }}
+                isDark={isDarkMode}
+              />
+            )}
+            {activeTab === 'strategy' && (
+              <StrategyContent
+                strategy={creativeStrategy}
+                presetStrategy={presetStrategy}
+                presetCompetitive={presetCompetitive}
+                presetMessaging={presetMessaging}
+                isDark={isDarkMode}
+              />
+            )}
+          </div>
         </div>
       </motion.div>
     </motion.div>
@@ -213,10 +244,10 @@ export function BrandHubDrawer({
 let _dnaCounter = 0;
 export function DNAIcon({ size = 20, animated = false, isDark = false }: { size?: number; animated?: boolean; isDark?: boolean }) {
   const [uid] = useState(() => `dna-${++_dnaCounter}`);
-  const violet = isDark ? '#a78bfa' : '#7c3aed';
-  const indigo = isDark ? '#818cf8' : '#4f46e5';
-  const glow = isDark ? 'rgba(139,92,246,0.45)' : 'rgba(124,58,237,0.3)';
-  const glowLg = isDark ? 'rgba(139,92,246,0.2)' : 'rgba(124,58,237,0.12)';
+  const violet = isDark ? '#6BA3FF' : '#2B79FF';
+  const indigo = isDark ? '#4D8FFF' : '#1D6AE5';
+  const glow = isDark ? 'rgba(43,121,255,0.45)' : 'rgba(43,121,255,0.3)';
+  const glowLg = isDark ? 'rgba(43,121,255,0.2)' : 'rgba(43,121,255,0.12)';
 
   return (
     <div
@@ -240,12 +271,12 @@ export function DNAIcon({ size = 20, animated = false, isDark = false }: { size?
         <svg viewBox="0 0 24 24" width={size} height={size} fill="none">
           <defs>
             <linearGradient id={`${uid}-a`} x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor={isDark ? '#c4b5fd' : '#8b5cf6'} />
-              <stop offset="100%" stopColor={isDark ? '#8b5cf6' : '#6d28d9'} />
+              <stop offset="0%" stopColor={isDark ? '#6BA3FF' : '#3B8AFF'} />
+              <stop offset="100%" stopColor={isDark ? '#2B79FF' : '#1558C0'} />
             </linearGradient>
             <linearGradient id={`${uid}-b`} x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor={isDark ? '#a5b4fc' : '#6366f1'} />
-              <stop offset="100%" stopColor={isDark ? '#6366f1' : '#4338ca'} />
+              <stop offset="0%" stopColor={isDark ? '#4D8FFF' : '#2B79FF'} />
+              <stop offset="100%" stopColor={isDark ? '#1D6AE5' : '#1558C0'} />
             </linearGradient>
             {/* 3D glow filter */}
             <filter id={`${uid}-glow`} x="-50%" y="-50%" width="200%" height="200%">
@@ -1112,7 +1143,7 @@ const bulletColors: Record<string, { dark: string; light: string }> = {
   amber: { dark: 'text-amber-400/60', light: 'text-amber-500' },
   emerald: { dark: 'text-emerald-400/60', light: 'text-emerald-500' },
   blue: { dark: 'text-blue-400/60', light: 'text-blue-500' },
-  violet: { dark: 'text-violet-400/60', light: 'text-violet-500' },
+  violet: { dark: 'text-blue-400/60', light: 'text-blue-500' },
   zinc: { dark: 'text-zinc-500', light: 'text-zinc-400' },
 };
 
@@ -1175,10 +1206,11 @@ interface ChatMessage {
 }
 
 function ChatContent({ isDark }: { isDark: boolean }) {
-  const { campaign, updateCampaign } = useCampaign() as any;
+  const { campaign, updateCampaign } = useCampaign();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatModel, setChatModel] = useState(getChatModel());
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -1200,7 +1232,7 @@ function ChatContent({ isDark }: { isDark: boolean }) {
 
     const presetData = campaign.presetData;
     const context = buildContext(presetData);
-    const model = getResearchModelConfig().orchestratorModel;
+    const model = chatModel;
 
     const systemPrompt = `You are a brand data editor. You will receive the current brand brief as JSON and an edit instruction. Return ONLY a valid JSON object containing the fields to update, using the same nested structure. Only include changed fields. No explanation, no markdown, just the JSON object.`;
     const prompt = `Current brand data:\n${context}\n\nInstruction: "${instruction}"\n\nReturn ONLY the JSON delta (changed fields only).`;
@@ -1252,7 +1284,7 @@ function ChatContent({ isDark }: { isDark: boolean }) {
   }
 
   return (
-    <div className="flex flex-col h-full" style={{ minHeight: 400 }}>
+    <div className="flex flex-col" style={{ minHeight: 280, maxHeight: 360 }}>
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
         {messages.length === 0 && !loading && (
@@ -1340,7 +1372,19 @@ function ChatContent({ isDark }: { isDark: boolean }) {
               isDark ? 'text-zinc-200 placeholder-zinc-600' : 'text-zinc-800 placeholder-zinc-400'
             } disabled:opacity-50`}
           />
-          <div className="absolute bottom-2 right-2 flex items-center gap-2">
+          <div className="absolute bottom-2 left-3 right-2 flex items-center gap-2">
+            <select
+              value={chatModel}
+              onChange={e => { setChatModel(e.target.value); localStorage.setItem('chat_model', e.target.value); }}
+              className={`text-[9px] font-medium rounded-md px-1.5 py-0.5 outline-none cursor-pointer border ${
+                isDark
+                  ? 'bg-zinc-800/60 text-zinc-500 border-zinc-700/50'
+                  : 'bg-zinc-100 text-zinc-400 border-zinc-200'
+              }`}
+            >
+              {CHAT_MODEL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <span className="flex-1" />
             <span className={`text-[9px] ${isDark ? 'text-zinc-700' : 'text-zinc-300'}`}>
               Enter to send
             </span>

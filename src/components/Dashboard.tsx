@@ -6,11 +6,13 @@ import { ControlPanel } from './ControlPanel';
 import { CycleTimeline } from './CycleTimeline';
 import { StagePanel } from './StagePanel';
 import { QuestionModal } from './QuestionModal';
+import { WayfayerPlusPanel } from './WayfayerPlusPanel';
 import {
   getResearchModelConfig, getResearchLimits, getBrainTemperature, setBrainTemperature,
   getAllBrainTempDefaults, RESEARCH_PRESETS, applyResearchPreset, getActiveResearchPreset
 } from '../utils/modelConfig';
 import type { ResearchDepthPreset } from '../utils/modelConfig';
+import { getVisionModel, VISION_MODEL_OPTIONS } from '../utils/modelConfig';
 import type { StageName, Campaign, Cycle } from '../types';
 
 interface DashboardProps {
@@ -18,8 +20,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ embedded = false }: DashboardProps) {
-  const { systemStatus, error, currentCycle, cycles, campaign, pendingQuestion, answerQuestion } = useCampaign();
-  const { clearCampaign } = useCampaign() as any;
+  const { systemStatus, error, currentCycle, cycles, campaign, pendingQuestion, answerQuestion, clearCampaign } = useCampaign();
   const { isDarkMode } = useTheme();
   const isRunning = systemStatus === 'running';
   const [selectedStage, setSelectedStage] = useState<StageName | null>(null);
@@ -31,9 +32,10 @@ export function Dashboard({ embedded = false }: DashboardProps) {
   }, [isRunning]);
 
   // The cycle to display in the right panel
+  // When idle, show the last completed cycle (not the empty state with WayfayerPlusPanel)
   const displayedCycle = viewingCycleIdx !== null
     ? cycles[viewingCycleIdx] ?? currentCycle
-    : currentCycle;
+    : currentCycle ?? (cycles.length > 0 ? cycles[cycles.length - 1] : null);
 
   useEffect(() => {
     if (currentCycle) {
@@ -42,7 +44,7 @@ export function Dashboard({ embedded = false }: DashboardProps) {
   }, [currentCycle?.currentStage]);
 
   return (
-    <div className={`${embedded ? 'flex-1' : 'h-screen'} flex flex-col overflow-hidden ${isDarkMode ? 'bg-[#0a0a0a] text-white' : 'bg-zinc-50 text-zinc-900'}`}>
+    <div className={`${embedded ? 'flex-1' : 'h-screen'} flex flex-col overflow-hidden ${isDarkMode ? 'bg-transparent text-white/[0.85]' : 'bg-zinc-50 text-zinc-900'}`}>
       {!embedded && <ControlPanel />}
 
       {!campaign ? (
@@ -58,18 +60,16 @@ export function Dashboard({ embedded = false }: DashboardProps) {
             campaign={campaign}
             isDark={isDarkMode}
             cycles={cycles}
-            currentCycle={currentCycle}
             displayedCycle={displayedCycle}
             viewingCycleIdx={viewingCycleIdx}
             onSelectCycleIdx={setViewingCycleIdx}
             onClear={clearCampaign}
-            isRunning={isRunning}
             selectedStage={selectedStage}
             onSelectStage={setSelectedStage}
           />
 
           {/* ── RIGHT PANEL ── */}
-          <div className={`flex-1 flex flex-col min-h-0 min-w-0 border-l ${isDarkMode ? 'border-zinc-800/60' : 'border-zinc-200'}`}>
+          <div className={`flex-1 flex flex-col min-h-0 min-w-0 border-l ${isDarkMode ? 'border-white/[0.08]' : 'border-black/[0.06]'}`}>
             {error && (
               <div className={`flex-shrink-0 px-5 py-2 flex items-center gap-2 text-xs border-b ${
                 isDarkMode ? 'bg-red-950/20 border-red-900/30 text-red-400' : 'bg-red-50 border-red-100 text-red-600'
@@ -86,12 +86,7 @@ export function Dashboard({ embedded = false }: DashboardProps) {
                 viewStage={selectedStage}
               />
             ) : (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center space-y-1">
-                  <p className={`text-sm ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>Ready to run</p>
-                  <p className={`text-xs ${isDarkMode ? 'text-zinc-700' : 'text-zinc-300'}`}>Select a preset above, then press Run Research in the sidebar</p>
-                </div>
-              </div>
+              <StartScreen isDarkMode={isDarkMode} />
             )}
           </div>
         </div>
@@ -109,18 +104,16 @@ export function Dashboard({ embedded = false }: DashboardProps) {
 // ══════════════════════════════════════════════════════
 
 function LeftPanel({
-  campaign, isDark, cycles, currentCycle, displayedCycle, viewingCycleIdx, onSelectCycleIdx,
-  onClear, isRunning, selectedStage, onSelectStage,
+  campaign, isDark, cycles, displayedCycle, viewingCycleIdx, onSelectCycleIdx,
+  onClear, selectedStage, onSelectStage,
 }: {
   campaign: Campaign;
   isDark: boolean;
   cycles: Cycle[];
-  currentCycle: Cycle | null;
   displayedCycle: Cycle | null;
   viewingCycleIdx: number | null;
   onSelectCycleIdx: (idx: number | null) => void;
   onClear: () => void;
-  isRunning: boolean;
   selectedStage: StageName | null;
   onSelectStage: (s: StageName) => void;
 }) {
@@ -194,10 +187,10 @@ function LeftPanel({
   };
 
   const selectCls = `w-full text-[11px] font-medium rounded-md px-2 py-1.5 outline-none cursor-pointer transition-colors ${
-    isDark ? 'text-zinc-300 bg-zinc-800/60 border border-zinc-700/50' : 'text-zinc-600 bg-zinc-50 border border-zinc-200'
+    isDark ? 'text-white/[0.55] bg-white/[0.04] border border-white/[0.08]' : 'text-zinc-600 bg-zinc-50 border border-black/[0.06]'
   }`;
-  const divider = isDark ? 'border-zinc-800/60' : 'border-zinc-100';
-  const labelCls = isDark ? 'text-zinc-600' : 'text-zinc-400';
+  const divider = isDark ? 'border-white/[0.08]' : 'border-black/[0.06]';
+  const labelCls = isDark ? 'text-white/[0.30]' : 'text-zinc-400';
   const sliderTrack = isDark ? '#1f1f23' : '#e4e4e7';
 
   const p = campaign.presetData;
@@ -207,7 +200,8 @@ function LeftPanel({
   const completed = cycles.filter((c: Cycle) => c.status === 'complete');
 
   return (
-    <div className={`w-60 flex-shrink-0 flex flex-col overflow-hidden ${isDark ? 'bg-[#0f0f0f]' : 'bg-white'}`}>
+    <div className={`w-60 flex-shrink-0 flex flex-col overflow-hidden ${isDark ? 'bg-transparent' : 'bg-white'}`}>
+
 
       {/* ── Brand header ── */}
       <div className={`flex-shrink-0 px-4 py-3 border-b ${divider}`}>
@@ -220,16 +214,16 @@ function LeftPanel({
                 ))}
               </div>
             )}
-            <span className={`text-[12px] font-semibold truncate ${isDark ? 'text-zinc-100' : 'text-zinc-900'}`}>{brandName}</span>
+            <span className={`text-[12px] font-semibold truncate ${isDark ? 'text-white/[0.85]' : 'text-zinc-900'}`}>{brandName}</span>
           </div>
-          <button onClick={onClear} className={`text-[10px] flex-shrink-0 transition-colors ml-2 ${isDark ? 'text-zinc-700 hover:text-zinc-400' : 'text-zinc-300 hover:text-zinc-500'}`}>
+          <button onClick={onClear} className={`text-[10px] flex-shrink-0 transition-colors ml-2 ${isDark ? 'text-white/[0.15] hover:text-white/[0.55]' : 'text-zinc-300 hover:text-zinc-500'}`}>
             Switch
           </button>
         </div>
         {p?.brand?.positioning && (
           <p className={`text-[10px] mt-0.5 line-clamp-1 ${labelCls}`}>{p.brand.positioning}</p>
         )}
-        <p className={`text-[10px] mt-0.5 ${isDark ? 'text-zinc-700' : 'text-zinc-300'}`}>
+        <p className={`text-[10px] mt-0.5 ${isDark ? 'text-white/[0.15]' : 'text-zinc-300'}`}>
           {completed.length === 0 ? 'No cycles yet' : `${completed.length} cycle${completed.length !== 1 ? 's' : ''} done`}
         </p>
       </div>
@@ -240,7 +234,7 @@ function LeftPanel({
         {/* Presets */}
         <div className={`px-3 py-3 border-b ${divider}`}>
           <span className={`text-[9px] uppercase font-semibold tracking-wider px-1 ${labelCls}`}>Depth</span>
-          <div className="grid grid-cols-5 gap-1 mt-1.5">
+          <div className="flex flex-col gap-0.5 mt-1.5">
             {RESEARCH_PRESETS.map(preset => {
               const isActive = activePreset === preset.id;
               return (
@@ -259,28 +253,25 @@ function LeftPanel({
                       parallelCompressionCount: preset.limits.parallelCompressionCount,
                     });
                   }}
-                  title={`${preset.label} — ${preset.description}`}
-                  className={`flex flex-col items-center gap-0.5 rounded py-1.5 transition-all text-center ${
+                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-md transition-all ${
                     isActive
-                      ? isDark ? 'bg-zinc-700 text-white' : 'bg-zinc-800 text-white'
-                      : isDark ? 'bg-zinc-800/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-400' : 'bg-zinc-100 text-zinc-400 hover:bg-zinc-200'
+                      ? isDark ? 'bg-white/[0.08] text-white/[0.85]' : 'bg-zinc-800 text-white'
+                      : isDark ? 'text-white/[0.30] hover:bg-white/[0.04] hover:text-white/[0.55]' : 'text-zinc-400 hover:bg-zinc-50 hover:text-zinc-600'
                   }`}
                 >
-                  <span className="text-[10px] font-bold leading-none">{preset.shortLabel}</span>
-                  <span className={`text-[8px] leading-none ${isActive ? 'opacity-70' : 'opacity-40'}`}>{preset.time}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-[11px] font-medium leading-none">{preset.label}</span>
+                    {isActive && (
+                      <span className={`text-[9px] leading-none ${isDark ? 'text-white/[0.55]' : 'text-zinc-400'}`}>
+                        {preset.limits.maxIterations} iter · {preset.limits.minSources} src
+                      </span>
+                    )}
+                  </span>
+                  <span className={`text-[9px] font-mono leading-none tabular-nums ${isActive ? (isDark ? 'text-white/[0.55]' : 'text-zinc-400') : 'opacity-40'}`}>{preset.time}</span>
                 </button>
               );
             })}
           </div>
-          {activePreset !== 'custom' && (() => {
-            const ap = RESEARCH_PRESETS.find(pr => pr.id === activePreset);
-            if (!ap) return null;
-            return (
-              <p className={`mt-1.5 text-[9px] leading-relaxed line-clamp-1 ${labelCls}`}>
-                {ap.limits.maxIterations} iter · {ap.limits.minSources} src
-              </p>
-            );
-          })()}
         </div>
 
         {/* Models */}
@@ -299,6 +290,7 @@ function LeftPanel({
                 {modelOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
+            <VisionModelSelector selectCls={selectCls} labelCls={labelCls} />
           </div>
 
           {/* Advanced */}
@@ -317,7 +309,7 @@ function LeftPanel({
               <div>
                 <div className="flex items-center justify-between">
                   <span className={`text-[9px] ${labelCls}`}>Default Temp</span>
-                  <span className={`text-[9px] font-mono ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{temperature.toFixed(1)}</span>
+                  <span className={`text-[9px] font-mono ${isDark ? 'text-white/[0.55]' : 'text-zinc-500'}`}>{temperature.toFixed(1)}</span>
                 </div>
                 <input type="range" min="0" max="1" step="0.1" value={temperature}
                   onChange={(e) => { const v = parseFloat(e.target.value); setTemperature(v); save('research_temperature', String(v)); }}
@@ -339,7 +331,7 @@ function LeftPanel({
                 <div key={field.id}>
                   <div className="flex items-center justify-between">
                     <span className={`text-[9px] ${labelCls}`}>{field.label}</span>
-                    <span className={`text-[9px] font-mono ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                    <span className={`text-[9px] font-mono ${isDark ? 'text-white/[0.55]' : 'text-zinc-500'}`}>
                       {field.isFloat ? (intensity[field.id] as number).toFixed(2) : intensity[field.id]}
                     </span>
                   </div>
@@ -359,7 +351,7 @@ function LeftPanel({
                 <div key={id}>
                   <div className="flex items-center justify-between">
                     <span className={`text-[9px] ${labelCls}`}>{brainNames[id] || id}</span>
-                    <span className={`text-[9px] font-mono ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>{brainTemps[id]?.toFixed(1)}</span>
+                    <span className={`text-[9px] font-mono ${isDark ? 'text-white/[0.30]' : 'text-zinc-500'}`}>{brainTemps[id]?.toFixed(1)}</span>
                   </div>
                   <input type="range" min="0" max="1.5" step="0.05" value={brainTemps[id] ?? 0.7}
                     onChange={(e) => {
@@ -381,11 +373,11 @@ function LeftPanel({
           <button
             onClick={() => window.dispatchEvent(new CustomEvent('nomad-open-brand-hub'))}
             className={`w-full px-4 py-2.5 border-b ${divider} flex items-center gap-2 transition-colors text-left ${
-              isDark ? 'hover:bg-zinc-800/30' : 'hover:bg-zinc-50'
+              isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-zinc-50'
             }`}
           >
-            <span className={`text-[11px] font-medium flex-1 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>Brand DNA</span>
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={isDark ? '#3f3f46' : '#d4d4d8'} strokeWidth="2.5" strokeLinecap="round">
+            <span className={`text-[11px] font-medium flex-1 ${isDark ? 'text-white/[0.30]' : 'text-zinc-400'}`}>Brand DNA</span>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={isDark ? 'rgba(255,255,255,0.15)' : '#d4d4d8'} strokeWidth="2.5" strokeLinecap="round">
               <path d="M7 17L17 7M17 7H7M17 7V17" />
             </svg>
           </button>
@@ -405,11 +397,11 @@ function LeftPanel({
                       if (cur > 0) onSelectCycleIdx(cur - 1);
                     }}
                     disabled={(viewingCycleIdx ?? cycles.length - 1) === 0}
-                    className={`w-4 h-4 flex items-center justify-center rounded transition-colors disabled:opacity-20 ${isDark ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}
+                    className={`w-4 h-4 flex items-center justify-center rounded transition-colors disabled:opacity-20 ${isDark ? 'text-white/[0.30] hover:text-white/[0.55]' : 'text-zinc-400 hover:text-zinc-600'}`}
                   >
                     <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
                   </button>
-                  <span className={`text-[9px] font-mono tabular-nums ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                  <span className={`text-[9px] font-mono tabular-nums ${isDark ? 'text-white/[0.30]' : 'text-zinc-400'}`}>
                     {(viewingCycleIdx ?? cycles.length - 1) + 1}/{cycles.length}
                   </span>
                   <button
@@ -419,7 +411,7 @@ function LeftPanel({
                       else onSelectCycleIdx(null); // snap back to live
                     }}
                     disabled={viewingCycleIdx === null}
-                    className={`w-4 h-4 flex items-center justify-center rounded transition-colors disabled:opacity-20 ${isDark ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}
+                    className={`w-4 h-4 flex items-center justify-center rounded transition-colors disabled:opacity-20 ${isDark ? 'text-white/[0.30] hover:text-white/[0.55]' : 'text-zinc-400 hover:text-zinc-600'}`}
                   >
                     <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
                   </button>
@@ -427,7 +419,7 @@ function LeftPanel({
                     <button
                       onClick={() => onSelectCycleIdx(null)}
                       title="Back to live"
-                      className={`ml-0.5 text-[8px] font-medium px-1 py-0.5 rounded transition-colors ${isDark ? 'text-zinc-600 hover:text-zinc-400 bg-zinc-800/60' : 'text-zinc-400 hover:text-zinc-600 bg-zinc-100'}`}
+                      className={`ml-0.5 text-[8px] font-medium px-1 py-0.5 rounded transition-colors ${isDark ? 'text-white/[0.30] hover:text-white/[0.55] bg-white/[0.04]' : 'text-zinc-400 hover:text-zinc-600 bg-zinc-100'}`}
                     >live</button>
                   )}
                 </div>
@@ -443,14 +435,42 @@ function LeftPanel({
         )}
       </div>
 
-      {/* ── Bottom hint ── */}
-      {!isRunning && !currentCycle && (
-        <div className={`flex-shrink-0 px-4 py-3 border-t ${divider}`}>
-          <p className={`text-[10px] text-center ${isDark ? 'text-zinc-600' : 'text-zinc-400'}`}>
-            Press Run Research in the sidebar to start
-          </p>
-        </div>
-      )}
+    </div>
+  );
+}
+
+// ── Vision model picker (used in LeftPanel Models section) ──
+function VisionModelSelector({ selectCls, labelCls }: { selectCls: string; labelCls: string }) {
+  const [vm, setVm] = useState(getVisionModel());
+  return (
+    <div>
+      <span className={`text-[9px] block mb-0.5 ${labelCls}`}>Vision</span>
+      <select
+        value={vm}
+        onChange={(e) => {
+          setVm(e.target.value);
+          localStorage.setItem('vision_model', e.target.value);
+        }}
+        className={selectCls}
+      >
+        {VISION_MODEL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// ── Ready Screen — campaign loaded, no cycles yet ──
+
+function StartScreen({ isDarkMode }: { isDarkMode: boolean }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto p-6 gap-6">
+      <div className="text-center space-y-1">
+        <p className={`text-[12px] font-mono ${isDarkMode ? 'text-white/[0.30]' : 'text-zinc-400'}`}>Ready</p>
+        <p className={`text-[11px] ${isDarkMode ? 'text-white/[0.15]' : 'text-zinc-300'}`}>Select a preset to begin</p>
+      </div>
+      <div className="w-full max-w-xl">
+        <WayfayerPlusPanel />
+      </div>
     </div>
   );
 }

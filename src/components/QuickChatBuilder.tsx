@@ -98,7 +98,8 @@ export function QuickChatBuilder({ messages, setMessages, onComplete }: QuickCha
   const userMessageCount = messages.filter((m) => m.type === 'user').length;
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesEndRef.current?.parentElement;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
   useEffect(() => {
@@ -252,8 +253,8 @@ export function QuickChatBuilder({ messages, setMessages, onComplete }: QuickCha
   const border = isDarkMode ? 'border-zinc-800' : 'border-zinc-200';
   const muted = isDarkMode ? 'text-zinc-500' : 'text-zinc-400';
   const userBubble = isDarkMode
-    ? 'bg-violet-600/20 text-violet-100 border-violet-500/20'
-    : 'bg-violet-50 text-violet-900 border-violet-200/60';
+    ? 'bg-blue-600/20 text-blue-100 border-blue-500/20'
+    : 'bg-blue-50 text-blue-900 border-blue-200/60';
   const aiBubble = isDarkMode
     ? 'bg-zinc-800/80 text-zinc-200 border-zinc-700/50'
     : 'bg-zinc-50 text-zinc-800 border-zinc-200/60';
@@ -326,7 +327,7 @@ export function QuickChatBuilder({ messages, setMessages, onComplete }: QuickCha
             <div key={key} className="flex items-center gap-2">
               <span className={`text-[10px] uppercase tracking-wider w-20 shrink-0 ${muted}`}>{label}</span>
               <input
-                className={`flex-1 text-xs px-2 py-1.5 rounded-lg border ${border} bg-transparent outline-none focus:ring-1 focus:ring-violet-500/30 transition-all ${
+                className={`flex-1 text-xs px-2 py-1.5 rounded-lg border ${border} bg-transparent outline-none focus:ring-1 focus:ring-blue-500/30 transition-all ${
                   isDarkMode ? 'text-white' : 'text-black'
                 }`}
                 value={formData[key as keyof FormDataFromChat] || ''}
@@ -367,7 +368,7 @@ export function QuickChatBuilder({ messages, setMessages, onComplete }: QuickCha
           <div className="flex items-center gap-2 p-3">
             <input
               ref={inputRef}
-              className={`flex-1 text-sm px-4 py-2.5 rounded-xl border ${border} bg-transparent outline-none focus:ring-1 focus:ring-violet-500/30 transition-all ${
+              className={`flex-1 text-sm px-4 py-2.5 rounded-xl border ${border} bg-transparent outline-none focus:ring-1 focus:ring-blue-500/30 transition-all ${
                 isDarkMode ? 'text-white placeholder-zinc-600' : 'text-black placeholder-zinc-400'
               } ${isExtracting ? 'opacity-50' : ''}`}
               placeholder={isExtracting ? 'Extracting...' : 'Tell me about your brand...'}
@@ -392,8 +393,8 @@ export function QuickChatBuilder({ messages, setMessages, onComplete }: QuickCha
                 className={`px-5 py-2.5 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all ${
                   userInput.trim()
                     ? isDarkMode
-                      ? 'bg-violet-600 text-white hover:bg-violet-500'
-                      : 'bg-violet-600 text-white hover:bg-violet-500'
+                      ? 'bg-blue-600 text-white hover:bg-blue-500'
+                      : 'bg-blue-600 text-white hover:bg-blue-500'
                     : isDarkMode
                     ? 'bg-zinc-800 text-zinc-600'
                     : 'bg-zinc-100 text-zinc-400'

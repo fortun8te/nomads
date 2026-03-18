@@ -135,7 +135,7 @@ export function MakeTestPanel({ isDarkMode: propDarkMode }: MakeTestPanelProps) 
           cta: 'Grab It Before Midnight'
         },
         'fomo': {
-          headline: '⏰ Limited Stock Alert: Only 23 Left',
+          headline: 'Limited Stock Alert: Only 23 Left',
           body: 'Fast movers get them. Slow browsers miss out. What will you do?',
           cta: 'Secure Yours Now'
         }
@@ -207,7 +207,7 @@ export function MakeTestPanel({ isDarkMode: propDarkMode }: MakeTestPanelProps) 
     try {
       // Select template based on hook angle + format
       const templateKey = selectTemplate(hookAngle, adFormat);
-      const templateFn = (layoutTemplates as any)[templateKey];
+      const templateFn = layoutTemplates[templateKey];
 
       if (!templateFn) {
         alert('Template not found for this combination');
@@ -283,10 +283,10 @@ export function MakeTestPanel({ isDarkMode: propDarkMode }: MakeTestPanelProps) 
     }
   };
 
-  const bgClass = isDarkMode ? 'bg-[#0b0b0b]' : 'bg-zinc-50';
-  const inputBgClass = isDarkMode ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-white border-zinc-300 text-black';
-  const labelClass = isDarkMode ? 'text-zinc-300' : 'text-zinc-700';
-  const borderClass = isDarkMode ? 'border-zinc-700' : 'border-zinc-300';
+  const bgClass = isDarkMode ? 'bg-[#0f0f0f]' : 'bg-zinc-50';
+  const inputBgClass = isDarkMode ? 'bg-white/[0.03] border-white/[0.08] text-white/[0.85]' : 'bg-white border-zinc-300 text-black';
+  const labelClass = isDarkMode ? 'text-white/[0.55]' : 'text-zinc-700';
+  const borderClass = isDarkMode ? 'border-white/[0.08]' : 'border-zinc-300';
 
   if (generatedHtml) {
     return (

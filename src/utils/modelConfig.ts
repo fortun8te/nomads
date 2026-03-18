@@ -1,18 +1,18 @@
 // Model configuration for the research + ad pipeline
 //
-// Model roster (remote Ollama at 100.74.135.83:11434):
+// Model roster (remote Ollama at 100.74.135.83:11435 via Tailscale proxy):
 //   qwen3.5:9b             (6.6GB, 9B) — default for analysis stages
 //   qwen3.5:35b            (24GB, 35B) — heavy lifting (make stage, complex reasoning)
-//   qwen3.5:0.8b           (530MB, 0.8B) — fast option for HTML gen
+//   qwen3.5:0.8b           (530MB, 0.8B) — fast vision + HTML gen
 //   lfm2.5-thinking:latest (730MB, 1.2B) — grunt work: page compression, memory archiving
-//   minicpm-v:8b           (5GB, 8B) — vision model for screenshot analysis
 //   gpt-oss:20b            (13GB, 20B) — make + test stages
 //
+// Vision uses qwen3.5:0.8b (fast, cheap). Thinking uses separate model.
 // All model assignments are configurable via Dashboard → Settings → Research.
 // Each role reads from localStorage with fallback to defaults below.
 
 // ─────────────────────────────────────────────────────────────
-// Stage-level model assignments (used by useCycleLoop, wayfarer, etc.)
+// Stage-level model assignments (used by useCycleLoop, wayfayer, etc.)
 // ─────────────────────────────────────────────────────────────
 
 export const MODEL_CONFIG: Record<string, string> = {
@@ -24,7 +24,10 @@ export const MODEL_CONFIG: Record<string, string> = {
   copywriting: 'qwen3.5:9b',
   production: 'gpt-oss:20b',
   test: 'gpt-oss:20b',
-  vision: 'minicpm-v:8b',
+  vision: 'qwen3.5:0.8b',
+  thinking: 'qwen3.5:0.8b',
+  planner: 'qwen3.5:9b',
+  executor: 'qwen3.5:0.8b',
 };
 
 /** Get model for a pipeline stage — reads from localStorage with fallback */
@@ -34,6 +37,76 @@ export function getModelForStage(stage: string): string {
     if (stored) return stored;
   }
   return MODEL_CONFIG[stage] || 'qwen3.5:9b';
+}
+
+/** Vision model — used for screenshot analysis everywhere.
+ *  Reads from localStorage `vision_model` with fallback to MODEL_CONFIG.vision */
+export function getVisionModel(): string {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('vision_model');
+    if (stored) return stored;
+  }
+  return MODEL_CONFIG.vision;
+}
+
+/** Thinking model — used for deep reasoning / chain-of-thought tasks.
+ *  Reads from localStorage `thinking_model` with fallback to MODEL_CONFIG.thinking */
+export function getThinkingModel(): string {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('thinking_model');
+    if (stored) return stored;
+  }
+  return MODEL_CONFIG.thinking;
+}
+
+/** Planner model — used by Plan-Act agent for decomposing goals into steps. */
+export function getPlannerModel(): string {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('planner_model');
+    if (stored) return stored;
+  }
+  return MODEL_CONFIG.planner;
+}
+
+/** Executor model — used by Plan-Act agent for executing individual actions. */
+export function getExecutorModel(): string {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('executor_model');
+    if (stored) return stored;
+  }
+  return MODEL_CONFIG.executor;
+}
+
+/** Available vision-capable models for the selector */
+export const VISION_MODEL_OPTIONS = [
+  { value: 'qwen3.5:0.8b', label: 'Qwen 3.5 0.8B (Fast)' },
+  { value: 'qwen3.5:9b', label: 'Qwen 3.5 9B' },
+  { value: 'qwen3.5:35b', label: 'Qwen 3.5 35B' },
+] as const;
+
+/** Available thinking models for the selector */
+export const THINKING_MODEL_OPTIONS = [
+  { value: 'qwen3.5:0.8b', label: 'Qwen 3.5 0.8B (Fast)' },
+  { value: 'qwen3.5:9b', label: 'Qwen 3.5 9B' },
+  { value: 'qwen3.5:35b', label: 'Qwen 3.5 35B' },
+] as const;
+
+/** Available chat/general models for Brand DNA editor etc. */
+export const CHAT_MODEL_OPTIONS = [
+  { value: 'qwen3.5:0.8b', label: 'Qwen 3.5 0.8B (Fast)' },
+  { value: 'qwen3.5:9b', label: 'Qwen 3.5 9B' },
+  { value: 'qwen3.5:35b', label: 'Qwen 3.5 35B' },
+  { value: 'lfm2.5-thinking:latest', label: 'LFM 2.5 1.2B' },
+  { value: 'gpt-oss:20b', label: 'GPT-OSS 20B' },
+] as const;
+
+/** Get chat model — used for Brand DNA editor and similar chat features */
+export function getChatModel(): string {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('chat_model');
+    if (stored) return stored;
+  }
+  return 'qwen3.5:9b';
 }
 
 // ─────────────────────────────────────────────────────────────

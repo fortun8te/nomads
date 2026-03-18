@@ -153,8 +153,8 @@ export const tokenTracker = {
     state.callStartTime = Date.now();
     state.activeModel = modelName || '';
     state.callCount++;
-    state.liveThinkSnippet = '';
-    state.liveResponseSnippet = '';
+    // Keep previous snippets visible until new tokens arrive
+    // (prevents blank panel between rapid research sub-calls)
     firstResponseTokenTime = null;
     notifyNow(); // Immediate — important state change
 
@@ -173,6 +173,9 @@ export const tokenTracker = {
   tickThinking(text?: string) {
     if (state.isModelLoading) {
       state.isModelLoading = false;
+      // New call started — clear old snippets on first token
+      state.liveThinkSnippet = '';
+      state.liveResponseSnippet = '';
     }
     state.isThinking = true;
     state.liveTokens++;
@@ -184,6 +187,11 @@ export const tokenTracker = {
 
   /** Call for each response token (actual output) */
   tick(text?: string) {
+    if (state.isModelLoading) {
+      // New call started — clear old snippets on first token
+      state.liveThinkSnippet = '';
+      state.liveResponseSnippet = '';
+    }
     // ALWAYS set isGenerating — if tick() is called, we ARE generating
     state.isModelLoading = false;
     state.isThinking = false;

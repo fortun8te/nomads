@@ -39,6 +39,7 @@ import { AdLibraryBrowser } from './AdLibraryBrowser';
 import { getRelevantReferences, getCache, type AdDescription } from '../utils/adLibraryCache';
 import { loadAdImageBase64 } from '../utils/adLibraryLoader';
 import { ProductAngleCreator } from './ProductAngleCreator';
+import { getVisionModel } from '../utils/modelConfig';
 import { DesireBoard } from './DesireBoard';
 import type { DeepDesire } from '../types';
 
@@ -564,8 +565,9 @@ export function MakeStudio() {
   const [visionFeedbackEnabled, setVisionFeedbackEnabled] = useState(() => (localStorage.getItem('make_vision_feedback') || 'false') === 'true');
   const [visionRounds, setVisionRounds] = useState(() => parseInt(localStorage.getItem('make_vision_rounds') || '3', 10));
 
-  // Vision model follows HTML model's routing (local: or remote)
-  const visionModel = htmlLlmModel.startsWith('local:') ? 'local:minicpm-v:8b' : 'minicpm-v:8b';
+  // Vision model — reads from centralized config, respects local: routing
+  const _vm = getVisionModel();
+  const visionModel = htmlLlmModel.startsWith('local:') && !_vm.startsWith('local:') ? `local:${_vm}` : _vm;
 
   // Vision QA round history — for side-by-side comparison view
   const [visionHistory, setVisionHistory] = useState<VisionRoundSnapshot[]>([]);
@@ -822,6 +824,17 @@ export function MakeStudio() {
         100% { opacity: 0; transform: scale(0.6) rotate(4deg); filter: blur(6px); }
       }
 
+      @keyframes nomad-dot-flicker {
+        0%, 100% { opacity: 0.02; }
+        50% { opacity: 0.06; }
+      }
+
+      @keyframes nomad-dot-flicker-alt {
+        0%, 100% { opacity: 0.04; }
+        40% { opacity: 0.02; }
+        80% { opacity: 0.06; }
+      }
+
       @keyframes nomad-grid-noise {
         0% { opacity: 0.30; }
         8% { opacity: 0.37; }
@@ -877,18 +890,40 @@ export function MakeStudio() {
 
       .nomad-grid-bg {
         background-image:
-          radial-gradient(circle, rgba(113, 113, 122, 0.5) 0.8px, transparent 0.8px),
-          radial-gradient(circle, rgba(113, 113, 122, 0.25) 0.4px, transparent 0.4px);
-        background-size: 13.5px 13.5px, 27px 27px;
-        background-position: 0 0, 6.75px 6.75px;
-        animation: nomad-grid-drift 30s linear infinite, nomad-grid-noise 11s ease-in-out infinite;
+          radial-gradient(circle, rgba(255, 255, 255, 0.04) 0.5px, transparent 0.5px);
+        background-size: 24px 24px;
+        background-position: 0 0;
         pointer-events: none;
-        filter: blur(0.3px);
         transition: opacity 0.5s ease-in-out;
       }
 
-      .nomad-grid-bg.wave {
-        animation: nomad-grid-drift 30s linear infinite, nomad-grid-wave 6s ease-in-out infinite;
+      .nomad-grid-bg::before,
+      .nomad-grid-bg::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image:
+          radial-gradient(circle, rgba(255, 255, 255, 1) 0.5px, transparent 0.5px);
+        background-size: 24px 24px;
+        pointer-events: none;
+        opacity: 0.02;
+      }
+
+      .nomad-grid-bg::before {
+        background-position: 0 0;
+        animation: nomad-dot-flicker 6s ease-in-out infinite;
+      }
+
+      .nomad-grid-bg::after {
+        background-position: 12px 12px;
+        animation: nomad-dot-flicker-alt 8s ease-in-out 2s infinite;
+      }
+
+      .nomad-grid-bg.wave::before {
+        animation: nomad-dot-flicker 3s ease-in-out infinite;
+      }
+      .nomad-grid-bg.wave::after {
+        animation: nomad-dot-flicker-alt 4s ease-in-out 1s infinite;
       }
     `;
     document.head.appendChild(style);
@@ -1065,10 +1100,10 @@ export function MakeStudio() {
   }, [addReferenceImages]);
 
   // ── Mode definitions ──
-  const modes: { key: AdMode; label: string; icon: string }[] = [
-    { key: 'static', label: 'Image', icon: '◻' },
-    { key: 'funnel', label: 'Desires', icon: '◎' },
-    { key: 'custom', label: 'See more', icon: '✦' },
+  const modes: { key: AdMode; label: string; icon: React.ReactNode }[] = [
+    { key: 'static', label: 'Image', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg> },
+    { key: 'funnel', label: 'Desires', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> },
+    { key: 'custom', label: 'See more', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> },
   ];
 
   // ── Aspect ratio dimensions ──
@@ -1733,13 +1768,13 @@ Be honest and specific. This feedback drives the next revision.`;
     const isPass = auditUpper.includes('PASS') && !hasCritical && !hasMajor;
 
     if (isPass) {
-      console.log('[VisionQA] Ad passed brand review');
-      setGenerationProgress('Vision QA: approved ✓');
+      // Ad passed brand review
+      setGenerationProgress('Vision QA: approved [OK]');
       await new Promise(r => setTimeout(r, 1200));
       return ''; // empty = no changes needed, stop looping
     }
 
-    console.log(`[VisionQA] Issues found (critical: ${hasCritical}, major: ${hasMajor}):`, audit.slice(0, 300));
+    // VisionQA issues found — continue to rewrite
 
     // ── Step 2: LLM rewrites the prompt to fix issues ──
     // The LLM gets the FULL brand context + research + knowledge to write great copy.
@@ -1977,7 +2012,7 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
           // Even 1 round = audit + refine (not just audit).
           // Wrapped in its own try/catch so VisionQA crashes don't kill the whole generation.
           if (visionFeedbackEnabled && screenshot && !signal?.aborted) try {
-            console.log(`[VisionQA] Starting ${visionRounds} round(s) for ad ${i + 1}`);
+            // VisionQA starting rounds
             const refImages = uploadedImages.filter(img => img.type === 'layout');
             const refBase64 = refImages.length > 0 ? refImages[0].base64 : null;
             const brandCtx = presetEnabled ? (getPresetContext() || '') : '';
@@ -2009,7 +2044,7 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
                 break;
               }
 
-              console.log(`[VisionQA] Got feedback for ad ${i + 1} round ${round + 1}: ${feedback.slice(0, 100)}...`);
+              // VisionQA feedback received
               allFeedback += (allFeedback ? `\n\n--- Round ${round + 1} ---\n` : '') + feedback;
 
               // Update variant with latest feedback
@@ -2056,7 +2091,7 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
                   ));
                   // Track in vision history for side-by-side comparison
                   setVisionHistory(prev => [...prev, { round: round + 1, screenshot: newScreenshot, feedback }]);
-                  console.log(`[VisionQA] Refined ad ${i + 1} round ${round + 1} — HTML updated`);
+                  // VisionQA refined ad HTML updated
                 }
               } else {
                 console.warn(`[VisionQA] Refinement produced invalid HTML for ad ${i + 1} round ${round + 1}`);
@@ -2065,7 +2100,7 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
 
             // ── Update IndexedDB with refined HTML + screenshot ──
             if (currentHtml !== cleanHtml) {
-              console.log(`[VisionQA] Updating stored image ${variant.id} with refined HTML + screenshot`);
+              // VisionQA updating stored image with refined HTML + screenshot
               const updatedStored: StoredImage = {
                 id: variant.id,
                 imageBase64: currentScreenshot,
@@ -2104,12 +2139,12 @@ Create a complete, production-ready HTML ad. This screenshot IS the final delive
         // Smooth transition between variants
         if (i < count - 1) {
           setGenerationPhase('between');
-          setGenerationProgress(`✓ Ad ${i + 1} done — creating next...`);
+          setGenerationProgress(`[OK] Ad ${i + 1} done — creating next...`);
           await new Promise(r => setTimeout(r, 400));
         } else if (count > 0) {
           // Final ad done
           setGenerationPhase('between');
-          setGenerationProgress(`✓ All ${count} ads created`);
+          setGenerationProgress(`[OK] All ${count} ads created`);
           await new Promise(r => setTimeout(r, 800));
         }
       } catch (err) {
@@ -2440,8 +2475,7 @@ RULES:
 
       imagePrompt = shortParts.join(' ');
 
-      console.log('[RefCopy] LLM output →', parsed);
-      console.log('[RefCopy] Assembled prompt:', imagePrompt);
+      // RefCopy LLM prompt assembled
     } catch (err) {
       if (signal?.aborted) {
         setGenerationPhase('idle');
@@ -2463,8 +2497,7 @@ RULES:
 
     // Filter out any empty/corrupt refs before sending
     const cleanRefs = allRefs.filter(b64 => b64 && b64.length > 500);
-    console.log(`[RefCopy] Sending ${cleanRefs.length} reference images to Freepik (${cleanRefs.map((_, i) => `@img${i+1}`).join(', ')})`);
-    console.log(`[RefCopy] Prompt (${imagePrompt.split(/\s+/).length} words):`, imagePrompt);
+    // RefCopy sending reference images to Freepik
 
     // ── Step 5: Generate candidates from Freepik ──
     // Generate renderCount candidates, then MiniCPM picks the best one for refinement
@@ -2552,7 +2585,7 @@ Best product placement and no competitor branding visible.`;
         const pickMatch = pickResult.match(/(\d+)/);
         const pickedIdx = pickMatch ? Math.max(0, Math.min(allCandidates.length - 1, parseInt(pickMatch[1]) - 1)) : 0;
         currentImageBase64 = allCandidates[pickedIdx];
-        console.log(`[VisionQA] MiniCPM picked candidate ${pickedIdx + 1}/${allCandidates.length}: ${pickResult.slice(0, 100)}`);
+        // VisionQA picked candidate
         setGenerationProgress(`Selected candidate ${pickedIdx + 1}/${allCandidates.length}`);
       } catch (err) {
         if (signal?.aborted) { setGenerationPhase('idle'); return; }
@@ -2668,7 +2701,7 @@ Best product placement and no competitor branding visible.`;
 
           // Empty string = PASS (no issues found) — stop looping
           if (!refinedPrompt || signal?.aborted) {
-            console.log(`[VisionQA] Round ${round + 1}: approved — stopping`);
+            // VisionQA round approved — stopping
             allFeedback += `\nRound ${round + 1}: PASSED`;
             rounds.push({
               round: round + 1,
@@ -2718,7 +2751,7 @@ Best product placement and no competitor branding visible.`;
 
             // Persist to IndexedDB (round-by-round, so nothing is lost on crash)
             await updateStored([], allFeedback.trim(), currentImageBase64, currentPrompt);
-            console.log(`[VisionQA] Round ${round + 1} — saved (${rounds.length} total rounds)`);
+            // VisionQA round saved
           }
         } catch (err) {
           if (signal?.aborted) break;
@@ -2759,7 +2792,7 @@ Best product placement and no competitor branding visible.`;
     } else {
       setGenerationProgress('Auto-picking reference ads...');
       targets = await autoPickReferences(batchRefCount);
-      console.log(`[RefCopy] Auto-picked ${targets.length} targets (requested ${batchRefCount})`);
+      // RefCopy auto-picked targets
       if (targets.length === 0) {
         setGenerationProgress('No valid ad library references found — open Ad Library and pre-analyze first');
         setTimeout(() => setGenerationProgress(''), 4000);
@@ -3000,7 +3033,7 @@ INSTRUCTIONS:
           strategyLabel,
           htmlSource: cleanHtml,
           htmlScreenshot: screenshotBase64,
-          sourceHtmlId: (selectedImage as any).sourceHtmlId,
+          sourceHtmlId: selectedImage?.sourceHtmlId,
         };
         await persistImage(refined);
         setSelectedImage(refined);
@@ -3042,7 +3075,7 @@ INSTRUCTIONS:
             campaignId: campaign?.id,
             campaignBrand: campaign?.brand,
             strategyLabel: selectedImage.strategyLabel,
-            sourceHtmlId: (selectedImage as any).sourceHtmlId,
+            sourceHtmlId: selectedImage?.sourceHtmlId,
           };
           await persistImage(refined);
           setSelectedImage(refined);
@@ -3114,6 +3147,21 @@ INSTRUCTIONS:
 
     // ── PATH 3 (Freepik direct): User prompt → Image model ──
     if (!llmEnabled) {
+      // Ensure we have something to send — use a sensible default if prompt is empty/short
+      let finalImagePrompt = (prompt || '').trim();
+      if (!finalImagePrompt) {
+        // Use brand context or a generic prompt so it doesn't crash
+        const brand = campaign?.brand || campaign?.presetData?.brand || '';
+        const product = campaign?.productDescription || '';
+        if (brand || product) {
+          finalImagePrompt = `${brand} ${product} — professional advertisement, premium quality`.trim();
+        } else {
+          finalImagePrompt = 'Modern professional advertisement, premium quality, clean design';
+        }
+        setGenerationProgress(`No prompt — using: "${finalImagePrompt.slice(0, 60)}…"`);
+        await new Promise(r => setTimeout(r, 1500));
+      }
+
       // Quick health check before wasting time
       try {
         const healthOk = await checkServerStatus();
@@ -3130,12 +3178,11 @@ INSTRUCTIONS:
       setGenerationProgress('Sending to image model...');
       setServerWarning('');
 
-      const finalImagePrompt = prompt;
-
       setGenerationProgress(`Sending to ${modelName}...`);
 
       // Send ALL uploaded images to Freepik (product + layout refs)
-      const allRefBase64s = getCleanBase64s(uploadedImages);
+      let allRefBase64s: string[] = [];
+      try { allRefBase64s = getCleanBase64s(uploadedImages); } catch { /* ignore bad refs */ }
       let result = await generateImage({
         prompt: finalImagePrompt,
         model: imageModel,
@@ -3495,7 +3542,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
         await Promise.race([htmlGenPromise, htmlTimeout]);
 
         if (!htmlOutput.trim()) {
-          setLlmOutput(prev => prev + '\n─── ⚠ LLM returned empty HTML ───\n');
+          setLlmOutput(prev => prev + '\n─── [WARN] LLM returned empty HTML ───\n');
           setGenerationProgress('LLM returned empty HTML — try again');
           await new Promise(r => setTimeout(r, 2000));
           imageCountRef.current -= 1;
@@ -3515,7 +3562,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
         setLlmOutput(prev => prev + '\n\n─── Rendering layout to image... ───\n');
         const layoutScreenshot = await captureHtmlScreenshot(cleanHtml, dim.w, dim.h);
 
-        const layoutStatus = layoutScreenshot ? '✓ Layout rendered and captured' : '⚠ Layout generated (screenshot failed — continuing without layout ref)';
+        const layoutStatus = layoutScreenshot ? '[OK] Layout rendered and captured' : '[WARN] Layout generated (screenshot failed — continuing without layout ref)';
         setLlmOutput(prev => prev + `─── ${layoutStatus} ───\n`);
 
         if (layoutScreenshot) {
@@ -3777,7 +3824,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
         await Promise.race([htmlGenPromise, htmlTimeout]);
 
         if (!htmlOutput.trim()) {
-          setLlmOutput(prev => prev + '\n─── ⚠ LLM returned empty HTML ───\n');
+          setLlmOutput(prev => prev + '\n─── [WARN] LLM returned empty HTML ───\n');
           setGenerationProgress('LLM returned empty HTML — try again');
           await new Promise(r => setTimeout(r, 2000));
           imageCountRef.current -= 1;
@@ -3797,7 +3844,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
         setLlmOutput(prev => prev + '\n\n─── Rendering layout to image... ───\n');
         const layoutScreenshot = await captureHtmlScreenshot(cleanHtml, dim.w, dim.h);
 
-        const layoutStatus = layoutScreenshot ? '✓ Layout rendered and captured' : '⚠ Layout generated (screenshot failed — continuing without layout ref)';
+        const layoutStatus = layoutScreenshot ? '[OK] Layout rendered and captured' : '[WARN] Layout generated (screenshot failed — continuing without layout ref)';
         setLlmOutput(prev => prev + `─── ${layoutStatus} ───\n`);
 
         if (layoutScreenshot) {
@@ -3896,8 +3943,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
   // ══════════════════════════════════════════════════════
   const handleGenerate = useCallback(async () => {
     if (isGenerating || isRendering) return;
-    // Non-LLM non-refcopy mode requires a prompt
-    if (!llmEnabled && !referenceCopyEnabled && !prompt.trim()) return;
+    // Non-LLM non-refcopy: allow empty prompt — generateSingleImage will use fallback
     playSound('launch');
 
     // Validation: Check for missing critical inputs
@@ -3910,10 +3956,10 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
        currentCycle.researchFindings.avatarLanguage?.length);
 
     if (!hasPrompt && !hasBrand) {
-      warnings.push('⚠️ Missing: Add a prompt or load brand preset');
+      warnings.push('[!] Missing: Add a prompt or load brand preset');
     }
     if (htmlEnabled && !hasPrompt && !hasResearch) {
-      warnings.push('⚠️ Tip: Add a prompt or run research for better results');
+      warnings.push('[!] Tip: Add a prompt or run research for better results');
     }
 
     // Show warnings if any
@@ -4185,7 +4231,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
 
   // ── Render ──
   return (
-    <div className={`h-full flex flex-col overflow-hidden ${theme === 'dark' ? 'bg-zinc-900' : 'bg-[#f7f7f8]'}`}>
+    <div className={`h-full flex flex-col overflow-hidden ${theme === 'dark' ? 'bg-transparent' : 'bg-[#f7f7f8]'}`}>
 
       {/* ── Gallery / Canvas Area ── */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative">
@@ -4419,7 +4465,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                   {selectedVariants.size > 0 && !isGenerating && !isRendering && (
                     <button
                       onClick={renderSelectedVariants}
-                      className={`text-[10px] px-2.5 py-1 rounded-md font-semibold transition-colors bg-indigo-600 text-white hover:bg-indigo-500`}
+                      className={`text-[10px] px-2.5 py-1 rounded-md font-semibold transition-colors bg-blue-600 text-white hover:bg-blue-500`}
                     >
                       Render Selected ({selectedVariants.size})
                       {renderCount > 1 && <span className="opacity-70 ml-0.5">&times;{renderCount}</span>}
@@ -4434,7 +4480,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                           onClick={() => setRenderCount(n)}
                           className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${
                             renderCount === n
-                              ? 'bg-indigo-500/20 text-indigo-400 font-bold'
+                              ? 'bg-blue-500/20 text-blue-400 font-bold'
                               : theme === 'dark' ? 'text-zinc-600 hover:text-zinc-400' : 'text-zinc-400 hover:text-zinc-600'
                           }`}
                         >
@@ -4466,23 +4512,23 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
               {/* Render progress bar */}
               {isRendering && (
                 <div className={`mb-3 px-3 py-2 rounded-lg flex items-center gap-3 ${
-                  theme === 'dark' ? 'bg-indigo-900/20 border border-indigo-800/40' : 'bg-indigo-50 border border-indigo-200'
+                  theme === 'dark' ? 'bg-blue-900/20 border border-blue-800/40' : 'bg-blue-50 border border-blue-200'
                 }`}>
-                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse flex-shrink-0" />
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <div className={`text-[10px] font-medium truncate ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-700'}`}>
+                    <div className={`text-[10px] font-medium truncate ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>
                       {renderProgress || `Rendering ${renderCurrent}/${renderTotal}...`}
                     </div>
                   </div>
-                  <div className={`w-20 h-1.5 rounded-full overflow-hidden flex-shrink-0 ${theme === 'dark' ? 'bg-indigo-900/50' : 'bg-indigo-200'}`}>
+                  <div className={`w-20 h-1.5 rounded-full overflow-hidden flex-shrink-0 ${theme === 'dark' ? 'bg-blue-900/50' : 'bg-blue-200'}`}>
                     <div
-                      className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                      className="h-full bg-blue-500 rounded-full transition-all duration-300"
                       style={{ width: `${renderTotal > 0 ? (renderCurrent / renderTotal) * 100 : 0}%` }}
                     />
                   </div>
                   <button
                     onClick={handleCancelRender}
-                    className={`text-[9px] px-2 py-0.5 rounded font-medium flex-shrink-0 ${theme === 'dark' ? 'text-indigo-400 hover:bg-indigo-800/50' : 'text-indigo-600 hover:bg-indigo-100'}`}
+                    className={`text-[9px] px-2 py-0.5 rounded font-medium flex-shrink-0 ${theme === 'dark' ? 'text-blue-400 hover:bg-blue-800/50' : 'text-blue-600 hover:bg-blue-100'}`}
                   >
                     Cancel
                   </button>
@@ -4531,7 +4577,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                         {/* Inspired-by badge (top-left) */}
                         {variant.inspiredBy && (
                           <span className={`absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded text-[8px] font-medium backdrop-blur-sm ${
-                            theme === 'dark' ? 'bg-violet-900/60 text-violet-300' : 'bg-violet-100/90 text-violet-700'
+                            theme === 'dark' ? 'bg-blue-900/60 text-blue-300' : 'bg-blue-100/90 text-blue-700'
                           }`}>
                             {variant.inspiredBy}
                           </span>
@@ -4573,7 +4619,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                                   e.stopPropagation();
                                   setExpandedVariant(isExpanded ? null : variant.id);
                                 }}
-                                className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-indigo-500/80 text-white hover:bg-indigo-500 transition-colors flex-shrink-0 ml-1"
+                                className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-blue-500/80 text-white hover:bg-blue-500 transition-colors flex-shrink-0 ml-1"
                               >
                                 {variant.renders.length} render{variant.renders.length !== 1 ? 's' : ''} {isExpanded ? '\u25B2' : '\u25BC'}
                               </button>
@@ -4583,7 +4629,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                           {variant.visionFeedback && (
                             <div className="absolute top-2 right-2 z-10">
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-medium backdrop-blur-sm ${
-                                theme === 'dark' ? 'bg-violet-900/70 text-violet-300' : 'bg-violet-100/90 text-violet-700'
+                                theme === 'dark' ? 'bg-blue-900/70 text-blue-300' : 'bg-blue-100/90 text-blue-700'
                               }`}>
                                 QA
                               </span>
@@ -4596,9 +4642,9 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                       {/* Vision feedback (collapsed by default, shown on click) */}
                       {variant.visionFeedback && isExpanded && (
                         <div className={`mt-1 rounded-lg border p-2.5 text-[11px] whitespace-pre-wrap leading-relaxed ${
-                          theme === 'dark' ? 'bg-violet-900/10 border-violet-800/30 text-zinc-300' : 'bg-violet-50 border-violet-200 text-zinc-700'
+                          theme === 'dark' ? 'bg-blue-900/10 border-blue-800/30 text-zinc-300' : 'bg-blue-50 border-blue-200 text-zinc-700'
                         }`}>
-                          <p className={`text-[9px] uppercase tracking-wider font-semibold mb-1 ${theme === 'dark' ? 'text-violet-400' : 'text-violet-600'}`}>Vision QA</p>
+                          <p className={`text-[9px] uppercase tracking-wider font-semibold mb-1 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>Vision QA</p>
                           {variant.visionFeedback}
                         </div>
                       )}
@@ -4708,7 +4754,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                     {availablePipelines.map(p => {
                       const label = p === 'html-ad' ? 'HTML' : p === 'reference-copy' ? 'Ref Copy' : p === 'html-to-render' ? 'Render' : p === 'direct' ? 'Direct' : p.split('-')[0];
                       const active = pipelineFilter === p;
-                      const color = p === 'html-ad' ? 'emerald' : p === 'reference-copy' ? 'purple' : p === 'html-to-render' ? 'indigo' : 'zinc';
+                      const color = p === 'html-ad' ? 'emerald' : p === 'reference-copy' ? 'blue' : p === 'html-to-render' ? 'indigo' : 'zinc';
                       return (
                         <button
                           key={p}
@@ -4814,15 +4860,15 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
 
               {/* ── Vision QA Timeline ── */}
               {showVisionComparison && visionHistory.length > 0 && (
-                <div className={`mb-6 rounded-xl border overflow-hidden ${theme === 'dark' ? 'bg-zinc-900/80 border-violet-500/30' : 'bg-violet-50/30 border-violet-200'}`}>
+                <div className={`mb-6 rounded-xl border overflow-hidden ${theme === 'dark' ? 'bg-zinc-900/80 border-blue-500/30' : 'bg-blue-50/30 border-blue-200'}`}>
                   {/* Header */}
-                  <div className={`flex items-center justify-between px-4 py-2.5 border-b ${theme === 'dark' ? 'border-violet-500/20' : 'border-violet-200/60'}`}>
+                  <div className={`flex items-center justify-between px-4 py-2.5 border-b ${theme === 'dark' ? 'border-blue-500/20' : 'border-blue-200/60'}`}>
                     <div className="flex items-center gap-2.5">
-                      <div className={`w-2 h-2 rounded-full ${isGenerating ? 'bg-violet-500 animate-pulse' : 'bg-emerald-500'}`} />
-                      <span className={`text-xs font-semibold ${theme === 'dark' ? 'text-violet-300' : 'text-violet-700'}`}>
+                      <div className={`w-2 h-2 rounded-full ${isGenerating ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`} />
+                      <span className={`text-xs font-semibold ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>
                         Vision QA
                       </span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${theme === 'dark' ? 'bg-violet-500/15 text-violet-400' : 'bg-violet-100 text-violet-600'}`}>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${theme === 'dark' ? 'bg-blue-500/15 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
                         {visionHistory.length - 1} revision{visionHistory.length - 1 !== 1 ? 's' : ''}
                       </span>
                       {!isGenerating && visionHistory.length > 1 && (
@@ -4858,16 +4904,16 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                         </div>
                         {/* Arrow */}
                         <div className="flex items-center pt-5">
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={theme === 'dark' ? 'text-violet-500' : 'text-violet-400'}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={theme === 'dark' ? 'text-blue-500' : 'text-blue-400'}>
                             <path d="M5 12h14M12 5l7 7-7 7" />
                           </svg>
                         </div>
                         {/* Latest */}
                         <div className="flex-1">
-                          <p className={`text-[9px] uppercase tracking-widest font-bold mb-1.5 ${theme === 'dark' ? 'text-violet-400' : 'text-violet-600'}`}>
+                          <p className={`text-[9px] uppercase tracking-widest font-bold mb-1.5 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>
                             Round {visionHistory[visionHistory.length - 1].round}
                           </p>
-                          <div className={`relative rounded-lg overflow-hidden border-2 ${theme === 'dark' ? 'border-violet-500/50 ring-1 ring-violet-500/20' : 'border-violet-400 ring-1 ring-violet-400/20'}`}>
+                          <div className={`relative rounded-lg overflow-hidden border-2 ${theme === 'dark' ? 'border-blue-500/50 ring-1 ring-blue-500/20' : 'border-blue-400 ring-1 ring-blue-400/20'}`}>
                             <img
                               src={visionHistory[visionHistory.length - 1].screenshot.startsWith('data:') ? visionHistory[visionHistory.length - 1].screenshot : `data:image/png;base64,${visionHistory[visionHistory.length - 1].screenshot}`}
                               alt="Latest"
@@ -4890,7 +4936,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                             <div key={idx} className="flex-shrink-0 flex flex-col gap-1" style={{ scrollSnapAlign: 'start', width: '120px' }}>
                               <div className={`relative rounded-lg overflow-hidden border ${
                                 idx === visionHistory.length - 1
-                                  ? (theme === 'dark' ? 'border-violet-500' : 'border-violet-400')
+                                  ? (theme === 'dark' ? 'border-blue-500' : 'border-blue-400')
                                   : idx === 0
                                     ? (theme === 'dark' ? 'border-zinc-600' : 'border-zinc-300')
                                     : (theme === 'dark' ? 'border-zinc-700/50' : 'border-zinc-200')
@@ -4905,7 +4951,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                                   idx === 0
                                     ? 'bg-zinc-900/60 text-zinc-400'
                                     : idx === visionHistory.length - 1
-                                      ? 'bg-violet-600/80 text-white'
+                                      ? 'bg-blue-600/80 text-white'
                                       : 'bg-zinc-800/60 text-zinc-400'
                                 }`}>
                                   {idx === 0 ? 'v0' : `v${snap.round}`}
@@ -4933,7 +4979,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                           />
                         </div>
                         <div className="flex-1">
-                          <p className={`text-xs font-medium ${theme === 'dark' ? 'text-violet-300' : 'text-violet-600'}`}>
+                          <p className={`text-xs font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-600'}`}>
                             {isGenerating ? 'Reviewing ad...' : 'Review complete'}
                           </p>
                           <p className={`text-[10px] mt-0.5 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-500'}`}>
@@ -5076,7 +5122,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                               <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded-full backdrop-blur-sm ${
                                 visionPassed
                                   ? 'bg-green-500/80 text-white'
-                                  : 'bg-violet-500/80 text-white'
+                                  : 'bg-blue-500/80 text-white'
                               }`}>
                                 {visionPassed ? 'QA' : `${img.visionRounds!.length}R`}
                               </span>
@@ -5087,7 +5133,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                             <div className="flex items-center gap-1">
                               {pipelineShort && (
                                 <span className={`text-[7px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
-                                  img.pipeline === 'reference-copy' ? 'bg-purple-500/50 text-purple-100' :
+                                  img.pipeline === 'reference-copy' ? 'bg-blue-500/50 text-blue-100' :
                                   img.pipeline?.includes('html') ? 'bg-blue-500/50 text-blue-100' :
                                   'bg-white/20 text-white/80'
                                 }`}>{pipelineShort}</span>
@@ -5186,7 +5232,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
           {/* Reference Copy target indicator + style brief */}
           {referenceCopyEnabled && (
             <div className={`mb-2 rounded-xl border ${
-              theme === 'dark' ? 'bg-purple-500/10 border-purple-500/30' : 'bg-purple-50 border-purple-200'
+              theme === 'dark' ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'
             }`}>
               <div className="flex items-center gap-3 px-3 py-2">
                 {referenceCopyTarget ? (
@@ -5194,19 +5240,19 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                     <img
                       src={referenceCopyTarget.base64}
                       alt="Reference"
-                      className="w-12 h-12 rounded-lg object-cover border border-purple-400/30"
+                      className="w-12 h-12 rounded-lg object-cover border border-blue-400/30"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className={`text-xs font-semibold truncate ${theme === 'dark' ? 'text-purple-300' : 'text-purple-700'}`}>
+                      <p className={`text-xs font-semibold truncate ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>
                         {referenceCopyTarget.filename}
                       </p>
-                      <p className={`text-[10px] truncate ${theme === 'dark' ? 'text-purple-400/70' : 'text-purple-500'}`}>
+                      <p className={`text-[10px] truncate ${theme === 'dark' ? 'text-blue-400/70' : 'text-blue-500'}`}>
                         {referenceCopyTarget.category} — {referenceCopyTarget.description.slice(0, 80)}...
                       </p>
                     </div>
                     <button
                       onClick={() => setShowAdLibrary(true)}
-                      className={`text-[10px] px-2 py-1 rounded-md font-medium ${theme === 'dark' ? 'text-purple-300 hover:bg-purple-500/20' : 'text-purple-600 hover:bg-purple-100'}`}
+                      className={`text-[10px] px-2 py-1 rounded-md font-medium ${theme === 'dark' ? 'text-blue-300 hover:bg-blue-500/20' : 'text-blue-600 hover:bg-blue-100'}`}
                     >
                       Change
                     </button>
@@ -5214,14 +5260,14 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                       onClick={() => { setReferenceCopyTarget(null); localStorage.removeItem('make_reference_copy_target'); setReferenceStyle(''); localStorage.removeItem('make_reference_style'); }}
                       className={`text-[10px] px-1.5 py-1 rounded-md ${theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}
                     >
-                      ✕
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                     </button>
                   </>
                 ) : (
                   <button
                     onClick={() => setShowAdLibrary(true)}
                     className={`flex-1 text-xs font-medium py-2 text-center rounded-lg border border-dashed transition-colors ${
-                      theme === 'dark' ? 'text-purple-400 border-purple-500/40 hover:bg-purple-500/10' : 'text-purple-600 border-purple-300 hover:bg-purple-50'
+                      theme === 'dark' ? 'text-blue-400 border-blue-500/40 hover:bg-blue-500/10' : 'text-blue-600 border-blue-300 hover:bg-blue-50'
                     }`}
                   >
                     Select a reference ad from library to copy
@@ -5231,13 +5277,13 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
 
               {/* Style brief — describes the layout/composition/vibe to copy */}
               {referenceCopyTarget && (
-                <div className={`px-3 pb-2.5 border-t ${theme === 'dark' ? 'border-purple-500/20' : 'border-purple-200/60'}`}>
+                <div className={`px-3 pb-2.5 border-t ${theme === 'dark' ? 'border-blue-500/20' : 'border-blue-200/60'}`}>
                   <div className="flex items-center justify-between mt-2 mb-1">
-                    <span className={`text-[9px] uppercase tracking-widest font-bold ${theme === 'dark' ? 'text-purple-400/60' : 'text-purple-400'}`}>
+                    <span className={`text-[9px] uppercase tracking-widest font-bold ${theme === 'dark' ? 'text-blue-400/60' : 'text-blue-500'}`}>
                       Style brief
                     </span>
                     {referenceStyle && (
-                      <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${theme === 'dark' ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-600'}`}>
+                      <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${theme === 'dark' ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-600'}`}>
                         {referenceStyle.split(/\s+/).length} words
                       </span>
                     )}
@@ -5249,8 +5295,8 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                     rows={2}
                     className={`w-full text-[11px] leading-relaxed rounded-lg px-2.5 py-2 resize-none focus:outline-none transition-colors placeholder:italic ${
                       theme === 'dark'
-                        ? 'bg-zinc-900/50 text-purple-200 placeholder:text-purple-500/40 border border-purple-500/20 focus:border-purple-500/40'
-                        : 'bg-white text-purple-900 placeholder:text-purple-300 border border-purple-200 focus:border-purple-400'
+                        ? 'bg-zinc-900/50 text-zinc-200 placeholder:text-zinc-500/40 border border-zinc-700/50 focus:border-blue-500/40'
+                        : 'bg-white text-zinc-800 placeholder:text-zinc-400 border border-zinc-200 focus:border-blue-400'
                     }`}
                   />
                 </div>
@@ -5276,14 +5322,14 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
             {/* Template badge */}
             {templateHtml && (
               <div className={`flex items-center gap-2 px-4 pb-2 ${uploadedImages.length === 0 ? 'border-t pt-2' : ''} ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
-                <span className={`inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full text-xs font-medium border ${theme === 'dark' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' : 'bg-indigo-50 text-indigo-600 border-indigo-200'}`}>
+                <span className={`inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full text-xs font-medium border ${theme === 'dark' ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 014-4h14" />
                   </svg>
                   Template: {templateLabel || 'HTML'}
                   <button
                     onClick={() => { setTemplateHtml(null); setTemplateLabel(''); }}
-                    className={`ml-0.5 p-0.5 rounded-full transition-colors ${theme === 'dark' ? 'hover:bg-indigo-500/20' : 'hover:bg-indigo-100'}`}
+                    className={`ml-0.5 p-0.5 rounded-full transition-colors ${theme === 'dark' ? 'hover:bg-blue-500/20' : 'hover:bg-blue-100'}`}
                   >
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                       <path d="M18 6L6 18M6 6l12 12" />
@@ -5299,10 +5345,10 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                 {uploadedImages.map((img, idx) => {
                   const chipColors: Record<string, string> = theme === 'dark' ? {
                     product: 'bg-blue-900/30 text-blue-300 border-blue-800/50',
-                    layout: 'bg-purple-900/30 text-purple-300 border-purple-800/50',
+                    layout: 'bg-blue-900/30 text-blue-300 border-blue-800/50',
                   } : {
                     product: 'bg-blue-50 text-blue-700 border-blue-200',
-                    layout: 'bg-purple-50 text-purple-700 border-purple-200',
+                    layout: 'bg-blue-50 text-blue-700 border-blue-200',
                   };
                   const colors = chipColors[img.type] || chipColors.product;
                   return (
@@ -5316,9 +5362,9 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                       <span className="max-w-[80px] truncate">@img{idx + 1}</span>
                       <button
                         onClick={() => removeUploadedImage(idx)}
-                        className="ml-0.5 opacity-50 hover:opacity-100 cursor-pointer text-[10px]"
+                        className="ml-0.5 opacity-50 hover:opacity-100 cursor-pointer"
                       >
-                        ✕
+                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                       </button>
                     </div>
                   );
@@ -5393,8 +5439,8 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                   </span>
                 )}
                 {researchEnabled && copyComplete && (
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap ${theme === 'dark' ? 'bg-violet-900/30 text-violet-400' : 'bg-violet-50 text-violet-700'}`}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-violet-500 flex-shrink-0" />
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap ${theme === 'dark' ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-50 text-blue-700'}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
                     Taste
                   </span>
                 )}
@@ -5404,7 +5450,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                   onClick={() => setAdLibraryEnabled(v => !v)}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors whitespace-nowrap ${
                     adLibraryEnabled
-                      ? theme === 'dark' ? 'bg-violet-900/40 text-violet-300 border border-violet-500/30' : 'bg-violet-50 text-violet-600 border border-violet-200'
+                      ? theme === 'dark' ? 'bg-blue-900/40 text-blue-300 border border-blue-500/30' : 'bg-blue-50 text-blue-600 border border-blue-200'
                       : theme === 'dark' ? 'text-zinc-600 hover:text-zinc-400 border border-transparent' : 'text-zinc-300 hover:text-zinc-500 border border-transparent'
                   }`}
                   title={adLibraryEnabled
@@ -5412,7 +5458,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                     : 'Ad library references OFF — LLM will generate without reference ads. Click to enable.'
                   }
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${adLibraryEnabled ? 'bg-violet-500' : theme === 'dark' ? 'bg-zinc-600' : 'bg-zinc-300'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${adLibraryEnabled ? 'bg-blue-500' : theme === 'dark' ? 'bg-zinc-600' : 'bg-zinc-300'}`} />
                   {adLibraryEnabled ? 'Refs ON' : 'Refs OFF'}
                 </button>
                 <input
@@ -5593,7 +5639,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                                     }}
                                     className={`group relative px-2 py-0.5 rounded text-[10px] font-medium transition-all border ${
                                       customStyleImage === cs.base64
-                                        ? 'bg-purple-500/20 border-purple-400/40 text-purple-400'
+                                        ? 'bg-blue-500/20 border-blue-400/40 text-blue-400'
                                         : theme === 'dark' ? 'border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600' : 'border-zinc-200 text-zinc-400 hover:text-zinc-600'
                                     }`}
                                   >
@@ -5648,8 +5694,8 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                               </label>
                               {customStyleImage && (
                                 <div className="mt-1.5 flex items-center gap-2">
-                                  <img src={customStyleImage} alt="Style ref" className="w-8 h-8 rounded object-cover border border-purple-400/30" />
-                                  <span className={`text-[10px] ${theme === 'dark' ? 'text-purple-400' : 'text-purple-600'}`}>{customStyleName}</span>
+                                  <img src={customStyleImage} alt="Style ref" className="w-8 h-8 rounded object-cover border border-blue-400/30" />
+                                  <span className={`text-[10px] ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>{customStyleName}</span>
                                 </div>
                               )}
                             </div>
@@ -5683,14 +5729,14 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                                       ? 'bg-blue-500/10 border-blue-400/30 text-blue-600' + (theme === 'dark' ? ' !text-blue-400' : '')
                                       : theme === 'dark' ? 'border-zinc-700 text-zinc-600' : 'border-zinc-200 text-zinc-400'
                                   }`}
-                                >{presetEnabled ? '●' : '○'} Brand data</button>
+                                ><span className="inline-flex items-center gap-1">{presetEnabled ? <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg> : <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/></svg>} Brand data</span></button>
                                 <button onClick={() => setResearchEnabled(!researchEnabled)}
                                   className={`px-2 py-0.5 rounded text-[9px] font-medium transition-all border ${
                                     researchEnabled
                                       ? 'bg-blue-500/10 border-blue-400/30 text-blue-600' + (theme === 'dark' ? ' !text-blue-400' : '')
                                       : theme === 'dark' ? 'border-zinc-700 text-zinc-600' : 'border-zinc-200 text-zinc-400'
                                   }`}
-                                >{researchEnabled ? '●' : '○'} Research</button>
+                                ><span className="inline-flex items-center gap-1">{researchEnabled ? <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg> : <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/></svg>} Research</span></button>
                               </div>
 
                               {/* Mode */}
@@ -5708,7 +5754,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                                 >HTML ad</button>
                                 <button onClick={() => { const next = !referenceCopyEnabled; setReferenceCopyEnabled(next); localStorage.setItem('make_reference_copy', String(next)); if (next) setHtmlEnabled(false); }}
                                   className={`flex-1 py-1.5 text-[10px] font-medium transition-all ${
-                                    referenceCopyEnabled ? 'bg-purple-500 text-white' : theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'
+                                    referenceCopyEnabled ? 'bg-blue-500 text-white' : theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'
                                   }`}
                                 >Clone ref</button>
                               </div>
@@ -5753,7 +5799,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                               <div className="flex gap-0.5">
                                 {[1, 3, 5].map(n => (
                                   <button key={n} onClick={() => { setBatchRefCount(n); localStorage.setItem('make_batch_ref_count', String(n)); }}
-                                    className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${batchRefCount === n ? 'bg-purple-500 text-white' : theme === 'dark' ? 'bg-zinc-800 text-zinc-500' : 'bg-zinc-100 text-zinc-500'}`}
+                                    className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${batchRefCount === n ? 'bg-blue-500 text-white' : theme === 'dark' ? 'bg-zinc-800 text-zinc-500' : 'bg-zinc-100 text-zinc-500'}`}
                                   >{n}</button>
                                 ))}
                               </div>
@@ -5805,11 +5851,11 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                                         max={50}
                                         value={visionRounds}
                                         onChange={(e) => { const v = Math.max(1, Math.min(50, parseInt(e.target.value) || 1)); setVisionRounds(v); localStorage.setItem('make_vision_rounds', String(v)); }}
-                                        className={`w-10 text-center text-[9px] font-medium rounded px-1 py-0.5 focus:outline-none ${theme === 'dark' ? 'text-violet-300 bg-zinc-800 border border-zinc-700' : 'text-violet-700 bg-white border border-zinc-200'}`}
+                                        className={`w-10 text-center text-[9px] font-medium rounded px-1 py-0.5 focus:outline-none ${theme === 'dark' ? 'text-blue-300 bg-zinc-800 border border-zinc-700' : 'text-blue-700 bg-white border border-zinc-200'}`}
                                       />
                                     )}
                                     <button onClick={() => { const next = !visionFeedbackEnabled; setVisionFeedbackEnabled(next); localStorage.setItem('make_vision_feedback', String(next)); }}
-                                      className={`relative w-7 h-[16px] rounded-full transition-colors ${visionFeedbackEnabled ? 'bg-violet-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
+                                      className={`relative w-7 h-[16px] rounded-full transition-colors ${visionFeedbackEnabled ? 'bg-blue-500' : theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-300'}`}
                                     >
                                       <span className={`absolute top-[2px] w-3 h-3 bg-white rounded-full shadow transition-transform ${visionFeedbackEnabled ? 'left-[12px]' : 'left-[2px]'}`} />
                                     </button>
@@ -5836,7 +5882,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                           <div className={`border-t pt-2 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
                             <button onClick={() => setShowResearchSummary(!showResearchSummary)}
                               className={`text-[10px] font-medium transition-colors ${theme === 'dark' ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}
-                            >{showResearchSummary ? '▾' : '▸'} Research</button>
+                            ><span className="inline-flex items-center gap-1">{showResearchSummary ? <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg> : <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>} Research</span></button>
                             {showResearchSummary && currentCycle?.researchFindings && (
                               <div className={`rounded p-2 mt-1 text-[9px] space-y-0.5 border ${theme === 'dark' ? 'bg-blue-900/20 border-blue-800/40 text-zinc-300' : 'bg-blue-50 border-blue-200 text-zinc-700'}`}>
                                 {currentCycle.researchFindings.deepDesires?.length > 0 && <div>Desires: {currentCycle.researchFindings.deepDesires.length}</div>}
@@ -6017,12 +6063,12 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                 </div>
 
                 {selectedImage.htmlScreenshot && (
-                  <div className={`rounded-lg p-2.5 border ${theme === 'dark' ? 'bg-purple-900/20 border-purple-800/40' : 'bg-purple-50 border-purple-100'}`}>
-                    <p className={`text-[9px] uppercase tracking-wider font-semibold mb-1.5 ${theme === 'dark' ? 'text-purple-400' : 'text-purple-400'}`}>Layout Wireframe</p>
+                  <div className={`rounded-lg p-2.5 border ${theme === 'dark' ? 'bg-blue-900/20 border-blue-800/40' : 'bg-blue-50 border-blue-100'}`}>
+                    <p className={`text-[9px] uppercase tracking-wider font-semibold mb-1.5 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-400'}`}>Layout Wireframe</p>
                     <img
                       src={`data:image/png;base64,${selectedImage.htmlScreenshot}`}
                       alt="HTML Layout"
-                      className={`w-full rounded-md border shadow-sm ${theme === 'dark' ? 'border-purple-800/40' : 'border-purple-200'}`}
+                      className={`w-full rounded-md border shadow-sm ${theme === 'dark' ? 'border-blue-800/40' : 'border-blue-200'}`}
                     />
                   </div>
                 )}
@@ -6048,10 +6094,10 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
 
                 {/* Vision QA Iterations — round-by-round browser */}
                 {selectedImage.visionRounds && selectedImage.visionRounds.length > 0 ? (
-                  <div className={`rounded-lg border overflow-hidden ${theme === 'dark' ? 'bg-violet-900/10 border-violet-800/40' : 'bg-violet-50/50 border-violet-200'}`}>
+                  <div className={`rounded-lg border overflow-hidden ${theme === 'dark' ? 'bg-blue-900/10 border-blue-800/40' : 'bg-blue-50/50 border-blue-200'}`}>
                     {/* Header */}
-                    <div className={`px-2.5 py-2 flex items-center justify-between ${theme === 'dark' ? 'bg-violet-900/20' : 'bg-violet-100/50'}`}>
-                      <p className={`text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-violet-400' : 'text-violet-600'}`}>
+                    <div className={`px-2.5 py-2 flex items-center justify-between ${theme === 'dark' ? 'bg-blue-900/20' : 'bg-blue-100/50'}`}>
+                      <p className={`text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>
                         Vision QA — {selectedImage.visionRounds.length} round{selectedImage.visionRounds.length > 1 ? 's' : ''}
                       </p>
                       {selectedImage.visionRounds.length > 1 && (
@@ -6059,17 +6105,17 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                           <button
                             onClick={() => setVisionRoundIdx(Math.max(0, visionRoundIdx - 1))}
                             disabled={visionRoundIdx === 0}
-                            className={`w-5 h-5 flex items-center justify-center rounded text-[10px] transition-colors disabled:opacity-30 ${theme === 'dark' ? 'text-violet-300 hover:bg-violet-800/40' : 'text-violet-600 hover:bg-violet-200'}`}
+                            className={`w-5 h-5 flex items-center justify-center rounded text-[10px] transition-colors disabled:opacity-30 ${theme === 'dark' ? 'text-blue-300 hover:bg-blue-800/40' : 'text-blue-600 hover:bg-blue-200'}`}
                           >
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
                           </button>
-                          <span className={`text-[9px] font-mono font-semibold min-w-[2rem] text-center ${theme === 'dark' ? 'text-violet-300' : 'text-violet-700'}`}>
+                          <span className={`text-[9px] font-mono font-semibold min-w-[2rem] text-center ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>
                             {visionRoundIdx + 1}/{selectedImage.visionRounds.length}
                           </span>
                           <button
                             onClick={() => setVisionRoundIdx(Math.min(selectedImage.visionRounds!.length - 1, visionRoundIdx + 1))}
                             disabled={visionRoundIdx >= (selectedImage.visionRounds?.length || 1) - 1}
-                            className={`w-5 h-5 flex items-center justify-center rounded text-[10px] transition-colors disabled:opacity-30 ${theme === 'dark' ? 'text-violet-300 hover:bg-violet-800/40' : 'text-violet-600 hover:bg-violet-200'}`}
+                            className={`w-5 h-5 flex items-center justify-center rounded text-[10px] transition-colors disabled:opacity-30 ${theme === 'dark' ? 'text-blue-300 hover:bg-blue-800/40' : 'text-blue-600 hover:bg-blue-200'}`}
                           >
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
                           </button>
@@ -6079,14 +6125,14 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
 
                     {/* Round thumbnail strip */}
                     {selectedImage.visionRounds.length > 1 && (
-                      <div className={`px-2.5 py-1.5 flex gap-1 overflow-x-auto border-b ${theme === 'dark' ? 'border-violet-800/30' : 'border-violet-200/60'}`}>
+                      <div className={`px-2.5 py-1.5 flex gap-1 overflow-x-auto border-b ${theme === 'dark' ? 'border-blue-800/30' : 'border-blue-200/60'}`}>
                         {selectedImage.visionRounds.map((round, ri) => (
                           <button
                             key={ri}
                             onClick={() => setVisionRoundIdx(ri)}
                             className={`shrink-0 relative rounded-md overflow-hidden transition-all ${
                               ri === visionRoundIdx
-                                ? 'ring-2 ring-violet-500 shadow-md'
+                                ? 'ring-2 ring-blue-500 shadow-md'
                                 : theme === 'dark' ? 'ring-1 ring-zinc-700 opacity-60 hover:opacity-90' : 'ring-1 ring-zinc-200 opacity-60 hover:opacity-90'
                             }`}
                             title={`Round ${round.round}: ${round.status}`}
@@ -6135,7 +6181,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                           {/* Feedback */}
                           {round.feedback && round.feedback !== 'Original' && (
                             <div>
-                              <p className={`text-[9px] font-semibold mb-0.5 ${theme === 'dark' ? 'text-violet-400' : 'text-violet-500'}`}>Feedback</p>
+                              <p className={`text-[9px] font-semibold mb-0.5 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-500'}`}>Feedback</p>
                               <p className={`text-[10px] leading-relaxed ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>{round.feedback}</p>
                             </div>
                           )}
@@ -6154,7 +6200,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                           {round.imageBase64 !== selectedImage.imageBase64 && (
                             <button
                               onClick={() => setSelectedImage(prev => prev ? { ...prev, imageBase64: round.imageBase64 } : prev)}
-                              className={`text-[9px] font-medium transition-colors ${theme === 'dark' ? 'text-violet-400 hover:text-violet-300' : 'text-violet-600 hover:text-violet-700'}`}
+                              className={`text-[9px] font-medium transition-colors ${theme === 'dark' ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}
                             >
                               View this version
                             </button>
@@ -6165,9 +6211,9 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                   </div>
                 ) : selectedImage.visionFeedback ? (
                   /* Fallback: simple text feedback if no rounds array */
-                  <div className={`rounded-lg p-2.5 border ${theme === 'dark' ? 'bg-violet-900/20 border-violet-800/40' : 'bg-violet-50 border-violet-100'}`}>
-                    <p className={`text-[9px] uppercase tracking-wider font-semibold mb-1 ${theme === 'dark' ? 'text-violet-400' : 'text-violet-600'}`}>Vision QA</p>
-                    <p className={`text-[11px] leading-relaxed ${theme === 'dark' ? 'text-violet-300' : 'text-violet-700'}`}>{selectedImage.visionFeedback}</p>
+                  <div className={`rounded-lg p-2.5 border ${theme === 'dark' ? 'bg-blue-900/20 border-blue-800/40' : 'bg-blue-50 border-blue-100'}`}>
+                    <p className={`text-[9px] uppercase tracking-wider font-semibold mb-1 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>Vision QA</p>
+                    <p className={`text-[11px] leading-relaxed ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>{selectedImage.visionFeedback}</p>
                   </div>
                 ) : null}
 
@@ -6183,9 +6229,9 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
 
                 {/* Strategy label */}
                 {selectedImage.strategyLabel && (
-                  <div className={`rounded-lg px-2.5 py-2 border ${theme === 'dark' ? 'bg-indigo-900/20 border-indigo-800/40' : 'bg-indigo-50 border-indigo-100'}`}>
-                    <p className={`text-[9px] uppercase tracking-wider font-semibold mb-0.5 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-400'}`}>Strategy</p>
-                    <p className={`text-[11px] font-medium ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-700'}`}>{selectedImage.strategyLabel}</p>
+                  <div className={`rounded-lg px-2.5 py-2 border ${theme === 'dark' ? 'bg-blue-900/20 border-blue-800/40' : 'bg-blue-50 border-blue-100'}`}>
+                    <p className={`text-[9px] uppercase tracking-wider font-semibold mb-0.5 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-400'}`}>Strategy</p>
+                    <p className={`text-[11px] font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>{selectedImage.strategyLabel}</p>
                   </div>
                 )}
 
@@ -6211,8 +6257,8 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                     }}
                     className={`w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
                       theme === 'dark'
-                        ? 'text-indigo-300 bg-indigo-900/30 hover:bg-indigo-900/50 border-indigo-800/40'
-                        : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border-indigo-200'
+                        ? 'text-blue-300 bg-blue-900/30 hover:bg-blue-900/50 border-blue-800/40'
+                        : 'text-blue-700 bg-blue-50 hover:bg-blue-100 border-blue-200'
                     }`}
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -6505,8 +6551,8 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                                   analyzingImageIdx !== null
                                     ? 'opacity-40 cursor-not-allowed'
                                     : theme === 'dark'
-                                      ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
-                                      : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
+                                      ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
+                                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
                                 }`}
                                 title="Analyze with vision model"
                               >
@@ -6583,8 +6629,8 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                       <span className={`font-mono text-[10px] uppercase tracking-[0.15em] font-bold ${headerCls}`}>
                         {title}{subtitle && <span className={`ml-1.5 font-normal normal-case tracking-normal ${labelCls}`}>{subtitle}</span>}
                       </span>
-                      <span className={`text-[10px] ${labelCls} shrink-0 transition-transform ${presetSections[id] ? 'rotate-90' : ''}`}>
-                        ▶
+                      <span className={`${labelCls} shrink-0 transition-transform ${presetSections[id] ? 'rotate-90' : ''}`}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                       </span>
                     </button>
                     {presetSections[id] && (

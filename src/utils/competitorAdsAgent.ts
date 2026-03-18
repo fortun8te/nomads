@@ -21,7 +21,7 @@ import type {
   AdExample,
 } from '../types';
 import { ollamaService } from './ollama';
-import { wayfarerService } from './wayfarer';
+import { wayfayerService } from './wayfayer';
 
 // ───────────────────────────────────────────────────────────────────
 // Step 1: Extract competitor brand names from research findings
@@ -82,12 +82,12 @@ async function scrapeCompetitorAds(
   try {
     // Query 1: Direct ad examples search
     const query1 = `"${brand}" facebook ad examples copy hook 2025`;
-    const result1 = await wayfarerService.research(query1, 10);
+    const result1 = await wayfayerService.research(query1, 10);
     onProgress(`   Found ${result1.pages.length} pages on ad examples\n`);
 
     // Query 2: Reddit/forum ad breakdowns
     const query2 = `"${brand}" ad creative breakdown site:reddit.com OR site:twitter.com`;
-    const result2 = await wayfarerService.research(query2, 8);
+    const result2 = await wayfayerService.research(query2, 8);
     onProgress(`   Found ${result2.pages.length} pages on ad discussions\n`);
 
     // Combine results

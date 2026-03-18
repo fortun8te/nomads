@@ -108,10 +108,9 @@ export function useResearchAgent() {
     // Reference image descriptions
     const imgs = campaign.referenceImages;
     if (imgs?.length) {
-      const imgDescs = (imgs as any[]).map((img: any, i: number) => {
-        if (typeof img === 'string') return `Image ${i + 1}: (no description)`;
+      const imgDescs = imgs.map((img, i) => {
         return `Image ${i + 1} [${img.type || 'other'}] "${img.label || ''}": ${img.description || '(no description)'}`;
-      }).filter((d: string) => !d.includes('(no description)'));
+      }).filter(d => !d.includes('(no description)'));
       if (imgDescs.length > 0) {
         parts.push(`Reference Images:\n${imgDescs.join('\n')}`);
       }

@@ -67,9 +67,12 @@ class ResearchAuditCollector {
     const duration = endTime - this.metrics.startTime;
 
     // Get token counts from global tracker
-    const stats = (tokenTracker as any).getStats?.() || { sessionTotal: 0, byModel: {} };
-    const tokensByModel = stats.byModel || {};
-    const totalTokens = stats.sessionTotal || 0;
+    const snapshot = tokenTracker.getSnapshot();
+    const totalTokens = snapshot.sessionTotal || 0;
+    const tokensByModel: Record<string, number> = {};
+    if (snapshot.activeModel) {
+      tokensByModel[snapshot.activeModel] = totalTokens;
+    }
 
     return {
       totalSources: this.metrics.totalSources,

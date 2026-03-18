@@ -2,6 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Design token CSS custom properties ── */
+:root {
+  /* Backgrounds */
+  --bg-primary: #fafafa;
+  --bg-secondary: #f4f4f5;
+  --bg-tertiary: #f9f9f9;
+
+  /* Text */
+  --text-primary: #18181b;
+  --text-secondary: #71717a;
+  --text-muted: #a1a1aa;
+  --text-ghost: #d4d4d8;
+
+  /* Borders — single standard value */
+  --border-subtle: rgba(0,0,0,0.06);
+
+  /* Accent */
+  --accent-blue: #2B79FF;
+  --accent-green: #22c55e;
+  --accent-red: #ef4444;
+  --accent-amber: #f59e0b;
+}
+
+.dark {
+  --bg-primary: #09090b;
+  --bg-secondary: #0f0f0f;
+  --bg-tertiary: #0c0c0c;
+
+  --text-primary: rgba(255,255,255,0.85);
+  --text-secondary: rgba(255,255,255,0.55);
+  --text-muted: rgba(255,255,255,0.30);
+  --text-ghost: rgba(255,255,255,0.15);
+
+  --border-subtle: rgba(255,255,255,0.08);
+}
+
 * {
   margin: 0;
   padding: 0;

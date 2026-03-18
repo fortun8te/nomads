@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ANGLE_SHOTS, ANGLE_CATEGORIES, buildAnglePrompt } from '../utils/anglePrompts';
 import { generateImage } from '../utils/freepikService';
 import { ollamaService } from '../utils/ollama';
+import { getVisionModel } from '../utils/modelConfig';
 import type { StoredImage } from '../utils/storage';
 import type { AngleShot } from '../utils/anglePrompts';
 
@@ -154,7 +155,7 @@ export function ProductAngleCreator({
         const desc = await ollamaService.generateStream(
           'Describe this product in 15-20 words. Focus on: what it is, shape, color, material, any visible text/branding. Be specific and factual.',
           'You describe products for photography direction. Short, factual, no opinions.',
-          { model: 'minicpm-v:8b', images: [raw], temperature: 0.3 }
+          { model: getVisionModel(), images: [raw], temperature: 0.3 }
         );
         setProductDescription(desc.trim());
       } catch {

@@ -1,7 +1,7 @@
-// Wayfarer — TypeScript client for the Wayfarer web research API
+// Wayfayer — TypeScript client for the Wayfayer web research API
 // Replaces the old searxng.ts (DuckDuckGo snippets) with full page scraping
 
-export interface WayfarerPage {
+export interface WayfayerPage {
   url: string;
   title: string;
   content: string;   // Full page text (not a snippet)
@@ -9,38 +9,38 @@ export interface WayfarerPage {
   source: string;    // "article" | "markdown" | "failed"
 }
 
-export interface WayfarerSource {
+export interface WayfayerSource {
   url: string;
   title: string;
   snippet: string;
 }
 
-export interface WayfarerMeta {
+export interface WayfayerMeta {
   total: number;
   success: number;
   elapsed: number;
   error?: string | null;
 }
 
-export interface WayfarerResult {
+export interface WayfayerResult {
   query: string;
   text: string;             // All pages concatenated with --- separators
-  pages: WayfarerPage[];
-  sources: WayfarerSource[];
-  meta: WayfarerMeta;
+  pages: WayfayerPage[];
+  sources: WayfayerSource[];
+  meta: WayfayerMeta;
 }
 
 const DEFAULT_HOST = 'http://localhost:8889';
 
 function getHost(): string {
   if (typeof window !== 'undefined') {
-    const stored = localStorage.getItem('wayfarer_host');
+    const stored = localStorage.getItem('wayfayer_host');
     if (stored) return stored;
   }
   return DEFAULT_HOST;
 }
 
-export const wayfarerService = {
+export const wayfayerService = {
   getHost,
 
   async healthCheck(): Promise<boolean> {
@@ -52,7 +52,7 @@ export const wayfarerService = {
     }
   },
 
-  async research(query: string, numResults: number = 10, signal?: AbortSignal): Promise<WayfarerResult> {
+  async research(query: string, numResults: number = 10, signal?: AbortSignal): Promise<WayfayerResult> {
     try {
       const resp = await fetch(`${getHost()}/research`, {
         method: 'POST',
@@ -67,14 +67,14 @@ export const wayfarerService = {
       });
 
       if (!resp.ok) {
-        console.error(`Wayfarer error: ${resp.status} ${resp.statusText}`);
+        console.error(`Wayfayer error: ${resp.status} ${resp.statusText}`);
         return emptyResult(query);
       }
 
       return await resp.json();
     } catch (error) {
       if (signal?.aborted) throw error;
-      console.error('Wayfarer fetch error:', error);
+      console.error('Wayfayer fetch error:', error);
       return emptyResult(query);
     }
   },
@@ -115,13 +115,13 @@ export interface BatchCrawlResult {
   success: number;
 }
 
-function emptyResult(query: string): WayfarerResult {
+function emptyResult(query: string): WayfayerResult {
   return {
     query,
     text: '',
     pages: [],
     sources: [],
-    meta: { total: 0, success: 0, elapsed: 0, error: 'Wayfarer unavailable' },
+    meta: { total: 0, success: 0, elapsed: 0, error: 'Wayfayer unavailable' },
   };
 }
 
@@ -160,22 +160,49 @@ export const screenshotService = {
     viewportWidth?: number;
     viewportHeight?: number;
     quality?: number;
+    signal?: AbortSignal;
+    timeoutMs?: number;
   }): Promise<ScreenshotResult> {
     try {
-      const resp = await fetch(`${getHost()}/screenshot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url,
-          viewport_width: options?.viewportWidth ?? 1280,
-          viewport_height: options?.viewportHeight ?? 720,
-          quality: options?.quality ?? 60,
-        }),
-      });
+      // Build controller that combines user cancel + generous timeout (2 min)
+      // Playwright needs time: cold browser launch + navigate + popup dismissal + render
+      const timeout = options?.timeoutMs ?? 120000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+
+      // Forward user abort to our controller
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          clearTimeout(timer);
+          return { url, image_base64: '', width: 0, height: 0, error: 'Cancelled' };
+        }
+        options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+
+      let resp: Response;
+      try {
+        resp = await fetch(`${getHost()}/screenshot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url,
+            viewport_width: options?.viewportWidth ?? 1280,
+            viewport_height: options?.viewportHeight ?? 720,
+            quality: options?.quality ?? 60,
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       if (!resp.ok) return { url, image_base64: '', width: 0, height: 0, error: `HTTP ${resp.status}` };
       return await resp.json();
     } catch (error) {
-      return { url, image_base64: '', width: 0, height: 0, error: String(error) };
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('abort') || msg.includes('Abort') || msg.includes('timeout') || msg.includes('cancel')) {
+        return { url, image_base64: '', width: 0, height: 0, error: 'Request timed out or cancelled' };
+      }
+      return { url, image_base64: '', width: 0, height: 0, error: msg };
     }
   },
 
@@ -203,6 +230,66 @@ export const screenshotService = {
     } catch (error) {
       return urls.map(u => ({ url: u, image_base64: '', width: 0, height: 0, error: String(error) }));
     }
+  },
+
+  /** Open an agentic page session — keeps page alive for scroll/click/evaluate */
+  async sessionOpen(url: string, options?: {
+    viewportWidth?: number; viewportHeight?: number; signal?: AbortSignal;
+  }): Promise<{ session_id: string; url: string; image_base64: string; width: number; height: number; title: string; error: string | null }> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30000);
+      if (options?.signal) {
+        if (options.signal.aborted) { clearTimeout(timer); return { session_id: '', url, image_base64: '', width: 0, height: 0, title: '', error: 'Cancelled' }; }
+        options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+      let resp: Response;
+      try {
+        resp = await fetch(`${getHost()}/session/open`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, viewport_width: options?.viewportWidth ?? 1280, viewport_height: options?.viewportHeight ?? 900 }),
+          signal: controller.signal,
+        });
+      } finally { clearTimeout(timer); }
+      if (!resp.ok) return { session_id: '', url, image_base64: '', width: 0, height: 0, title: '', error: `HTTP ${resp.status}` };
+      return await resp.json();
+    } catch (error) {
+      return { session_id: '', url, image_base64: '', width: 0, height: 0, title: '', error: String(error) };
+    }
+  },
+
+  /** Perform action on active session (screenshot, scroll, click, evaluate, extract_text, find, navigate, hover) */
+  async sessionAction(sessionId: string, action: string, opts?: {
+    selector?: string; js?: string; scrollY?: number; clickX?: number; clickY?: number;
+    quality?: number; signal?: AbortSignal;
+  }): Promise<{ error: string | null; result: any; image_base64: string; title?: string; current_url?: string }> {
+    try {
+      const resp = await fetch(`${getHost()}/session/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          action,
+          selector: opts?.selector ?? '',
+          js: opts?.js ?? '',
+          scroll_y: opts?.scrollY ?? 0,
+          click_x: opts?.clickX ?? -1,
+          click_y: opts?.clickY ?? -1,
+          quality: opts?.quality ?? 60,
+        }),
+        signal: opts?.signal,
+      });
+      if (!resp.ok) return { error: `HTTP ${resp.status}`, result: null, image_base64: '' };
+      return await resp.json();
+    } catch (error) {
+      return { error: String(error), result: null, image_base64: '' };
+    }
+  },
+
+  /** Close an active session */
+  async sessionClose(sessionId: string): Promise<void> {
+    try { await fetch(`${getHost()}/session/close?session_id=${sessionId}`, { method: 'POST' }); } catch {}
   },
 
   /**
@@ -238,7 +325,7 @@ export const screenshotService = {
 import type { ProductPageAnalysis } from '../types';
 import { ollamaService } from './ollama';
 import { getModelForStage, getResearchModelConfig } from './modelConfig';
-// wayfarer uses researcherSynthesisModel for product page parsing
+// wayfayer uses researcherSynthesisModel for product page parsing
 
 async function parseProductPageVision(
   visionOutput: string,
@@ -413,7 +500,7 @@ interface CrawlLink {
 }
 
 /**
- * Crawl a URL and extract all links (uses Wayfarer /crawl endpoint with Playwright).
+ * Crawl a URL and extract all links (uses Wayfayer /crawl endpoint with Playwright).
  */
 async function crawlLinks(url: string, linkPattern?: string): Promise<CrawlLink[]> {
   try {
@@ -493,7 +580,7 @@ export async function siteCrawler(
   // ── Strategy 1: SearXNG search for indexed product pages ──
   onProgress?.(`[Site Crawler] Searching for indexed product pages...`);
   try {
-    const searchResult = await wayfarerService.research(
+    const searchResult = await wayfayerService.research(
       `site:${cleanDomain} products`,
       15
     );
@@ -579,7 +666,7 @@ function inferProductName(url: string, linkText?: string): string {
 /**
  * batchAnalyzeProducts — Parallel vision analysis of multiple product pages.
  *
- * 1. Batch screenshot all URLs (parallel via Wayfarer)
+ * 1. Batch screenshot all URLs (parallel via Wayfayer)
  * 2. Run minicpm-v vision on each screenshot (sequential — model can only handle one at a time)
  * 3. GLM parse each vision output into structured data
  * 4. Return array of ProductPageAnalysis
@@ -655,7 +742,7 @@ export async function analyzeCompetitor(
     // ── Step 1: Find brand's website ──
     onProgress?.(`\n[Competitor Intel] Finding ${brandName} website...`);
 
-    const searchResult = await wayfarerService.research(
+    const searchResult = await wayfayerService.research(
       `"${brandName}" official website products`,
       5
     );

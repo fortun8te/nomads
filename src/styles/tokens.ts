@@ -1,39 +1,64 @@
 /**
- * Design Tokens — Centralized theme for Foreplay-style UI
- * Glass-morphism cards, gradient accents, dark-first design
+ * Design Tokens — Single source of truth for all theme values
+ *
+ * Color system:
+ *   - Backgrounds: #09090b (primary), #0f0f0f (secondary/panels), #0c0c0c (tertiary)
+ *   - Text: rgba(255,255,255,0.85) (primary), rgba(255,255,255,0.55) (secondary),
+ *           rgba(255,255,255,0.30) (muted/dim), rgba(255,255,255,0.15) (ghost)
+ *   - Borders: rgba(255,255,255,0.08) everywhere
+ *   - Accent: #2B79FF (blue), #22c55e (green), #ef4444 (red), #f59e0b (amber)
+ *
+ * Font sizes:
+ *   - Headers: 13-14px semibold
+ *   - Body: 12px regular/medium
+ *   - Labels/small: 10-11px medium
+ *   - Tiny: 9px (uppercase tracking labels)
+ *   - Mono/code: JetBrains Mono / ui-monospace
  */
 
 export const tokens = {
   colors: {
     bg: {
-      primary: { dark: '#09090b', light: '#fafafa' },       // zinc-950 / zinc-50
-      secondary: { dark: '#18181b', light: '#f4f4f5' },     // zinc-900 / zinc-100
-      card: { dark: 'rgba(24, 24, 27, 0.8)', light: 'rgba(255, 255, 255, 0.9)' },
-      sidebar: { dark: '#09090b', light: '#ffffff' },
+      primary:   { dark: '#09090b', light: '#fafafa' },
+      secondary: { dark: '#0f0f0f', light: '#f4f4f5' },
+      tertiary:  { dark: '#0c0c0c', light: '#f9f9f9' },
+      card:      { dark: 'rgba(24, 24, 27, 0.8)', light: 'rgba(255, 255, 255, 0.9)' },
+      sidebar:   { dark: '#09090b', light: '#ffffff' },
+      hover:     { dark: 'rgba(255,255,255,0.04)', light: 'rgba(0,0,0,0.03)' },
+      selected:  { dark: 'rgba(255,255,255,0.08)', light: 'rgba(0,0,0,0.06)' },
     },
     accent: {
-      primary: '#8b5cf6',   // violet-500
-      secondary: '#6366f1', // indigo-500
-      tertiary: '#a855f7',  // purple-500
+      primary: '#2B79FF',
+      secondary: '#1D6AE5',
+      tertiary: '#3B8AFF',
+    },
+    semantic: {
+      green: '#22c55e',
+      red: '#ef4444',
+      amber: '#f59e0b',
+      blue: '#3b82f6',
+      emerald: '#10b981',
     },
     gradient: {
-      primary: 'from-violet-600 via-indigo-500 to-purple-600',
-      subtle: 'from-violet-500/10 via-indigo-500/5 to-purple-500/10',
-      text: 'from-violet-400 to-indigo-400',
+      primary: 'from-blue-600 via-blue-500 to-blue-600',
+      subtle: 'from-blue-500/10 via-blue-500/5 to-blue-500/10',
+      text: 'from-blue-400 to-blue-300',
       mesh: {
-        spot1: 'rgba(124, 58, 237, 0.08)',  // violet
-        spot2: 'rgba(99, 102, 241, 0.06)',   // indigo
-        spot3: 'rgba(139, 92, 246, 0.04)',   // purple
+        spot1: 'rgba(43, 121, 255, 0.08)',
+        spot2: 'rgba(43, 121, 255, 0.06)',
+        spot3: 'rgba(43, 121, 255, 0.04)',
       },
     },
     text: {
-      primary: { dark: '#f4f4f5', light: '#18181b' },       // zinc-100 / zinc-900
-      secondary: { dark: '#a1a1aa', light: '#71717a' },     // zinc-400 / zinc-500
-      muted: { dark: '#71717a', light: '#a1a1aa' },         // zinc-500 / zinc-400
+      primary:   { dark: 'rgba(255,255,255,0.85)', light: '#18181b' },
+      secondary: { dark: 'rgba(255,255,255,0.55)', light: '#71717a' },
+      muted:     { dark: 'rgba(255,255,255,0.30)', light: '#a1a1aa' },
+      ghost:     { dark: 'rgba(255,255,255,0.15)', light: '#d4d4d8' },
     },
     border: {
-      subtle: { dark: 'rgba(63, 63, 70, 0.3)', light: 'rgba(228, 228, 231, 0.6)' },
-      active: { dark: 'rgba(139, 92, 246, 0.3)', light: 'rgba(139, 92, 246, 0.2)' },
+      subtle:  { dark: 'rgba(255,255,255,0.08)', light: 'rgba(0,0,0,0.06)' },
+      medium:  { dark: 'rgba(255,255,255,0.12)', light: 'rgba(0,0,0,0.10)' },
+      active:  { dark: 'rgba(43, 121, 255, 0.3)', light: 'rgba(43, 121, 255, 0.2)' },
     },
     status: {
       healthy: '#22c55e',
@@ -51,7 +76,7 @@ export const tokens = {
   },
   shadow: {
     card: '0 4px 24px rgba(0, 0, 0, 0.2)',
-    glow: '0 0 20px rgba(139, 92, 246, 0.1)',
+    glow: '0 0 20px rgba(43, 121, 255, 0.1)',
     elevated: '0 8px 32px rgba(0, 0, 0, 0.3)',
   },
   sidebar: {
@@ -67,31 +92,56 @@ export const tokens = {
 
 // ── Tailwind class helpers ──
 
+/** Standard border class — always use this for dividers/borders */
+export function borderColor(dark: boolean): string {
+  return dark ? 'border-white/[0.08]' : 'border-black/[0.06]';
+}
+
+/** Primary text color */
+export function textPrimary(dark: boolean): string {
+  return dark ? 'text-white/[0.85]' : 'text-zinc-900';
+}
+
+/** Secondary text color */
+export function textSecondary(dark: boolean): string {
+  return dark ? 'text-white/[0.55]' : 'text-zinc-500';
+}
+
+/** Muted text color */
+export function textMuted(dark: boolean): string {
+  return dark ? 'text-white/[0.30]' : 'text-zinc-400';
+}
+
+/** Ghost text color — barely visible */
+export function textGhost(dark: boolean): string {
+  return dark ? 'text-white/[0.15]' : 'text-zinc-300';
+}
+
 export function glassCard(dark: boolean): string {
   return dark
-    ? 'bg-zinc-900/80 border border-zinc-700/30 rounded-2xl backdrop-blur-xl shadow-lg shadow-black/20'
-    : 'bg-white/90 border border-zinc-200/60 rounded-2xl backdrop-blur-xl shadow-lg shadow-zinc-200/50';
+    ? 'bg-zinc-900/80 border border-white/[0.08] rounded-2xl backdrop-blur-xl shadow-lg shadow-black/20'
+    : 'bg-white/90 border border-black/[0.06] rounded-2xl backdrop-blur-xl shadow-lg shadow-zinc-200/50';
 }
 
 export function gradientText(): string {
-  return 'bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent';
+  return 'bg-gradient-to-r from-blue-400 to-blue-300 bg-clip-text text-transparent';
 }
 
 export function gradientBg(): string {
-  return 'bg-gradient-to-r from-violet-600 via-indigo-500 to-purple-600';
+  return 'bg-gradient-to-r from-blue-600 via-blue-500 to-blue-600';
 }
 
 export function gradientBorder(dark: boolean): string {
   return dark
-    ? 'border border-violet-500/20'
-    : 'border border-violet-400/30';
+    ? 'border border-blue-500/20'
+    : 'border border-blue-400/30';
 }
 
 export function meshBg(): string {
   return `
-    radial-gradient(ellipse at 20% 50%, rgba(124, 58, 237, 0.08), transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgba(99, 102, 241, 0.06), transparent 50%),
-    radial-gradient(ellipse at 50% 80%, rgba(139, 92, 246, 0.04), transparent 50%)
+    radial-gradient(ellipse at 20% 50%, rgba(43, 121, 255, 0.08), transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(43, 121, 255, 0.06), transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(43, 121, 255, 0.04), transparent 50%)
   `.trim();
 }
 

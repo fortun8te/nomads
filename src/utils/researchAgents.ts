@@ -1,5 +1,5 @@
 import { ollamaService } from './ollama';
-import { wayfarerService } from './wayfarer';
+import { wayfayerService } from './wayfayer';
 import { getResearchModelConfig, getResearchLimits } from './modelConfig';
 import { getMethodologySummary, METHODOLOGY_STEPS } from './researchMethodology';
 import { recordResearchSource } from './researchAudit';
@@ -22,9 +22,9 @@ function buildOrchestratorBrandContext(campaign: Campaign): string {
   }
   const imgs = campaign.referenceImages;
   if (imgs?.length) {
-    const descs = (imgs as any[])
-      .filter((img: any) => typeof img !== 'string' && img.description)
-      .map((img: any) => `  ${img.label}: ${img.description}`)
+    const descs = imgs
+      .filter(img => img.description)
+      .map(img => `  ${img.label}: ${img.description}`)
       .slice(0, 3);
     if (descs.length) parts.push(`Ref Images:\n${descs.join('\n')}`);
   }
@@ -72,6 +72,7 @@ export interface OrchestratorState {
   coverageThreshold: number; // Percentage of dimensions that must be covered (0.0 - 1.0)
   userProvidedContext?: Record<string, string>; // Answers to questions glm asked
   reflectionSuggestedTopics?: string[]; // Gaps found by reflection agent
+  _visualFindings?: unknown; // Visual scout results, set during orchestration
 }
 
 export interface ResearchPauseEvent {
@@ -284,17 +285,17 @@ export const researcherAgent = {
     try {
       onChunk?.(`Searching: "${query.topic}"...\n`);
 
-      // Step 1: Fetch full page content via Wayfarer
-      const wayfarerResult = await wayfarerService.research(query.topic, 20, signal);
-      const meta = wayfarerResult.meta;
+      // Step 1: Fetch full page content via Wayfayer
+      const wayfayerResult = await wayfayerService.research(query.topic, 20, signal);
+      const meta = wayfayerResult.meta;
       onChunk?.(`Fetched ${meta.success}/${meta.total} pages (${meta.elapsed}s)\n`);
 
       // Record all fetched sources in audit trail
-      wayfarerResult.sources.forEach((src) => {
+      wayfayerResult.sources.forEach((src) => {
         recordResearchSource({
           url: src.url,
           query: query.topic,
-          source: 'text', // text-only wayfarer
+          source: 'text', // text-only wayfayer
           contentLength: src.snippet?.length || 0,
           extractedSnippet: src.snippet,
         });
@@ -304,9 +305,9 @@ export const researcherAgent = {
       let compressedContent: string;
 
       if (meta.success > 0) {
-        compressedContent = await compressFindings(wayfarerResult.pages, query.topic, onChunk, signal, knowledgeSummary);
+        compressedContent = await compressFindings(wayfayerResult.pages, query.topic, onChunk, signal, knowledgeSummary);
       } else {
-        // Wayfarer returned nothing — fall back to LLM-only
+        // Wayfayer returned nothing — fall back to LLM-only
         onChunk?.('No web results, using LLM knowledge only\n');
         compressedContent = '';
       }
@@ -366,7 +367,7 @@ Be specific. Real names, real numbers, real quotes. No generic marketing-speak. 
         query: query.topic,
         findings: response,
         sources: [
-          ...wayfarerResult.sources.map((s) => s.url),
+          ...wayfayerResult.sources.map((s) => s.url),
           ...extractSources(response),
         ],
         coverage_graph,
@@ -615,7 +616,7 @@ export const orchestrator = {
           .flatMap(t => t.visualScoutUrls || [])
           .filter(Boolean);
 
-        if (visualScoutUrls.length > 0 && !(state as any)._visualFindings) {
+        if (visualScoutUrls.length > 0 && !state._visualFindings) {
           onProgressUpdate?.(`\n[Visual Scout] Orchestrator requested visual analysis of ${visualScoutUrls.length} URLs\n`);
           try {
             const { visualScoutAgent } = await import('./visualScoutAgent');
@@ -662,7 +663,7 @@ export const orchestrator = {
                 }
               }
             );
-            (state as any)._visualFindings = visualFindings;
+            state._visualFindings = visualFindings;
             onProgressUpdate?.(`[Visual Scout] Visual analysis complete — ${visualFindings.totalAnalyzed} sites analyzed\n`);
           } catch (err) {
             onProgressUpdate?.(`[Visual Scout] Visual analysis failed: ${err}\n`);
@@ -926,7 +927,7 @@ AD_SCOUT: [ad library / marketing URLs to screenshot, if ad creative analysis is
 
           // Check if coverage checker requested visual scouting (VISUAL_SCOUT or AD_SCOUT)
           const scoutDirective = response.includes('VISUAL_SCOUT:') || response.includes('AD_SCOUT:');
-          if (scoutDirective && !(state as any)._visualFindings) {
+          if (scoutDirective && !state._visualFindings) {
             // Collect URLs from both VISUAL_SCOUT and AD_SCOUT directives
             const allScoutUrls: string[] = [];
             for (const directive of ['VISUAL_SCOUT', 'AD_SCOUT']) {
@@ -963,7 +964,7 @@ AD_SCOUT: [ad library / marketing URLs to screenshot, if ad creative analysis is
                     if (event.type === 'synthesis_done') { visualProgressStore.setSynthesisStatus('done', event.patterns, event.gaps); }
                   }
                 );
-                (state as any)._visualFindings = visualFindings;
+                state._visualFindings = visualFindings;
                 onChunk?.(`[${label}] Visual analysis complete — ${visualFindings.totalAnalyzed} sites analyzed\n`);
               } catch (err) {
                 onChunk?.(`[${label}] Visual analysis failed: ${err}\n`);

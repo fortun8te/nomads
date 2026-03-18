@@ -214,7 +214,7 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
           // Generate research report (mini research paper)
           try {
             const report = await generateResearchReport(
-              cycle.researchFindings || {} as any,
+              cycle.researchFindings || { deepDesires: [], objections: [], avatarLanguage: [], whereAudienceCongregates: [], whatTheyTriedBefore: [], competitorWeaknesses: [] },
               cycle.researchFindings?.auditTrail,
               researchResult.rawOutput?.slice(0, 12000) || '',
               abortControllerRef.current?.signal,
@@ -533,7 +533,7 @@ Output your evaluation as ONLY a valid JSON object with this exact structure (no
         throw err;
       }
     },
-    [generate, executeOrchestratedResearch]
+    [generate, executeOrchestratedResearch, throttledSetCycle, handleResearchPauseForInput]
   );
 
   // Advance to next stage
@@ -610,10 +610,12 @@ Output your evaluation as ONLY a valid JSON object with this exact structure (no
             }
           }
 
-          // Delay before next stage
+          // Delay before next stage (abortable)
+          if (!isRunningRef.current) break;
           await new Promise((resolve) => {
             timeoutRef.current = setTimeout(resolve, STAGE_DELAY);
           });
+          if (!isRunningRef.current) break;
 
           // Advance to next stage
           const { cycle: updatedCycle, done } = advanceToNextStage(cycle);
@@ -631,14 +633,18 @@ Output your evaluation as ONLY a valid JSON object with this exact structure (no
           setCurrentCycle(refreshCycleReference(cycle));
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Cycle error';
-          if (!msg.includes('aborted')) {
+          const isAbort = msg.includes('aborted') || msg.includes('Abort') || (err instanceof DOMException && err.name === 'AbortError');
+          if (!isAbort) {
             setError(msg);
           }
-          // Only stop on actual errors, not on abort
-          if (!err || !(err instanceof Error) || !err.message.includes('aborted')) {
-            isRunningRef.current = false;
-            setIsRunning(false);
+          // On abort: stop() already set isRunningRef=false, just break out
+          if (isAbort) {
+            break;
           }
+          // On real errors: stop the loop
+          isRunningRef.current = false;
+          setIsRunning(false);
+          break;
         }
       }
 
@@ -646,7 +652,7 @@ Output your evaluation as ONLY a valid JSON object with this exact structure (no
       isRunningRef.current = false;
       setIsRunning(false);
     },
-    [executeStage, advanceToNextStage, updateCycle, saveCycle]
+    [executeStage, advanceToNextStage, updateCycle, saveCycle, askCheckpointQuestion]
   );
 
   const start = useCallback(

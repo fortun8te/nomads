@@ -62,54 +62,12 @@ export function useOllama() {
     []
   );
 
-  const generateWithCallback = useCallback(
-    async (
-      prompt: string,
-      systemPrompt: string,
-      options?: {
-        model?: string;
-        signal?: AbortSignal;
-        onChunk?: (chunk: string) => void;
-        onError?: (error: Error) => void;
-      }
-    ) => {
-      const { model = 'qwen3.5:9b', signal, onChunk, onError } = options || {};
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const result = await ollamaService.generateStream(prompt, systemPrompt, {
-          model,
-          signal,
-          onChunk: (chunk) => {
-            onChunk?.(chunk);
-            setOutput((prev) => prev + chunk);
-          },
-          onError: (err) => {
-            onError?.(err);
-            setError(err.message);
-          },
-        });
-
-        return result;
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-        setError(errorMsg);
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    []
-  );
-
   return {
     isConnected,
     isLoading,
     error,
     output,
     generate,
-    generateWithCallback,
     checkConnection,
   };
 }

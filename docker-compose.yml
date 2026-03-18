@@ -12,6 +12,20 @@ services:
     networks:
       - ad-agent-network
 
+  sandbox:
+    build: ./sandbox
+    container_name: nomad-sandbox
+    ports:
+      - "5901:5901"   # WebSocket VNC (noVNC connects here)
+      - "8080:8080"   # Sandbox API
+      - "9222:9222"   # Chrome CDP (debug)
+    environment:
+      - DISPLAY=:1
+    shm_size: '512m'  # Chrome needs shared memory
+    restart: unless-stopped
+    networks:
+      - ad-agent-network
+
 networks:
   ad-agent-network:
     driver: bridge

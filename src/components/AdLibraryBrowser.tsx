@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { loadAdLibraryManifest, loadAdImageBase64, downloadImage } from '../utils/adLibraryLoader';
 import { getCache } from '../utils/adLibraryCache';
 import { ollamaService } from '../utils/ollama';
+import { getVisionModel } from '../utils/modelConfig';
 import { useCampaign } from '../context/CampaignContext';
 import type { AdLibraryImage } from '../types';
 
@@ -26,12 +27,12 @@ const AD_LIBRARY_CATEGORIES = [
   { key: 'template', label: 'Template', count: 3 },
 ];
 
-const AD_LIBRARY_ASPECT_RATIOS = [
-  { key: '1:1', label: 'Square', icon: '⬜' },
-  { key: '9:16', label: 'Portrait', icon: '📱' },
-  { key: '16:9', label: 'Landscape', icon: '🎬' },
-  { key: '4:3', label: '4:3', icon: '📺' },
-  { key: '3:4', label: 'Tall', icon: '📏' },
+const AD_LIBRARY_ASPECT_RATIOS: { key: string; label: string; icon: React.ReactNode }[] = [
+  { key: '1:1', label: 'Square', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="1"/></svg> },
+  { key: '9:16', label: 'Portrait', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg> },
+  { key: '16:9', label: 'Landscape', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 16l5-5 3 3 4-4 8 8"/></svg> },
+  { key: '4:3', label: '4:3', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="18" rx="2"/></svg> },
+  { key: '3:4', label: 'Tall', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="4" y="2" width="16" height="20" rx="1"/></svg> },
 ];
 
 // Extract 4 keywords from a description for hover preview
@@ -161,7 +162,7 @@ MOOD: Premium/playful/clinical/bold/minimal/energetic
 
 Be specific enough that this description alone could be used as a prompt to generate an identical ad layout.`,
           'Describe this ad design in reproducible detail for HTML/CSS recreation.',
-          { model: 'minicpm-v:8b', images: [rawBase64] }
+          { model: getVisionModel(), images: [rawBase64] }
         );
 
         setUploadProgress('Categorizing ad...');
@@ -477,7 +478,7 @@ Be specific enough that this description alone could be used as a prompt to gene
               <div className={`flex items-center justify-center h-full ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
                 {uploadProgress ? (
                   <div className="text-center">
-                    <div className="mb-2 animate-spin">⚙️</div>
+                    <div className="mb-2 animate-spin"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg></div>
                     <p>{uploadProgress}</p>
                   </div>
                 ) : (

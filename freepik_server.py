@@ -998,12 +998,6 @@ async def generate(req: GenerateRequest):
                         yield _ndjson('progress', message=f'Uploading {ref_count} reference image(s)...')
                         import tempfile
 
-                        slot_selectors = [
-                            '[data-cy="reference-style-placeholder"]',
-                            '[data-cy="reference-character-placeholder"]',
-                            '[data-cy="reference-upload-box"]',
-                        ]
-
                         for idx, img_b64 in enumerate(clean_refs):
                             try:
                                 raw_b64 = img_b64.split(',')[1] if ',' in img_b64 else img_b64
@@ -1016,53 +1010,103 @@ async def generate(req: GenerateRequest):
                                 tmp.close()
                                 yield _ndjson('progress', message=f'Image {idx+1}: {len(img_bytes)} bytes')
 
-                                # Pick the slot to click (to prime the upload context)
-                                target_sel = slot_selectors[idx] if idx < len(slot_selectors) else None
+                                # Click the "Upload" card in REFERENCES section
+                                # Freepik shows 3 cards: Style / Character / Upload
+                                # These are divs (not buttons) — may have data-cy or just text
+                                upload_card = None
+                                for sel in [
+                                    '[data-cy="reference-upload-box"]',
+                                    '[data-cy="reference-upload-placeholder"]',
+                                    '[data-cy="reference-upload"]',
+                                ]:
+                                    el = page.locator(sel).first
+                                    if await el.count() > 0:
+                                        upload_card = el
+                                        break
+                                if not upload_card:
+                                    # Fallback: find clickable element with "Upload" text near REFERENCES
+                                    found = await page.evaluate('''() => {
+                                        // Clean up old markers
+                                        document.querySelectorAll('[data-nomad-upload]').forEach(el => el.removeAttribute('data-nomad-upload'));
+                                        // Strategy A: look for text "Upload" in the left panel / form area
+                                        const form = document.querySelector('[data-cy="image-generator-form"]') || document.body;
+                                        const allEls = form.querySelectorAll('*');
+                                        for (const el of allEls) {
+                                            if (el.children.length > 3) continue;  // skip containers
+                                            const text = el.textContent?.trim();
+                                            if (text === 'Upload' || text === 'Upload image') {
+                                                // Walk up to find the clickable card (usually 1-3 levels up)
+                                                let target = el;
+                                                for (let i = 0; i < 4; i++) {
+                                                    const style = getComputedStyle(target);
+                                                    if (style.cursor === 'pointer' || target.tagName === 'BUTTON' || target.getAttribute('role') === 'button') {
+                                                        target.setAttribute('data-nomad-upload', '1');
+                                                        return true;
+                                                    }
+                                                    if (target.parentElement) target = target.parentElement;
+                                                    else break;
+                                                }
+                                                // If no cursor:pointer found, mark the closest parent anyway
+                                                el.parentElement?.setAttribute('data-nomad-upload', '1');
+                                                return true;
+                                            }
+                                        }
+                                        // Strategy B: look for "+ Add" button in references section
+                                        const addBtns = form.querySelectorAll('button');
+                                        for (const btn of addBtns) {
+                                            if (btn.textContent?.trim().includes('Add')) {
+                                                btn.setAttribute('data-nomad-upload', '1');
+                                                return true;
+                                            }
+                                        }
+                                        return false;
+                                    }''')
+                                    if found:
+                                        upload_card = page.locator('[data-nomad-upload="1"]').first
 
-                                # For images beyond slots, click "+ Add" first
-                                if target_sel is None or await page.locator(target_sel).count() == 0:
-                                    add_btn = page.locator('[data-cy="add-reference-button"]')
-                                    if await add_btn.count() > 0:
-                                        await add_btn.click()
-                                        await page.wait_for_timeout(400)
-                                        target_sel = '[data-cy="reference-upload-box"]'
+                                if upload_card and await upload_card.count() > 0:
+                                    await upload_card.click()
+                                    await page.wait_for_timeout(1000)
+                                    yield _ndjson('progress', message='Add media dialog opened')
 
-                                # Method 1: Click slot → intercept file chooser from the MODAL
-                                if target_sel and await page.locator(target_sel).count() > 0:
-                                    try:
-                                        target = page.locator(target_sel).first
-                                        # Click to open the upload modal
-                                        await target.click()
-                                        await page.wait_for_timeout(400)
+                                    # "Add media" dialog is now open
+                                    # Click "Upload media" button (data-cy="upload-button")
+                                    upload_btn = page.locator('[data-cy="upload-button"]').first
+                                    if await upload_btn.count() == 0:
+                                        upload_btn = page.locator('button:has-text("Upload media")').first
 
-                                        # The modal should now be open. Look for upload button/area inside it.
-                                        modal = page.locator('div.fixed.inset-0').first
-                                        if await modal.count() > 0:
-                                            for upload_sel in [
-                                                'input[type="file"]',
-                                                'button:has-text("Upload")',
-                                                'button:has-text("select file")',
-                                                '[role="button"]:has-text("upload")',
-                                                'div:has-text("Drop or select")',
-                                            ]:
-                                                try:
-                                                    upload_el = modal.locator(upload_sel).first
-                                                    if await upload_el.count() > 0:
-                                                        if upload_sel == 'input[type="file"]':
-                                                            await upload_el.set_input_files(tmp_path)
-                                                        else:
-                                                            async with page.expect_file_chooser(timeout=5000) as fc_info:
-                                                                await upload_el.click()
-                                                            fc = await fc_info.value
-                                                            await fc.set_files(tmp_path)
-                                                        await page.wait_for_timeout(1200)
-                                                        uploaded = True
-                                                        yield _ndjson('progress', message=f'Reference {idx+1} uploaded via modal')
-                                                        break
-                                                except Exception:
-                                                    continue
-                                    except Exception as e1:
-                                        yield _ndjson('progress', message=f'Modal upload: {e1}')
+                                    if await upload_btn.count() > 0:
+                                        try:
+                                            async with page.expect_file_chooser(timeout=5000) as fc_info:
+                                                await upload_btn.click()
+                                            fc = await fc_info.value
+                                            await fc.set_files(tmp_path)
+                                            yield _ndjson('progress', message=f'File selected for image {idx+1}')
+                                            await page.wait_for_timeout(2000)
+
+                                            # Wait for thumbnail to appear (upload processing)
+                                            for _ in range(10):
+                                                has_thumb = await page.evaluate('''() => {
+                                                    const imgs = document.querySelectorAll('img[src*="blob:"], img[src*="upload"], img[src*="tmp"]');
+                                                    return imgs.length > 0;
+                                                }''')
+                                                if has_thumb:
+                                                    break
+                                                await page.wait_for_timeout(500)
+
+                                            # Click "Add media" button to confirm
+                                            add_btn = page.locator('[data-cy="upload-modal-use-button"]').first
+                                            if await add_btn.count() == 0:
+                                                add_btn = page.locator('button:has-text("Add media")').first
+                                            if await add_btn.count() > 0:
+                                                await add_btn.click()
+                                                await page.wait_for_timeout(1000)
+                                                uploaded = True
+                                                yield _ndjson('progress', message=f'Reference {idx+1} added')
+                                            else:
+                                                yield _ndjson('progress', message=f'Add media button not found')
+                                        except Exception as e1:
+                                            yield _ndjson('progress', message=f'File chooser upload: {e1}')
 
                                 # Method 2: Direct hidden file input (bypasses modal)
                                 if not uploaded:
@@ -1180,36 +1224,97 @@ async def generate(req: GenerateRequest):
                 await prompt_el.click()
                 await page.wait_for_timeout(150)
 
-                # ── Disable AI prompt toggle ("AI prompt" / "Smart prompt") ──
+                # ── Disable AI prompt toggle ──
+                # Freepik's bottom toolbar has: [count] [ratio] [resolution] [∞ ON/OFF]
+                # The toggle shows "ON" when active (rewrites your prompt). We need it OFF.
                 yield _ndjson('progress', message='Checking AI prompt toggle...')
                 try:
+                    ai_toggle_disabled = False
+
+                    # Strategy 1: data-cy selector (if Freepik has it)
                     toggle_btn = page.locator('[data-cy="smart-prompt-toggle"]')
                     if await toggle_btn.count() > 0:
-                        # Check state via aria-checked, data-state, or class inspection
                         is_on = await page.evaluate('''() => {
                             const btn = document.querySelector('[data-cy="smart-prompt-toggle"]');
                             if (!btn) return false;
-                            // Check aria-checked first
                             if (btn.getAttribute('aria-checked') === 'true') return true;
                             if (btn.getAttribute('data-state') === 'checked') return true;
-                            // Fallback: look for active class on any child span
-                            const spans = btn.querySelectorAll('span');
-                            for (const span of spans) {
-                                const cls = span.className || '';
-                                if (cls.includes('blue') || cls.includes('active') || cls.includes('checked')) return true;
-                            }
+                            if (btn.textContent.trim().toUpperCase().includes('ON')) return true;
                             return false;
                         }''')
-
                         if is_on:
-                            yield _ndjson('progress', message='AI prompt toggle is ON — disabling...')
+                            yield _ndjson('progress', message='AI toggle ON (data-cy) — disabling...')
                             await toggle_btn.click()
-                            await page.wait_for_timeout(500)
-                            yield _ndjson('progress', message='AI prompt toggle disabled')
-                        else:
-                            yield _ndjson('progress', message='AI prompt toggle already off')
-                    else:
-                        yield _ndjson('progress', message='Smart prompt toggle not found — continuing')
+                            await page.wait_for_timeout(600)
+                            ai_toggle_disabled = True
+
+                    # Strategy 2: Find the ∞ ON button in the bottom toolbar via JS
+                    if not ai_toggle_disabled:
+                        result = await page.evaluate('''() => {
+                            // Look for any button/element containing "ON" text near the generator form
+                            const form = document.querySelector('[data-cy="image-generator-form"]') || document.body;
+                            const buttons = form.querySelectorAll('button');
+                            for (const btn of buttons) {
+                                const text = btn.textContent.trim().toUpperCase();
+                                // Match "ON" toggle (may have ∞ icon before it)
+                                if (text === 'ON' || text.endsWith('ON') || text.includes('∞') && text.includes('ON')) {
+                                    btn.setAttribute('data-nomad-ai-toggle', '1');
+                                    return { found: true, state: 'on', text: btn.textContent.trim() };
+                                }
+                                if (text === 'OFF' || text.endsWith('OFF') || text.includes('∞') && text.includes('OFF')) {
+                                    return { found: true, state: 'off', text: btn.textContent.trim() };
+                                }
+                            }
+                            // Also check for toggle switches with aria-checked
+                            const toggles = form.querySelectorAll('[role="switch"], [aria-checked]');
+                            for (const t of toggles) {
+                                if (t.getAttribute('aria-checked') === 'true') {
+                                    t.setAttribute('data-nomad-ai-toggle', '1');
+                                    return { found: true, state: 'on', text: t.textContent.trim() };
+                                }
+                            }
+                            return { found: false };
+                        }''')
+                        if result and result.get('found'):
+                            if result['state'] == 'on':
+                                yield _ndjson('progress', message=f'AI toggle ON ("{result["text"]}") — disabling...')
+                                found_btn = page.locator('[data-nomad-ai-toggle="1"]').first
+                                if await found_btn.count() > 0:
+                                    await found_btn.click()
+                                    await page.wait_for_timeout(600)
+                                    # Verify it changed
+                                    verify = await page.evaluate('''() => {
+                                        const btn = document.querySelector('[data-nomad-ai-toggle="1"]');
+                                        if (btn) btn.removeAttribute('data-nomad-ai-toggle');
+                                        // Re-check all buttons for ON state
+                                        const form = document.querySelector('[data-cy="image-generator-form"]') || document.body;
+                                        const buttons = form.querySelectorAll('button');
+                                        for (const b of buttons) {
+                                            const text = b.textContent.trim().toUpperCase();
+                                            if (text === 'ON' || (text.endsWith('ON') && text.length < 6)) return true;
+                                        }
+                                        return false;
+                                    }''')
+                                    if verify:
+                                        yield _ndjson('progress', message='Toggle still ON — retrying...')
+                                        # Re-find and click again
+                                        await page.evaluate('''() => {
+                                            const form = document.querySelector('[data-cy="image-generator-form"]') || document.body;
+                                            const buttons = form.querySelectorAll('button');
+                                            for (const btn of buttons) {
+                                                const text = btn.textContent.trim().toUpperCase();
+                                                if (text === 'ON' || text.endsWith('ON')) { btn.click(); break; }
+                                            }
+                                        }''')
+                                        await page.wait_for_timeout(500)
+                                    yield _ndjson('progress', message='AI prompt toggle disabled')
+                                    ai_toggle_disabled = True
+                            else:
+                                yield _ndjson('progress', message='AI toggle already OFF')
+                                ai_toggle_disabled = True
+
+                    if not ai_toggle_disabled:
+                        yield _ndjson('progress', message='AI toggle not found — continuing')
                 except Exception as e:
                     yield _ndjson('progress', message=f'AI toggle check: {e} — continuing')
 
@@ -1267,6 +1372,32 @@ async def generate(req: GenerateRequest):
                 except Exception:
                     pass
 
+                # ── Re-check AI toggle after prompt typing (UI may re-enable it) ──
+                try:
+                    re_enabled = await page.evaluate('''() => {
+                        const form = document.querySelector('[data-cy="image-generator-form"]') || document.body;
+                        const buttons = form.querySelectorAll('button');
+                        for (const btn of buttons) {
+                            const text = btn.textContent.trim().toUpperCase();
+                            if (text === 'ON' || (text.endsWith('ON') && text.length < 6)) {
+                                btn.click();
+                                return true;
+                            }
+                        }
+                        // Also check data-cy toggle
+                        const toggle = document.querySelector('[data-cy="smart-prompt-toggle"]');
+                        if (toggle && (toggle.getAttribute('aria-checked') === 'true' || toggle.getAttribute('data-state') === 'checked')) {
+                            toggle.click();
+                            return true;
+                        }
+                        return false;
+                    }''')
+                    if re_enabled:
+                        yield _ndjson('progress', message='AI toggle re-enabled after typing — disabled again')
+                        await page.wait_for_timeout(500)
+                except Exception:
+                    pass
+
                 # ── 8. Snapshot ALL images before Generate ──
                 existing_srcs = set(await page.evaluate('''
                     () => Array.from(document.querySelectorAll('img'))
@@ -1320,13 +1451,23 @@ async def generate(req: GenerateRequest):
                 timeout = 900  # 15 min base
                 last_progress = gen_start
 
-                # Phase A: Wait for loading indicator
+                # Phase A: Wait for loading indicator (text OR spinner/progress elements)
                 gen_started = False
-                for _ in range(20):
-                    body_text = await page.inner_text('body')
-                    if any(kw in body_text for kw in ['Generating', 'Final touches', 'Loading']):
+                for _ in range(30):
+                    started = await page.evaluate('''() => {
+                        const body = document.body.innerText;
+                        if (['Generating', 'Final touches', 'Loading', 'Creating'].some(kw => body.includes(kw))) return 'text';
+                        // Check for loading spinners, progress bars, skeleton loaders
+                        const spinners = document.querySelectorAll('[role="progressbar"], [class*="spinner"], [class*="loading"], [class*="skeleton"], [class*="progress"]');
+                        if (spinners.length > 0) return 'spinner';
+                        // Check for disabled Generate button (means generation in progress)
+                        const genBtn = document.querySelector('[data-cy="generate-button"]') || document.querySelector('button:has(> span)');
+                        if (genBtn && genBtn.disabled) return 'disabled-btn';
+                        return null;
+                    }''')
+                    if started:
                         gen_started = True
-                        yield _ndjson('progress', message='Generation in progress...')
+                        yield _ndjson('progress', message=f'Generation in progress ({started})...')
                         break
                     await page.wait_for_timeout(500)
 
@@ -1364,7 +1505,11 @@ async def generate(req: GenerateRequest):
                     if gen_started:
                         still_loading = await page.evaluate('''() => {
                             const body = document.body.innerText;
-                            return body.includes('Generating') || body.includes('Final touches') || body.includes('Loading');
+                            if (['Generating', 'Final touches', 'Loading', 'Creating'].some(kw => body.includes(kw))) return true;
+                            // Also check for active progress indicators
+                            const spinners = document.querySelectorAll('[role="progressbar"], [class*="spinner"], [class*="loading"]');
+                            if (spinners.length > 0) return true;
+                            return false;
                         }''')
                         if still_loading:
                             await page.wait_for_timeout(1500)

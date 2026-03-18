@@ -1,10 +1,10 @@
 /**
- * Ad Library Cache — Pre-analyzes all ad library images with minicpm-v
+ * Ad Library Cache — Pre-analyzes all ad library images with vision model
  * and caches descriptions for instant retrieval during HTML generation.
  *
  * Flow:
  *   1. "Pre-analyze" button triggers analyzeAll()
- *   2. Each image → minicpm-v → 2-sentence description
+ *   2. Each image → vision model → 2-sentence description
  *   3. Results cached in IndexedDB under 'ad-library-cache' key
  *   4. At generation time, getRelevantReferences() picks 8-10 from cache
  *      filtered by category relevance to the brand/product
@@ -13,9 +13,10 @@
 import { get, set } from 'idb-keyval';
 import { loadAdLibraryManifest, loadAdImageBase64 } from './adLibraryLoader';
 import { ollamaService } from './ollama';
+import { getVisionModel } from './modelConfig';
 
 const CACHE_KEY = 'ad-library-cache';
-const VISION_MODEL = 'minicpm-v:8b';
+const VISION_MODEL = getVisionModel();
 
 export interface AdDescription {
   filename: string;

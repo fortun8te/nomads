@@ -4,7 +4,7 @@
  * then synthesizes findings from the merged corpus.
  */
 
-import { wayfarerService, type CrawlPageResult } from './wayfarer';
+import { wayfayerService, type CrawlPageResult } from './wayfayer';
 import { ollamaService } from './ollama';
 import { getResearchModelConfig } from './modelConfig';
 import { WorkerPool } from './workerPool';
@@ -49,7 +49,7 @@ export async function batchAnalyze(
 
   // Step 1: Batch crawl all URLs
   onProgress?.(`[Batch] Crawling ${urls.length} pages (concurrency: ${crawlConcurrency})...`);
-  const crawlResult = await wayfarerService.batchCrawl(urls, crawlConcurrency, signal);
+  const crawlResult = await wayfayerService.batchCrawl(urls, crawlConcurrency, signal);
 
   const successPages = crawlResult.results.filter(r => !r.error && r.content_length > 150);
   onProgress?.(`[Batch] ${successPages.length}/${urls.length} pages fetched successfully`);

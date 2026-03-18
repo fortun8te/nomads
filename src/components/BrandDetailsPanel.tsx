@@ -32,8 +32,8 @@ export function BrandDetailsPanel({ campaign, isDarkMode }: BrandDetailsPanelPro
         <span className={`font-mono text-[10px] uppercase tracking-[0.2em] font-bold ${isDarkMode ? 'text-zinc-400' : 'text-zinc-700'}`}>
           Brand Details
         </span>
-        <span className={`text-[10px] ${secondaryTextClass} shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
-          ▶
+        <span className={`shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </span>
       </button>
 

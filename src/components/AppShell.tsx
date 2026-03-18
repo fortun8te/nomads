@@ -6,50 +6,77 @@
  * White main content area with rounded left corners
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCampaign } from '../context/CampaignContext';
 import { useTheme } from '../context/ThemeContext';
 import { useSoundEngine } from '../hooks/useSoundEngine';
+import { useAmbientSound } from '../hooks/useAmbientSound';
 import { MakeStudio } from './MakeStudio';
 import { Dashboard } from './Dashboard';
 import { SettingsModal } from './SettingsModal';
 import { BrandHubDrawer } from './BrandHubDrawer';
 import { NomadIcon } from './NomadIcon';
 import { SidebarGradient } from './SidebarGradient';
+import { GreetingOverlay } from './GreetingOverlay';
+import { WayfayerPlusPanel } from './WayfayerPlusPanel';
+import { AgentPanel } from './AgentPanel';
 import { healthMonitor, type ServiceStatus } from '../utils/healthMonitor';
 import { glassCard } from '../styles/tokens';
 
-export type AppView = 'make' | 'research' | 'test';
+export type AppView = 'make' | 'research' | 'test' | 'computer' | 'agent';
 
 // ── 3D rendered nav icons ──
 function NavIcon({ src, alt }: { src: string; alt: string }) {
   return <img src={src} alt={alt} width={42} height={42} className="rounded-[10px] object-cover" draggable={false} />;
 }
 
+// Glow colors extracted from each icon's dominant color
+const NAV_GLOW: Record<AppView, string> = {
+  research: '59, 130, 246',   // blue
+  make:     '250, 126, 12',   // orange
+  test:     '34, 197, 94',    // green
+  agent:    '148, 190, 210',  // silver-blue
+  computer: '247, 89, 93',    // red
+};
+
 const NAV_ITEMS: Array<{
   key: AppView;
   label: string;
   shortcut: string;
   icon: React.ReactNode;
+  group?: 'core' | 'tools';
 }> = [
-  { key: 'research',  label: 'Research',  shortcut: 'R', icon: <NavIcon src="/icons/research.png" alt="Research" /> },
-  { key: 'make',      label: 'Make',      shortcut: 'M', icon: <NavIcon src="/icons/make.png" alt="Make" /> },
-  { key: 'test',      label: 'Test',      shortcut: 'T', icon: <NavIcon src="/icons/test.png" alt="Test" /> },
+  { key: 'research',  label: 'Research',  shortcut: 'R', icon: <NavIcon src="/icons/research.png" alt="Research" />, group: 'core' },
+  { key: 'make',      label: 'Make',      shortcut: 'M', icon: <NavIcon src="/icons/make.png" alt="Make" />, group: 'core' },
+  { key: 'test',      label: 'Test',      shortcut: 'T', icon: <NavIcon src="/icons/test.png" alt="Test" />, group: 'core' },
+  { key: 'agent',     label: 'Agent',     shortcut: 'A', icon: <NavIcon src="/icons/agent.png" alt="Agent" />, group: 'tools' },
+  { key: 'computer',  label: 'Computer',  shortcut: 'C', icon: <NavIcon src="/icons/computer.png" alt="Computer" />, group: 'tools' },
 ];
 
 
 export function AppShell() {
   const [activeView, setActiveView] = useState<AppView>('research');
+  const [pulsingView, setPulsingView] = useState<AppView | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showBrandHub, setShowBrandHub] = useState(false);
+  const [showGreeting, setShowGreeting] = useState(() => {
+    // Show greeting on every new app instance (tab/refresh)
+    if (!sessionStorage.getItem('nomad-greeted')) {
+      sessionStorage.setItem('nomad-greeted', '1');
+      return true;
+    }
+    return false;
+  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [healthState, setHealthState] = useState<Record<string, ServiceStatus>>({});
-  const { systemStatus, currentCycle, campaign } = useCampaign() as any;
-  const { startCycle, stopCycle, clearCampaign } = useCampaign() as any;
+  const { systemStatus, currentCycle, campaign, clearCampaign } = useCampaign();
   const { isDarkMode } = useTheme();
   const { play } = useSoundEngine();
+  const { ambientEnabled, toggleAmbient } = useAmbientSound();
 
   const isRunning = systemStatus === 'running';
+  const sidebarExpanded = !sidebarCollapsed;
 
   // Keyframe injection is handled by SidebarGradient component
 
@@ -69,16 +96,13 @@ export function AppShell() {
     return () => { unsubscribe(); healthMonitor.stop(); };
   }, []);
 
-  const handleStartPipeline = useCallback(() => {
-    if (campaign) { play('launch'); startCycle(); }
-  }, [campaign, startCycle, play]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) return;
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
-      const map: Record<string, AppView> = { r: 'research', m: 'make', t: 'test' };
+      const map: Record<string, AppView> = { r: 'research', m: 'make', t: 'test', c: 'computer', a: 'agent' };
       const view = map[e.key.toLowerCase()];
       if (view && view !== activeView) { play('navigate'); setActiveView(view); }
       if (e.key.toLowerCase() === 'b') { play('open'); setShowBrandHub(true); }
@@ -106,61 +130,196 @@ export function AppShell() {
   }, []);
 
   return (
-    <div className="h-screen flex overflow-hidden bg-black">
-      {/* ══ SIDEBAR ══ */}
+    <div className={`flex relative ${isDarkMode ? 'bg-black' : 'bg-white'}`} style={{ height: '100dvh', overflow: 'clip' }}>
+      {/* ══ SIDEBAR — overflow visible so gradient bleeds behind main content rounded corners ══ */}
       <aside
-        className="w-[282px] h-full flex flex-col shrink-0 z-30 relative overflow-hidden"
+        className="h-full flex flex-col shrink-0 z-10 relative"
+        style={{
+          width: sidebarExpanded ? 282 : 70,
+          transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          overflow: isDarkMode ? 'visible' : 'hidden',
+        }}
       >
         {/* ── Sidebar Gradient (SVG filter-based) ── */}
         <SidebarGradient />
 
-        {/* Logo */}
-        <div className="relative z-10 flex items-center gap-2.5 px-5 pt-5 pb-6">
-          <NomadIcon size={20} animated={isRunning} className="text-white/80" />
-          <span className="text-[13px] font-semibold text-white/90 tracking-[0.15em]">NOMAD</span>
+        {/* Logo — clickable for greeting + collapse toggle */}
+        <div className={`relative z-10 flex items-center pt-5 pb-6 ${sidebarExpanded ? 'px-5' : 'justify-center px-0'}`}>
+          <button
+            onClick={() => { play('open'); setShowGreeting(true); }}
+            className={`flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0 ${sidebarExpanded ? 'text-left' : 'justify-center'}`}
+          >
+            <NomadIcon size={20} animated={isRunning} className="text-white/80 shrink-0" />
+            {sidebarExpanded && (
+              <span className="text-[13px] font-semibold text-white/90 tracking-[0.15em] whitespace-nowrap">NOMAD</span>
+            )}
+          </button>
+          {sidebarExpanded && (
+            <button
+              onClick={() => { play('toggle'); setSidebarCollapsed(c => !c); }}
+              title={sidebarCollapsed ? 'Pin sidebar open' : 'Collapse sidebar'}
+              className="ml-auto text-white/20 hover:text-white/60 transition-colors shrink-0"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                {sidebarCollapsed
+                  ? <><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></>
+                  : <><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></>
+                }
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* ── Main Nav ── */}
-        <nav className="relative z-10 flex flex-col gap-1 px-3 mt-0 mx-2 py-2 rounded-[16px]" style={{
+        <nav className={`relative z-10 flex flex-col gap-1 mt-0 py-2 rounded-[16px] ${sidebarExpanded ? 'px-3 mx-2' : 'px-1.5 mx-1'}`} style={{
           background: 'rgba(255, 255, 255, 0.04)',
           border: '1px solid rgba(255, 255, 255, 0.05)',
           backdropFilter: 'blur(12px)',
         }}>
-          {NAV_ITEMS.map(({ key, label, shortcut, icon }) => {
+          {sidebarExpanded && (
+            <span className="text-[8px] font-semibold tracking-[0.2em] uppercase px-3.5 pt-0.5 pb-1" style={{ color: 'rgba(255,255,255,0.15)' }}>
+              Pipeline
+            </span>
+          )}
+          {NAV_ITEMS.filter(i => (i.group || 'core') === 'core').map(({ key, label, shortcut, icon }) => {
             const active = activeView === key;
+            const glow = NAV_GLOW[key];
+            const isPulsing = pulsingView === key;
             return (
               <motion.button
                 key={key}
-                onClick={() => { if (!active) play('navigate'); setActiveView(key); }}
-                whileHover={{ scale: 1.01, x: 1 }}
+                onClick={() => {
+                  if (!active) play('navigate');
+                  setActiveView(key);
+                  setPulsingView(key);
+                  setTimeout(() => setPulsingView(null), 600);
+                }}
+                whileHover={{ scale: 1.01, x: sidebarExpanded ? 1 : 0 }}
                 whileTap={{ scale: 0.98 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                className={`relative flex items-center gap-3.5 rounded-[14px] px-3.5 py-3 transition-all text-left w-full ${
+                className={`group relative flex items-center rounded-[14px] transition-all ${
+                  sidebarExpanded ? 'gap-3.5 px-3.5 py-3 text-left w-full' : 'justify-center p-1.5 mx-auto'
+                } ${
                   active
                     ? 'text-white'
                     : 'text-white/50 hover:text-white/75'
                 }`}
                 style={active ? {
-                  background: 'rgba(255,255,255,0.09)',
-                  border: '1px solid rgba(255,255,255,0.07)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), 0 0 20px rgba(43, 121, 255, 0.06)',
+                  background: `rgba(${glow}, 0.08)`,
+                  border: `1px solid rgba(${glow}, 0.12)`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 20px rgba(${glow}, 0.1)`,
                 } : {
                   border: '1px solid transparent',
                 }}
               >
-                {active && (
+                {/* Pulse glow on click */}
+                {isPulsing && (
+                  <motion.div
+                    className="absolute inset-0 rounded-[14px] pointer-events-none"
+                    initial={{ opacity: 0.5, scale: 1 }}
+                    animate={{ opacity: 0, scale: 1.3 }}
+                    transition={{ duration: 0.6, ease: 'easeOut' }}
+                    style={{ boxShadow: `0 0 30px rgba(${glow}, 0.5), 0 0 60px rgba(${glow}, 0.2)` }}
+                  />
+                )}
+                {active && sidebarExpanded && (
                   <motion.div
                     layoutId="nav-indicator"
                     className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full"
-                    style={{ background: 'rgba(43, 121, 255, 0.8)' }}
+                    style={{ background: `rgba(${glow}, 0.8)` }}
                     transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                   />
                 )}
                 <div className="shrink-0">
                   {icon}
                 </div>
-                <span className="text-[14px] font-medium tracking-[0.01em] flex-1">{label}</span>
-                <kbd className="text-[9.5px] text-white/15 font-mono font-light">{shortcut}</kbd>
+                {sidebarExpanded ? (
+                  <>
+                    <span className="text-[14px] font-medium tracking-[0.01em] flex-1">{label}</span>
+                    <kbd className="text-[9.5px] text-white/15 font-mono font-light">{shortcut}</kbd>
+                  </>
+                ) : (
+                  <span className="absolute left-full ml-3 px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50" style={{ background: 'rgba(0,0,0,0.85)', color: 'rgba(255,255,255,0.8)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    {label}
+                  </span>
+                )}
+              </motion.button>
+            );
+          })}
+        </nav>
+
+        {/* ── Tools Nav Group ── */}
+        <nav className={`relative z-10 flex flex-col gap-1 mt-4 py-2 rounded-[16px] ${sidebarExpanded ? 'px-3 mx-2' : 'px-1.5 mx-1'}`} style={{
+          background: 'rgba(255, 255, 255, 0.04)',
+          border: '1px solid rgba(255, 255, 255, 0.05)',
+          backdropFilter: 'blur(12px)',
+        }}>
+          {sidebarExpanded && (
+            <span className="text-[8px] font-semibold tracking-[0.2em] uppercase px-3.5 pt-0.5 pb-1" style={{ color: 'rgba(255,255,255,0.15)' }}>
+              Tools
+            </span>
+          )}
+          {NAV_ITEMS.filter(i => i.group === 'tools').map(({ key, label, shortcut, icon }) => {
+            const active = activeView === key;
+            const glow = NAV_GLOW[key];
+            const isPulsing = pulsingView === key;
+            return (
+              <motion.button
+                key={key}
+                onClick={() => {
+                  if (!active) play('navigate');
+                  setActiveView(key);
+                  setPulsingView(key);
+                  setTimeout(() => setPulsingView(null), 600);
+                }}
+                whileHover={{ scale: 1.01, x: sidebarExpanded ? 1 : 0 }}
+                whileTap={{ scale: 0.98 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                className={`group relative flex items-center rounded-[14px] transition-all ${
+                  sidebarExpanded ? 'gap-3.5 px-3.5 py-3 text-left w-full' : 'justify-center p-1.5 mx-auto'
+                } ${
+                  active
+                    ? 'text-white'
+                    : 'text-white/50 hover:text-white/75'
+                }`}
+                style={active ? {
+                  background: `rgba(${glow}, 0.08)`,
+                  border: `1px solid rgba(${glow}, 0.12)`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 20px rgba(${glow}, 0.1)`,
+                } : {
+                  border: '1px solid transparent',
+                }}
+              >
+                {isPulsing && (
+                  <motion.div
+                    className="absolute inset-0 rounded-[14px] pointer-events-none"
+                    initial={{ opacity: 0.5, scale: 1 }}
+                    animate={{ opacity: 0, scale: 1.3 }}
+                    transition={{ duration: 0.6, ease: 'easeOut' }}
+                    style={{ boxShadow: `0 0 30px rgba(${glow}, 0.5), 0 0 60px rgba(${glow}, 0.2)` }}
+                  />
+                )}
+                {active && sidebarExpanded && (
+                  <motion.div
+                    layoutId="nav-indicator-tools"
+                    className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full"
+                    style={{ background: `rgba(${glow}, 0.8)` }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                  />
+                )}
+                <div className="shrink-0">
+                  {icon}
+                </div>
+                {sidebarExpanded ? (
+                  <>
+                    <span className="text-[14px] font-medium tracking-[0.01em] flex-1">{label}</span>
+                    <kbd className="text-[9.5px] text-white/15 font-mono font-light">{shortcut}</kbd>
+                  </>
+                ) : (
+                  <span className="absolute left-full ml-3 px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50" style={{ background: 'rgba(0,0,0,0.85)', color: 'rgba(255,255,255,0.8)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    {label}
+                  </span>
+                )}
               </motion.button>
             );
           })}
@@ -169,258 +328,85 @@ export function AppShell() {
         {/* ── Spacer ── */}
         <div className="flex-1" />
 
-        {/* ── Bottom: Settings ── */}
-        <div className="relative z-10 px-3 mb-2">
-          <motion.button
+        {/* ── Bottom section — separated: debug health + settings button ── */}
+        <div className={`relative z-10 ${sidebarExpanded ? 'mx-3' : 'mx-1.5'} mb-4 flex flex-col gap-2`}>
+          {/* Settings button — one clean full-width button */}
+          <button
             onClick={() => { play('open'); setShowSettings(true); }}
-            whileHover={{ scale: 1.02, x: 1 }}
-            whileTap={{ scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-            className="flex items-center gap-2.5 rounded-[12px] px-3.5 py-2.5 transition-all text-left w-full text-white/45 hover:text-white/70"
+            className="flex items-center w-full transition-all hover:brightness-125"
             style={{
-              border: '1px solid transparent',
+              background: 'rgba(255,255,255,0.04)',
+              borderRadius: 14,
+              border: '1px solid rgba(255,255,255,0.06)',
+              padding: sidebarExpanded ? '10px 14px' : '10px 0',
+              justifyContent: sidebarExpanded ? 'flex-start' : 'center',
+              gap: 10,
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-              e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.border = '1px solid transparent';
-            }}
+            title="Settings (Shift+S)"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>
               <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
             </svg>
-            <span className="text-[12px] font-medium tracking-[0.01em]">Settings</span>
-            <kbd className="ml-auto text-[9px] text-white/15 font-mono font-light">⇧S</kbd>
-          </motion.button>
-        </div>
-
-        {/* ── Service health dots ── */}
-        <div className="relative z-10 px-5 mb-3 flex items-center gap-2.5">
-          {[
-            { key: 'wayfarer', label: 'WF' },
-            { key: 'ollama', label: 'AI' },
-            { key: 'searxng', label: 'SX' },
-          ].map(({ key, label }) => {
-            const status = healthState[key] || 'unknown';
-            const color = status === 'healthy' ? '#22c55e'
-              : status === 'degraded' ? '#f59e0b'
-              : status === 'down' ? '#ef4444'
-              : 'rgba(255,255,255,0.15)';
-            return (
-              <div key={key} className="flex items-center gap-1" title={`${key}: ${status}`}>
-                <span
-                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${status === 'healthy' ? '' : 'animate-pulse'}`}
-                  style={{ backgroundColor: color }}
-                />
-                <span className="text-[8px] font-mono" style={{ color: 'rgba(255,255,255,0.2)' }}>{label}</span>
+            {sidebarExpanded && (
+              <div className="flex items-center justify-between flex-1 min-w-0">
+                <span className="text-[13px] font-medium" style={{ color: 'rgba(255,255,255,0.4)' }}>Settings</span>
+                <div className="flex items-center gap-1.5">
+                  {/* Ambient toggle inline */}
+                  <span
+                    onClick={(e) => { e.stopPropagation(); toggleAmbient(); play('toggle'); }}
+                    className="transition-opacity hover:opacity-80 cursor-pointer p-0.5"
+                    title={ambientEnabled ? 'Ambient sound on' : 'Ambient sound off'}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ color: ambientEnabled ? 'rgba(43,121,255,0.5)' : 'rgba(255,255,255,0.12)' }}>
+                      <path d="M11 5L6 9H2v6h4l5 4V5z" />
+                      {ambientEnabled && <><path d="M15.54 8.46a5 5 0 010 7.07" /><path d="M19.07 4.93a10 10 0 010 14.14" /></>}
+                      {!ambientEnabled && <line x1="23" y1="9" x2="17" y2="15" />}
+                    </svg>
+                  </span>
+                  <kbd className="text-[8px] font-mono" style={{ color: 'rgba(255,255,255,0.1)' }}>Shift+S</kbd>
+                </div>
               </div>
-            );
-          })}
-        </div>
-
-        {/* ── Pipeline Controls — fixed height container to prevent layout shift ── */}
-        <div className="relative z-10 px-4 mb-4 h-[57px]">
-          <AnimatePresence mode="wait">
-            {!isRunning && campaign && (
-              <motion.button
-                key="run"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                onClick={handleStartPipeline}
-                className="absolute inset-x-4 w-[calc(100%-32px)] flex items-center justify-center h-[49px] rounded-full text-white/95 text-[14px] font-semibold tracking-[0.02em] transition-all hover:text-white group overflow-hidden"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(43, 121, 255, 0.08) 50%, rgba(255,255,255,0.10) 100%)',
-                  border: '1px solid rgba(255,255,255,0.22)',
-                  backdropFilter: 'blur(24px)',
-                  boxShadow: `
-                    inset 0 1px 0 rgba(255,255,255,0.2),
-                    inset 0 -1px 0 rgba(255,255,255,0.05),
-                    0 0 40px rgba(43, 121, 255, 0.08),
-                    0 0 80px rgba(43, 121, 255, 0.04),
-                    0 2px 12px rgba(0,0,0,0.2)
-                  `,
-                }}
-              >
-                {/* Animated gradient shimmer inside button */}
-                <div className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{
-                  background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 20%, rgba(43, 121, 255, 0.08) 40%, rgba(255,255,255,0.06) 60%, rgba(43, 121, 255, 0.05) 80%, transparent 100%)',
-                  animation: 'nomad-btn-shimmer 6s ease-in-out infinite',
-                }} />
-                <span className="relative z-10 flex items-center gap-2.5">
-                  <span>Run Research</span>
-                  {campaign && (
-                    <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, fontWeight: 400, letterSpacing: '0.03em' }}>
-                      {campaign.presetData?.brand?.name || campaign.brand}
-                    </span>
-                  )}
-                </span>
-              </motion.button>
             )}
-            {isRunning && (
-              <motion.button
-                key="stop"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-                onClick={() => { play('stop'); stopCycle(); }}
-                className="absolute inset-x-4 w-[calc(100%-32px)] flex items-center justify-center h-[49px] rounded-full text-red-400/80 text-[14px] font-medium tracking-[0.01em] transition-all hover:text-red-400"
-                style={{
-                  background: 'rgba(239,68,68,0.06)',
-                  border: '1px solid rgba(239,68,68,0.12)',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: 'inset 0 1px 0 rgba(239,68,68,0.08)',
-                }}
-              >
-                Stop Research
-              </motion.button>
-            )}
-          </AnimatePresence>
-        </div>
+          </button>
 
-        {/* ── Status bar ── */}
-        <div className="relative z-10 px-5 pb-4">
-          {isRunning ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(8px)' }}>
-              <div className="w-2 h-2 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: '#3b82f6', boxShadow: '0 0 6px rgba(59,130,246,0.5)' }} />
-              <span className="text-[11px] text-white font-medium tracking-wide">Running</span>
+          {/* Brand + Reset — compact line */}
+          {campaign && sidebarExpanded && (
+            <div className="flex items-center gap-1.5 px-2">
+              <div className="w-1 h-1 rounded-full shrink-0" style={{ backgroundColor: isRunning ? '#2B79FF' : 'rgba(255,255,255,0.15)' }} />
+              <span className="text-[9px] text-white/20 font-medium truncate flex-1">{campaign.brand}</span>
+              <button
+                onClick={() => { play('reset'); clearCampaign(); }}
+                className="text-[8px] text-white/12 hover:text-white/35 transition-colors"
+              >
+                Reset
+              </button>
             </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />
-              <span className="text-[10px] text-white/30 tracking-wide">
-                {campaign ? campaign.brand : 'No campaign'}
-              </span>
-            </div>
-          )}
-          {campaign && !isRunning && (
-            <button
-              onClick={() => { play('reset'); clearCampaign(); }}
-              className="text-[9px] text-white/15 hover:text-white/40 mt-1 transition-colors tracking-wide"
-            >
-              Reset
-            </button>
           )}
         </div>
       </aside>
 
       {/* ══ MAIN CONTENT ══ */}
       <main
-        className={`flex-1 flex flex-col overflow-hidden rounded-tl-[25px] rounded-bl-[25px] z-20 relative ${
-          isDarkMode ? 'bg-zinc-950' : 'bg-white'
+        className={`flex-1 flex flex-col overflow-hidden z-20 relative ${
+          isDarkMode ? 'rounded-l-[20px] mt-2' : 'bg-white'
         }`}
-        style={{ boxShadow: isDarkMode ? 'none' : '0px 0px 20px 2px rgba(255,255,255,0.15)' }}
+        style={{
+          ...(isDarkMode ? { background: 'rgba(14, 14, 18, 0.99)' } : {}),
+          border: isDarkMode ? '1px solid rgba(255,255,255,0.08)' : 'none',
+          boxShadow: isDarkMode
+            ? '0 8px 40px rgba(0,0,0,0.5), -4px 0 20px rgba(43,121,255,0.03)'
+            : 'none',
+        }}
       >
-        {/* ── Figma gradient ellipses — #2B79FF to white, plus-lighter ── */}
-        <div className="absolute inset-0 overflow-hidden rounded-tl-[25px] rounded-bl-[25px] pointer-events-none" style={{ zIndex: 0 }}>
-          {/* Ellipse 1: Large primary glow — top-left corner (matches Figma 1008px at sidebar junction) */}
-          <div
-            className="absolute"
-            style={{
-              top: '-15%',
-              left: '-10%',
-              width: '80%',
-              height: '80%',
-              borderRadius: '50%',
-              background: isDarkMode
-                ? 'radial-gradient(circle, rgba(43, 121, 255, 0.08) 0%, rgba(43, 121, 255, 0.03) 40%, transparent 70%)'
-                : 'radial-gradient(circle, rgba(43, 121, 255, 0.05) 0%, rgba(43, 121, 255, 0.015) 40%, transparent 70%)',
-              mixBlendMode: 'plus-lighter' as any,
-            }}
-          />
-          {/* Ellipse 2: Secondary glow — offset bottom-right */}
-          <div
-            className="absolute"
-            style={{
-              bottom: '-20%',
-              right: '-5%',
-              width: '70%',
-              height: '70%',
-              borderRadius: '50%',
-              background: isDarkMode
-                ? 'radial-gradient(circle, rgba(43, 121, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 40%, transparent 65%)'
-                : 'radial-gradient(circle, rgba(43, 121, 255, 0.03) 0%, rgba(255, 255, 255, 0.005) 40%, transparent 65%)',
-              mixBlendMode: 'plus-lighter' as any,
-            }}
-          />
-          {/* Ellipse 3: Mid accent — center-left */}
-          <div
-            className="absolute"
-            style={{
-              top: '30%',
-              left: '-15%',
-              width: '50%',
-              height: '50%',
-              borderRadius: '50%',
-              background: isDarkMode
-                ? 'radial-gradient(circle, rgba(43, 121, 255, 0.05) 0%, transparent 60%)'
-                : 'radial-gradient(circle, rgba(43, 121, 255, 0.025) 0%, transparent 60%)',
-              mixBlendMode: 'plus-lighter' as any,
-            }}
-          />
-          {/* Ellipse 4: Tiny bright spot — near top */}
-          <div
-            className="absolute"
-            style={{
-              top: '5%',
-              left: '15%',
-              width: '30%',
-              height: '30%',
-              borderRadius: '50%',
-              background: isDarkMode
-                ? 'radial-gradient(circle, rgba(43, 121, 255, 0.07) 0%, rgba(255, 255, 255, 0.015) 30%, transparent 55%)'
-                : 'radial-gradient(circle, rgba(43, 121, 255, 0.035) 0%, rgba(255, 255, 255, 0.008) 30%, transparent 55%)',
-              mixBlendMode: 'plus-lighter' as any,
-              filter: 'blur(20px)',
-            }}
-          />
-          {/* Ellipse 5: Warm counterbalance — bottom-left */}
-          <div
-            className="absolute"
-            style={{
-              bottom: '10%',
-              left: '20%',
-              width: '40%',
-              height: '35%',
-              borderRadius: '50%',
-              background: isDarkMode
-                ? 'radial-gradient(circle, rgba(43, 121, 255, 0.04) 0%, rgba(255, 255, 255, 0.008) 35%, transparent 60%)'
-                : 'radial-gradient(circle, rgba(43, 121, 255, 0.02) 0%, rgba(255, 255, 255, 0.004) 35%, transparent 60%)',
-              mixBlendMode: 'plus-lighter' as any,
-            }}
-          />
-          {/* Ellipse 6: Edge bleed from sidebar (Figma node 526:18 position) */}
-          <div
-            className="absolute"
-            style={{
-              top: '-10%',
-              left: '-5%',
-              width: '45%',
-              height: '90%',
-              borderRadius: '50%',
-              background: isDarkMode
-                ? 'radial-gradient(ellipse 80% 80% at 20% 40%, rgba(43, 121, 255, 0.06) 0%, transparent 60%)'
-                : 'radial-gradient(ellipse 80% 80% at 20% 40%, rgba(43, 121, 255, 0.03) 0%, transparent 60%)',
-              mixBlendMode: 'plus-lighter' as any,
-            }}
-          />
-        </div>
-
         {/* Top bar */}
-        <div className={`relative flex items-center h-12 px-5 shrink-0 border-b rounded-tl-[25px] ${
-          isDarkMode ? 'border-zinc-800 bg-transparent' : 'border-zinc-100 bg-white/80 backdrop-blur-sm'
+        <div className={`relative flex items-center h-12 px-5 shrink-0 border-b overflow-hidden ${isDarkMode ? 'rounded-tl-[20px]' : ''} ${
+          isDarkMode ? 'border-white/[0.08] bg-transparent' : 'border-zinc-100 bg-white/80 backdrop-blur-sm'
         }`} style={{ zIndex: 1 }}>
           <div className="flex items-center gap-3 flex-1">
             {campaign && (
-              <span className={`text-sm font-semibold ${isDarkMode ? 'text-zinc-200' : 'text-[#414243]'}`}>{campaign.brand}</span>
+              <span className={`text-[13px] font-semibold ${isDarkMode ? 'text-white/[0.85]' : 'text-[#414243]'}`}>{campaign.brand}</span>
             )}
             {isRunning && (
               <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
@@ -431,10 +417,26 @@ export function AppShell() {
               >Running</span>
             )}
           </div>
+          {/* Frosted glass settings button */}
+          <button
+            onClick={() => { play('open'); setShowSettings(true); }}
+            title="Settings (Shift+S)"
+            className="flex items-center justify-center w-8 h-8 transition-all hover:brightness-125"
+            style={{
+              background: 'rgba(255,255,255,0.04)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 10,
+              color: isDarkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)',
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </button>
         </div>
 
         {/* View content */}
-        <div className="flex-1 flex flex-col overflow-hidden relative" style={{ zIndex: 1 }}>
+        <div className="flex-1 flex flex-col overflow-hidden relative min-h-0" style={{ zIndex: 1 }}>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeView}
@@ -442,17 +444,29 @@ export function AppShell() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.12 }}
-              className="flex-1 flex flex-col overflow-hidden"
+              className="flex-1 flex flex-col overflow-hidden min-h-0"
             >
               {activeView === 'research' && <Dashboard embedded />}
               {activeView === 'make' && <MakeStudio />}
               {activeView === 'test' && <TestView />}
+              {activeView === 'computer' && (
+                <div className="h-full flex items-center justify-center overflow-hidden p-4">
+                  <div className="w-full max-w-[960px] h-full flex flex-col overflow-hidden rounded-xl" style={{
+                    boxShadow: isDarkMode ? '0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)' : '0 4px 24px rgba(0,0,0,0.08)',
+                    background: isDarkMode ? 'rgba(255,255,255,0.02)' : '#fff',
+                  }}>
+                    <WayfayerPlusPanel standalone />
+                  </div>
+                </div>
+              )}
+              {activeView === 'agent' && <AgentPanel />}
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
 
       {/* Modals */}
+      <GreetingOverlay open={showGreeting} onClose={() => setShowGreeting(false)} />
       <SettingsModal isOpen={showSettings} onClose={() => { play('close'); setShowSettings(false); }} isRunning={isRunning} />
       <BrandHubDrawer
         isOpen={showBrandHub}
@@ -481,23 +495,23 @@ function TestView() {
   const testComplete = currentCycle?.stages?.test?.status === 'complete';
 
   return (
-    <div className={`h-full flex items-center justify-center p-8 overflow-y-auto ${isDarkMode ? 'bg-zinc-950' : 'bg-zinc-50'}`}>
+    <div className={`h-full flex items-center justify-center p-8 overflow-y-auto ${isDarkMode ? 'bg-transparent' : 'bg-zinc-50'}`}>
       {testComplete && testOutput ? (
         <div className={`max-w-3xl w-full p-8 ${glassCard(isDarkMode)}`}>
-          <h2 className={`text-lg font-semibold mb-4 ${isDarkMode ? 'text-zinc-100' : 'text-[#414243]'}`}>Test Results</h2>
-          <div className={`font-mono text-xs whitespace-pre-wrap leading-relaxed ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>
+          <h2 className={`text-[14px] font-semibold mb-4 ${isDarkMode ? 'text-white/[0.85]' : 'text-[#414243]'}`}>Test Results</h2>
+          <div className={`font-mono text-[12px] whitespace-pre-wrap leading-relaxed ${isDarkMode ? 'text-white/[0.55]' : 'text-zinc-600'}`}>
             {testOutput}
           </div>
         </div>
       ) : (
         <div className="text-center">
           <div className={`w-16 h-16 mx-auto rounded-2xl border border-dashed flex items-center justify-center mb-4 ${
-            isDarkMode ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-200 bg-white'
+            isDarkMode ? 'border-white/[0.08] bg-white/[0.03]' : 'border-zinc-200 bg-white'
           }`}>
-            <NomadIcon size={24} className={isDarkMode ? 'text-zinc-600' : 'text-zinc-300'} />
+            <NomadIcon size={24} className={isDarkMode ? 'text-white/[0.30]' : 'text-zinc-300'} />
           </div>
-          <p className={`text-sm ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>No test results yet</p>
-          <p className={`text-xs mt-1 ${isDarkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>Run the full pipeline to evaluate ad concepts</p>
+          <p className={`text-[12px] ${isDarkMode ? 'text-white/[0.55]' : 'text-zinc-500'}`}>No test results yet</p>
+          <p className={`text-[11px] mt-1 ${isDarkMode ? 'text-white/[0.30]' : 'text-zinc-400'}`}>Run the full pipeline to evaluate ad concepts</p>
         </div>
       )}
     </div>

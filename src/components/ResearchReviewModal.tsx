@@ -32,9 +32,9 @@ export function ResearchReviewModal({
 
   if (!isOpen) return null;
 
-  const bgClass = isDarkMode ? 'bg-[#0a0a0a]' : 'bg-white';
-  const borderClass = isDarkMode ? 'border-zinc-800' : 'border-zinc-200';
-  const textClass = isDarkMode ? 'text-white' : 'text-black';
+  const bgClass = isDarkMode ? 'bg-[#09090b]' : 'bg-white';
+  const borderClass = isDarkMode ? 'border-white/[0.08]' : 'border-zinc-200';
+  const textClass = isDarkMode ? 'text-white/[0.85]' : 'text-black';
   const secondaryTextClass = isDarkMode ? 'text-zinc-400' : 'text-zinc-600';
   const sectionBgClass = isDarkMode ? 'bg-zinc-900/50' : 'bg-zinc-50';
   const buttonClass = isDarkMode

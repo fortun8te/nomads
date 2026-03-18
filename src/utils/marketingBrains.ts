@@ -331,7 +331,7 @@ const VISUAL_BRAIN: BrainDefinition = {
   emoji: 'V',
   color: 'cyan',
   focus: 'Competitor visual patterns, style gaps, layout analysis, color/composition intelligence',
-  model: 'minicpm-v:8b',
+  model: 'vision',  // resolved at runtime via getVisionModel()
   requiresImages: true,
   systemPrompt: `You are the VISUAL BRAIN — you analyze competitor ad visuals to find patterns and gaps.
 

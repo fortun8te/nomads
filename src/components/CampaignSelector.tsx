@@ -233,7 +233,7 @@ const IMAGE_TYPE_OPTIONS = [
 
 export function CampaignSelector() {
   const context = useCampaign();
-  const { createCampaign, campaign, clearCampaign, resetResearch, loadCampaignById } = context as any;
+  const { createCampaign, campaign, clearCampaign, resetResearch, loadCampaignById } = context;
   useTheme(); // keep reactive
   const [activeTab, setActiveTab] = useState<Tab>('preset');
   const [formValues, setFormValues] = useState<Record<string, string>>({});

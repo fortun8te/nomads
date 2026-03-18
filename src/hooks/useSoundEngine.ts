@@ -31,7 +31,9 @@ export type SoundType =
   | 'expand'         // Section/accordion expand
   | 'collapse'       // Section/accordion collapse
   | 'whoosh'         // Fast transition / page switch animation
-  | 'drop';          // Item dropped/attached (image drop, file attach)
+  | 'drop'           // Item dropped/attached (image drop, file attach)
+  | 'connect'        // Bluetooth-style pairing chime (AI connection established)
+  | 'connectFail';   // Connection failed — low warning tone
 
 // ── Singleton AudioContext + compressor ──
 
@@ -114,30 +116,29 @@ type SoundFn = (vol: number) => void;
 
 const sounds: Record<SoundType, SoundFn> = {
 
-  // ── Launch: Soft engine start — warm rising tone ──
+  // ── Launch: Soft confirmation — single clean tone ──
   launch(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
-    g.gain.value = vol;
-    const lpf = createLPF(ac, g, 3000);
+    g.gain.value = vol * 0.6;
+    const lpf = createLPF(ac, g, 2000);
     g.connect(out);
 
-    playTone(ac, lpf, t, { type: 'sine', freq: 280, freqEnd: 450, sweepDuration: 0.15, attack: 0.008, hold: 0.08, release: 0.12, gain: 0.05 });
-    playTone(ac, lpf, t, { type: 'sine', freq: 420, freqEnd: 600, sweepDuration: 0.12, delay: 0.03, attack: 0.006, hold: 0.06, release: 0.10, gain: 0.03 });
-    playTone(ac, lpf, t, { type: 'sine', freq: 650, delay: 0.10, attack: 0.008, hold: 0.04, release: 0.15, gain: 0.02 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 440, freqEnd: 520, sweepDuration: 0.08, attack: 0.005, hold: 0.04, release: 0.08, gain: 0.03 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 660, delay: 0.06, attack: 0.004, hold: 0.03, release: 0.06, gain: 0.015 });
   },
 
-  // ── Stop: Descending tone with slight detuning ──
+  // ── Stop: Single soft descending tone ──
   stop(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
-    g.gain.value = vol;
+    g.gain.value = vol * 0.6;
+    const lpf = createLPF(ac, g, 1500);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 587, freqEnd: 415, sweepDuration: 0.12, attack: 0.005, hold: 0.06, release: 0.12, gain: 0.09 });
-    playTone(ac, g, t, { type: 'sine', freq: 590, freqEnd: 412, sweepDuration: 0.12, attack: 0.005, hold: 0.06, release: 0.10, gain: 0.04, detune: -8 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 480, freqEnd: 360, sweepDuration: 0.08, attack: 0.004, hold: 0.04, release: 0.08, gain: 0.04 });
   },
 
   // ── Click: Soft tactile tap — like touching glass ──
@@ -205,32 +206,29 @@ const sounds: Record<SoundType, SoundFn> = {
     playTone(ac, lpf, t, { type: 'sine', freq: 500, freqEnd: 350, sweepDuration: 0.06, attack: 0.004, hold: 0.03, release: 0.08, gain: 0.03 });
   },
 
-  // ── Success: Ascending E5 → G#5 → B5 (major triad arpeggio) ──
+  // ── Success: Two quick tones — understated confirmation ──
   success(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
-    g.gain.value = vol;
+    g.gain.value = vol * 0.5;
+    const lpf = createLPF(ac, g, 2500);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 659, attack: 0.006, hold: 0.08, release: 0.14, gain: 0.09 });
-    playTone(ac, g, t, { type: 'sine', freq: 831, delay: 0.09, attack: 0.006, hold: 0.08, release: 0.16, gain: 0.08 });
-    playTone(ac, g, t, { type: 'sine', freq: 988, delay: 0.18, attack: 0.008, hold: 0.10, release: 0.25, gain: 0.06 });
-    // Octave shimmer on final note
-    playTone(ac, g, t, { type: 'sine', freq: 1976, delay: 0.20, attack: 0.01, hold: 0.06, release: 0.30, gain: 0.02 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 520, attack: 0.004, hold: 0.04, release: 0.08, gain: 0.04 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 660, delay: 0.07, attack: 0.004, hold: 0.04, release: 0.10, gain: 0.03 });
   },
 
-  // ── Error: Low detuned buzz through LPF ──
+  // ── Error: Single low thud ──
   error(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
-    g.gain.value = vol;
-    const lpf = createLPF(ac, g, 500);
+    g.gain.value = vol * 0.5;
+    const lpf = createLPF(ac, g, 400);
     g.connect(out);
 
-    playTone(ac, lpf, t, { type: 'triangle', freq: 280, freqEnd: 260, sweepDuration: 0.15, attack: 0.005, hold: 0.10, release: 0.12, gain: 0.07 });
-    playTone(ac, lpf, t, { type: 'sine', freq: 286, freqEnd: 264, sweepDuration: 0.15, attack: 0.005, hold: 0.10, release: 0.10, gain: 0.05, detune: -12 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 260, freqEnd: 220, sweepDuration: 0.08, attack: 0.003, hold: 0.05, release: 0.08, gain: 0.05 });
   },
 
   // ── Reset: Descending octave sweep ──
@@ -275,23 +273,17 @@ const sounds: Record<SoundType, SoundFn> = {
     playTone(ac, g, t, { type: 'triangle', freq: 100 + Math.random() * 100, attack: 0.001, hold: 0.006, release: 0.025, gain: 0.012 });
   },
 
-  // ── Stage Complete: AHA moment — ascending C5→E5→G5→C6 with sparkle shimmer ──
+  // ── Stage Complete: Clean double-ping — task done, not a celebration ──
   stageComplete(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
-    g.gain.value = vol;
+    g.gain.value = vol * 0.5;
+    const lpf = createLPF(ac, g, 3000);
     g.connect(out);
 
-    // Ascending major arpeggio — brighter and more celebratory than generic success
-    playTone(ac, g, t, { type: 'sine', freq: 523, attack: 0.005, hold: 0.06, release: 0.10, gain: 0.10 });
-    playTone(ac, g, t, { type: 'sine', freq: 659, delay: 0.08, attack: 0.005, hold: 0.06, release: 0.12, gain: 0.09 });
-    playTone(ac, g, t, { type: 'sine', freq: 784, delay: 0.16, attack: 0.005, hold: 0.06, release: 0.14, gain: 0.08 });
-    // Final octave C6 with shimmer
-    playTone(ac, g, t, { type: 'sine', freq: 1047, delay: 0.24, attack: 0.008, hold: 0.10, release: 0.30, gain: 0.07 });
-    // Sparkle overtones
-    playTone(ac, g, t, { type: 'sine', freq: 2093, delay: 0.26, attack: 0.01, hold: 0.05, release: 0.35, gain: 0.025, detune: 3 });
-    playTone(ac, g, t, { type: 'sine', freq: 3136, delay: 0.28, attack: 0.012, hold: 0.03, release: 0.40, gain: 0.012, detune: -5 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 600, attack: 0.003, hold: 0.03, release: 0.06, gain: 0.04 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 750, delay: 0.08, attack: 0.003, hold: 0.04, release: 0.10, gain: 0.03 });
   },
 
   // ── Hover: Barely-there whisper — ultra subtle ──
@@ -332,19 +324,16 @@ const sounds: Record<SoundType, SoundFn> = {
     playTone(ac, lpf, t, { type: 'triangle', freq: 330, freqEnd: 165, sweepDuration: 0.10, attack: 0.004, hold: 0.03, release: 0.08, gain: 0.025 });
   },
 
-  // ── Notify: Attention ping — bright bell-like with quick decay ──
+  // ── Notify: Single soft ping ──
   notify(vol) {
     const { ctx: ac, out } = getAudio();
     const t = ac.currentTime;
     const g = ac.createGain();
-    g.gain.value = vol;
+    g.gain.value = vol * 0.5;
+    const lpf = createLPF(ac, g, 3000);
     g.connect(out);
 
-    playTone(ac, g, t, { type: 'sine', freq: 1175, attack: 0.003, hold: 0.04, release: 0.15, gain: 0.08 });
-    // Bell harmonic
-    playTone(ac, g, t, { type: 'sine', freq: 2349, delay: 0.005, attack: 0.003, hold: 0.02, release: 0.20, gain: 0.03, detune: 2 });
-    // Second ping (confirmation)
-    playTone(ac, g, t, { type: 'sine', freq: 1397, delay: 0.12, attack: 0.003, hold: 0.03, release: 0.12, gain: 0.06 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 880, attack: 0.002, hold: 0.03, release: 0.10, gain: 0.04 });
   },
 
   // ── Expand: Soft rising breath — section opening ──
@@ -399,6 +388,31 @@ const sounds: Record<SoundType, SoundFn> = {
     // Confirmation ring
     playTone(ac, g, t, { type: 'sine', freq: 659, delay: 0.07, attack: 0.003, hold: 0.02, release: 0.08, gain: 0.035 });
   },
+
+  // ── Connect: Two quick ascending pings ──
+  connect(vol) {
+    const { ctx: ac, out } = getAudio();
+    const t = ac.currentTime;
+    const g = ac.createGain();
+    g.gain.value = vol * 0.5;
+    const lpf = createLPF(ac, g, 2500);
+    g.connect(out);
+
+    playTone(ac, lpf, t, { type: 'sine', freq: 550, attack: 0.003, hold: 0.03, release: 0.06, gain: 0.035 });
+    playTone(ac, lpf, t, { type: 'sine', freq: 700, delay: 0.1, attack: 0.003, hold: 0.04, release: 0.08, gain: 0.03 });
+  },
+
+  // ── ConnectFail: Single low tone ──
+  connectFail(vol) {
+    const { ctx: ac, out } = getAudio();
+    const t = ac.currentTime;
+    const g = ac.createGain();
+    g.gain.value = vol * 0.5;
+    const lpf = createLPF(ac, g, 800);
+    g.connect(out);
+
+    playTone(ac, lpf, t, { type: 'sine', freq: 350, freqEnd: 280, sweepDuration: 0.08, attack: 0.003, hold: 0.04, release: 0.08, gain: 0.04 });
+  },
 };
 
 // ── Loop system: repeating sound patterns (e.g. "thinking" ba-ba-ba) ──
@@ -420,14 +434,10 @@ function playThinkingPattern(ac: AudioContext, dest: AudioNode, vol: number) {
   lpf.frequency.value = 1200;
   lpf.Q.value = 0.5;
   lpf.connect(dest);
-  // Two soft breathy tones — more like a heartbeat than a melody
+  // Very subtle pulse — barely audible
   playTone(ac, lpf, t, {
-    type: 'sine', freq: 300, freqEnd: 340, sweepDuration: 0.08,
-    attack: 0.01, hold: 0.04, release: 0.12, gain: vol * 0.015,
-  });
-  playTone(ac, lpf, t, {
-    type: 'sine', freq: 320, freqEnd: 360, sweepDuration: 0.08,
-    delay: 0.25, attack: 0.01, hold: 0.03, release: 0.10, gain: vol * 0.01,
+    type: 'sine', freq: 300, freqEnd: 330, sweepDuration: 0.06,
+    attack: 0.01, hold: 0.03, release: 0.10, gain: vol * 0.006,
   });
 }
 

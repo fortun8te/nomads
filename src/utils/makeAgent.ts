@@ -349,12 +349,12 @@ async function generateAdConcepts(
         );
 
         concepts.push(concept);
-        onProgress(`✓ ${concept.hookAngle} (${concept.emotionalDriver}) [${fieldSuggestions.fontFamily}]\n`);
+        onProgress(`[OK] ${concept.hookAngle} (${concept.emotionalDriver}) [${fieldSuggestions.fontFamily}]\n`);
       } else {
-        onProgress(`✗ Failed to parse\n`);
+        onProgress(`[FAIL] Failed to parse\n`);
       }
     } catch (err) {
-      onProgress(`✗ Error: ${err}\n`);
+      onProgress(`[FAIL] Error: ${err}\n`);
     }
   }
 

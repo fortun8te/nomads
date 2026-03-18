@@ -41,7 +41,7 @@ export function CycleTimeline({ cycle, selectedStage, onSelectStage, vertical = 
   if (vertical) {
     return (
       <div>
-        <div className="text-[9px] text-zinc-700 px-1 mb-1 tabular-nums">
+        <div className="text-[9px] text-white/[0.15] px-1 mb-1 tabular-nums">
           Cycle {cycle.cycleNumber}
           {cycle.completedAt && (
             <span className="ml-1">· {new Date(cycle.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -62,7 +62,7 @@ export function CycleTimeline({ cycle, selectedStage, onSelectStage, vertical = 
 
             return (
               <div key={stage.name}>
-                {showSep && <div className="h-px bg-zinc-800/50 mx-1 my-1" />}
+                {showSep && <div className="h-px bg-white/[0.08] mx-1 my-1" />}
                 <button
                   onClick={() => canClick && onSelectStage?.(stage.name)}
                   disabled={!canClick}
@@ -70,12 +70,12 @@ export function CycleTimeline({ cycle, selectedStage, onSelectStage, vertical = 
                     canClick ? 'cursor-pointer' : 'cursor-default'
                   } ${
                     isViewing
-                      ? 'bg-zinc-800 text-zinc-100'
+                      ? 'bg-white/[0.08] text-white/[0.85]'
                       : isActive
                       ? 'text-blue-400'
                       : isComplete
-                      ? 'text-zinc-400 hover:bg-zinc-800/30 hover:text-zinc-300'
-                      : 'text-zinc-700'
+                      ? 'text-white/[0.55] hover:bg-white/[0.04] hover:text-white/[0.85]'
+                      : 'text-white/[0.15]'
                   }`}
                 >
                   {/* Status indicator */}
@@ -87,14 +87,14 @@ export function CycleTimeline({ cycle, selectedStage, onSelectStage, vertical = 
                         <path d="M20 6L9 17l-5-5" />
                       </svg>
                     ) : (
-                      <span className="w-1.5 h-1.5 rounded-full border border-zinc-700" />
+                      <span className="w-1.5 h-1.5 rounded-full border border-white/[0.15]" />
                     )}
                   </span>
 
                   <span className="text-[11px] font-medium flex-1 leading-none">{stage.label}</span>
 
                   {elapsed && (
-                    <span className={`text-[9px] tabular-nums flex-shrink-0 ${isViewing ? 'text-zinc-500' : isActive ? 'text-blue-600' : 'text-zinc-700'}`}>
+                    <span className={`text-[9px] tabular-nums flex-shrink-0 ${isViewing ? 'text-white/[0.30]' : isActive ? 'text-blue-600' : 'text-white/[0.15]'}`}>
                       {elapsed}
                     </span>
                   )}

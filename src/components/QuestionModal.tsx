@@ -52,13 +52,13 @@ export function QuestionModal({ question, onAnswer, isDarkMode }: QuestionModalP
       <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
         <div className={`pointer-events-auto w-[480px] ${
           isDarkMode
-            ? 'bg-[#0a0a0a] border-zinc-800'
+            ? 'bg-[#09090b] border-white/[0.08]'
             : 'bg-white border-zinc-200'
         } border shadow-2xl`}>
 
           {/* Header */}
           <div className={`px-6 py-4 border-b ${
-            isDarkMode ? 'border-zinc-800' : 'border-zinc-200'
+            isDarkMode ? 'border-white/[0.08]' : 'border-zinc-200'
           }`}>
             <div className="flex items-center gap-3 mb-2">
               <div className={`w-2 h-2 rounded-full ${
@@ -71,13 +71,13 @@ export function QuestionModal({ question, onAnswer, isDarkMode }: QuestionModalP
               </span>
             </div>
             <h2 className={`font-mono text-sm leading-relaxed ${
-              isDarkMode ? 'text-zinc-200' : 'text-zinc-800'
+              isDarkMode ? 'text-white/[0.85]' : 'text-zinc-800'
             }`}>
               {question.question}
             </h2>
             {question.context && (
               <p className={`font-mono text-[11px] mt-2 ${
-                isDarkMode ? 'text-zinc-500' : 'text-zinc-400'
+                isDarkMode ? 'text-white/[0.30]' : 'text-zinc-400'
               }`}>
                 {question.context}
               </p>
@@ -96,21 +96,21 @@ export function QuestionModal({ question, onAnswer, isDarkMode }: QuestionModalP
                       ? 'border-white bg-white/5'
                       : 'border-black bg-black/5'
                     : isDarkMode
-                      ? 'border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/50'
+                      ? 'border-white/[0.08] hover:border-white/[0.15] hover:bg-white/[0.03]'
                       : 'border-zinc-200 hover:border-zinc-400 hover:bg-zinc-50'
                 }`}
               >
                 <span className={`font-mono text-[11px] font-bold mt-0.5 shrink-0 ${
                   selected === index
                     ? isDarkMode ? 'text-white' : 'text-black'
-                    : isDarkMode ? 'text-zinc-500' : 'text-zinc-400'
+                    : isDarkMode ? 'text-white/[0.30]' : 'text-zinc-400'
                 }`}>
                   {OPTION_LETTERS[index]}
                 </span>
                 <span className={`font-mono text-xs leading-relaxed ${
                   selected === index
-                    ? isDarkMode ? 'text-zinc-200' : 'text-zinc-800'
-                    : isDarkMode ? 'text-zinc-400' : 'text-zinc-600'
+                    ? isDarkMode ? 'text-white/[0.85]' : 'text-zinc-800'
+                    : isDarkMode ? 'text-white/[0.55]' : 'text-zinc-600'
                 }`}>
                   {option}
                 </span>
@@ -126,21 +126,21 @@ export function QuestionModal({ question, onAnswer, isDarkMode }: QuestionModalP
                     ? 'border-white bg-white/5'
                     : 'border-black bg-black/5'
                   : isDarkMode
-                    ? 'border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/50'
+                    ? 'border-white/[0.08] hover:border-white/[0.15] hover:bg-white/[0.03]'
                     : 'border-zinc-200 hover:border-zinc-400 hover:bg-zinc-50'
               }`}
             >
               <span className={`font-mono text-[11px] font-bold mt-0.5 shrink-0 ${
                 isCustom
                   ? isDarkMode ? 'text-white' : 'text-black'
-                  : isDarkMode ? 'text-zinc-500' : 'text-zinc-400'
+                  : isDarkMode ? 'text-white/[0.30]' : 'text-zinc-400'
               }`}>
                 D
               </span>
               <span className={`font-mono text-xs ${
                 isCustom
-                  ? isDarkMode ? 'text-zinc-200' : 'text-zinc-800'
-                  : isDarkMode ? 'text-zinc-400' : 'text-zinc-600'
+                  ? isDarkMode ? 'text-white/[0.85]' : 'text-zinc-800'
+                  : isDarkMode ? 'text-white/[0.55]' : 'text-zinc-600'
               }`}>
                 Write your own...
               </span>
@@ -157,7 +157,7 @@ export function QuestionModal({ question, onAnswer, isDarkMode }: QuestionModalP
                   rows={3}
                   className={`w-full px-3 py-2 font-mono text-xs border resize-none transition-colors ${
                     isDarkMode
-                      ? 'bg-zinc-900 border-zinc-700 text-white placeholder-zinc-600 focus:border-zinc-500'
+                      ? 'bg-white/[0.03] border-white/[0.08] text-white/[0.85] placeholder-white/[0.15] focus:border-white/[0.20]'
                       : 'bg-white border-zinc-300 text-black placeholder-zinc-400 focus:border-zinc-500'
                   } outline-none`}
                 />
@@ -167,10 +167,10 @@ export function QuestionModal({ question, onAnswer, isDarkMode }: QuestionModalP
 
           {/* Footer */}
           <div className={`px-6 py-3 border-t ${
-            isDarkMode ? 'border-zinc-800' : 'border-zinc-200'
+            isDarkMode ? 'border-white/[0.08]' : 'border-zinc-200'
           } flex items-center justify-between`}>
             <span className={`font-mono text-[10px] ${
-              isDarkMode ? 'text-zinc-700' : 'text-zinc-400'
+              isDarkMode ? 'text-white/[0.15]' : 'text-zinc-400'
             }`}>
               Pipeline paused — waiting for input
             </span>
@@ -183,7 +183,7 @@ export function QuestionModal({ question, onAnswer, isDarkMode }: QuestionModalP
                     ? 'bg-white text-black hover:bg-zinc-200'
                     : 'bg-black text-white hover:bg-zinc-800'
                   : isDarkMode
-                    ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                    ? 'bg-white/[0.04] text-white/[0.30] cursor-not-allowed'
                     : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
               }`}
             >

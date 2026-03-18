@@ -1,6 +1,6 @@
 /**
  * Health Monitor — Continuous heartbeat system for all services
- * Polls Wayfarer, SearXNG, and Ollama at regular intervals
+ * Polls Wayfayer, SearXNG, and Ollama at regular intervals
  */
 
 export type ServiceStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
@@ -23,7 +23,7 @@ const DEGRADED_THRESHOLD = 2; // consecutive failures before "degraded"
 const DOWN_THRESHOLD = 4;     // consecutive failures before "down"
 
 const DEFAULT_SERVICES: Array<{ name: string; url: string; probe: string }> = [
-  { name: 'wayfarer', url: 'http://localhost:8889', probe: '/health' },
+  { name: 'wayfayer', url: 'http://localhost:8889', probe: '/health' },
   { name: 'searxng', url: 'http://localhost:8888', probe: '/healthz' },
   { name: 'ollama', url: 'http://localhost:8889/ollama', probe: '/api/tags' },
 ];

@@ -16,30 +16,64 @@ from wayfarer import research
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://100.74.135.83:11435")
 
-# ── Playwright browser singleton ──
+# ── Playwright browser singleton + persistent context ──
 _browser = None
 _playwright = None
+_context = None  # Persistent context for page reuse
 
 
 async def _get_browser():
-    """Lazy-init Playwright browser on first screenshot request."""
-    global _browser, _playwright
+    """Lazy-init Playwright browser on first request."""
+    global _browser, _playwright, _context
     if _browser is None:
         try:
             from playwright.async_api import async_playwright
             _playwright = await async_playwright().start()
             _browser = await _playwright.chromium.launch(headless=True)
+            _context = await _browser.new_context(
+                viewport={"width": 1280, "height": 720},
+                ignore_https_errors=True,
+                java_script_enabled=True,
+            )
         except Exception as e:
             print(f"[Wayfarer] Playwright init failed: {e}")
             raise
     return _browser
 
 
+async def _get_context(width: int = 1280, height: int = 720):
+    """Get persistent browser context. Creates new one if viewport differs."""
+    global _context
+    await _get_browser()
+    # Reuse existing context (viewport set per-page now)
+    return _context
+
+
+# ── Active page sessions for agentic use ──
+_active_pages: dict[str, any] = {}  # session_id -> page
+_page_counter = 0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Pre-warm browser on startup so first screenshot is fast
+    try:
+        await _get_browser()
+        print("[Wayfarer] Playwright browser pre-warmed")
+    except Exception as e:
+        print(f"[Wayfarer] Browser pre-warm failed (will retry on first request): {e}")
     yield
     # Cleanup on shutdown
-    global _browser, _playwright
+    global _browser, _playwright, _context
+    # Close all active pages
+    for sid, page in _active_pages.items():
+        try:
+            await page.close()
+        except Exception:
+            pass
+    _active_pages.clear()
+    if _context:
+        await _context.close()
     if _browser:
         await _browser.close()
     if _playwright:
@@ -124,23 +158,24 @@ class ScreenshotBatchRequest(BaseModel):
 
 
 async def _take_screenshot(url: str, width: int, height: int, quality: int) -> dict:
-    """Capture a single URL screenshot. Returns dict with base64 image or error."""
+    """Capture a single URL screenshot. Fast: reuses context, domcontentloaded + brief settle."""
     try:
-        browser = await _get_browser()
-        page = await browser.new_page(viewport={"width": width, "height": height})
+        ctx = await _get_context(width, height)
+        page = await ctx.new_page()
         try:
-            # Try networkidle first (30s), fall back to domcontentloaded if slow
-            try:
-                await page.goto(url, wait_until="networkidle", timeout=30000)
-            except Exception:
-                # Page is slow — retry with just domcontentloaded + extra wait
-                try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                    await page.wait_for_timeout(3000)  # Let JS render
-                except Exception:
-                    pass  # Take screenshot of whatever loaded
+            await page.set_viewport_size({"width": width, "height": height})
 
-            # Dismiss popups, modals, overlays, cookie banners before screenshot
+            # Fast: domcontentloaded is enough for most pages (skip networkidle which
+            # waits for ALL requests including ads/trackers/analytics = 10-30s wasted)
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=10000)
+            except Exception:
+                pass  # Take screenshot of whatever loaded
+
+            # Brief settle for JS-rendered content
+            await page.wait_for_timeout(800)
+
+            # Dismiss popups/overlays (non-blocking, fast)
             await _dismiss_popups(page)
 
             screenshot_bytes = await page.screenshot(type="jpeg", quality=quality)
@@ -182,13 +217,12 @@ async def _dismiss_popups(page) -> None:
                     '[class*="promo-"]', '[class*="announcement"]',
                     '[role="dialog"]', '[role="alertdialog"]',
                     '[data-modal]', '[data-popup]',
-                    '.klaviyo-form', '.privy-popup',       // Common Shopify popups
+                    '.klaviyo-form', '.privy-popup',
                     '#shopify-section-popup',
-                    '.needsclick',                          // Email signup popups
+                    '.needsclick',
                 ];
                 for (const sel of selectors) {
                     document.querySelectorAll(sel).forEach(el => {
-                        // Only remove if it looks like an overlay (fixed/absolute positioned)
                         const style = window.getComputedStyle(el);
                         if (style.position === 'fixed' || style.position === 'absolute') {
                             el.remove();
@@ -229,10 +263,9 @@ async def _dismiss_popups(page) -> None:
                 document.documentElement.style.overflow = 'auto';
             }
         """)
-        # Brief wait for DOM to settle
-        await page.wait_for_timeout(500)
+        await page.wait_for_timeout(100)
     except Exception:
-        pass  # Don't fail screenshot if popup dismissal fails
+        pass
 
 
 @app.post("/screenshot")
@@ -252,7 +285,264 @@ async def take_screenshots(req: ScreenshotBatchRequest):
     return {"screenshots": list(results)}
 
 
-# ── Crawl endpoint — extract all links from a page ──
+# ══════════════════════════════════════════════════════════════
+# ── Agentic page session endpoints ──
+# Keep a page alive across multiple actions (navigate, scroll,
+# click, evaluate JS, take screenshot). This is what makes
+# Wayfarer Plus "smart" — the model can drive the browser.
+# ══════════════════════════════════════════════════════════════
+
+
+class SessionOpenRequest(BaseModel):
+    url: str
+    viewport_width: int = 1280
+    viewport_height: int = 900
+
+
+class SessionActionRequest(BaseModel):
+    session_id: str
+    action: str  # "screenshot" | "scroll" | "click" | "evaluate" | "extract_text" | "find" | "hover" | "back" | "forward" | "reload" | "type"
+    selector: str = ""  # CSS selector for click/find
+    js: str = ""  # JavaScript for evaluate, URL for navigate, text for type
+    scroll_y: int = 0  # Pixels to scroll (positive=down)
+    click_x: int = -1  # Viewport X coordinate for click (-1 = use selector)
+    click_y: int = -1  # Viewport Y coordinate for click (-1 = use selector)
+    quality: int = 60
+
+
+@app.post("/session/open")
+async def session_open(req: SessionOpenRequest):
+    """Open a persistent browser page. Returns session_id for subsequent actions."""
+    global _page_counter
+    try:
+        ctx = await _get_context()
+        page = await ctx.new_page()
+        await page.set_viewport_size({"width": req.viewport_width, "height": req.viewport_height})
+
+        try:
+            await page.goto(req.url, wait_until="domcontentloaded", timeout=10000)
+        except Exception:
+            pass
+
+        await page.wait_for_timeout(600)
+        await _dismiss_popups(page)
+
+        _page_counter += 1
+        sid = f"s{_page_counter}"
+        _active_pages[sid] = page
+
+        # Take initial screenshot
+        screenshot_bytes = await page.screenshot(type="jpeg", quality=60)
+        img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+
+        title = await page.title()
+        current_url = page.url
+
+        return {
+            "session_id": sid,
+            "url": req.url,
+            "image_base64": img_b64,
+            "width": req.viewport_width,
+            "height": req.viewport_height,
+            "title": title,
+            "current_url": current_url,
+            "error": None,
+        }
+    except Exception as e:
+        return {"session_id": "", "url": req.url, "image_base64": "", "width": 0, "height": 0, "title": "", "error": str(e)}
+
+
+@app.post("/session/action")
+async def session_action(req: SessionActionRequest):
+    """Perform an action on an active session page."""
+    page = _active_pages.get(req.session_id)
+    if not page:
+        return {"error": f"No active session: {req.session_id}", "result": None, "image_base64": ""}
+
+    try:
+        result = None
+
+        if req.action == "screenshot":
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+            img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            title = await page.title()
+            current_url = page.url
+            scroll_pos = await page.evaluate("window.scrollY")
+            page_height = await page.evaluate("document.body.scrollHeight")
+            return {"error": None, "result": "screenshot taken", "image_base64": img_b64, "title": title, "current_url": current_url, "scroll_y": scroll_pos, "page_height": page_height}
+
+        elif req.action == "scroll":
+            await page.evaluate(f"window.scrollBy(0, {req.scroll_y})")
+            await page.wait_for_timeout(100)
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+            img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            scroll_pos = await page.evaluate("window.scrollY")
+            current_url = page.url
+            return {"error": None, "result": f"scrolled to y={scroll_pos}", "image_base64": img_b64, "current_url": current_url}
+
+        elif req.action == "click":
+            # Support coordinate-based clicking (from UI click on screenshot)
+            if req.click_x >= 0 and req.click_y >= 0:
+                try:
+                    await page.mouse.click(req.click_x, req.click_y)
+                except Exception as e:
+                    return {"error": f"click at ({req.click_x},{req.click_y}) failed: {e}", "result": None, "image_base64": ""}
+                await page.wait_for_timeout(80)
+                screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+                img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+                title = await page.title()
+                return {"error": None, "result": f"clicked at ({req.click_x},{req.click_y})", "image_base64": img_b64, "title": title}
+            elif not req.selector:
+                return {"error": "selector or coordinates required for click", "result": None, "image_base64": ""}
+            try:
+                await page.click(req.selector, timeout=3000)
+            except Exception as e:
+                return {"error": f"click failed: {e}", "result": None, "image_base64": ""}
+            await page.wait_for_timeout(200)
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+            img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            title = await page.title()
+            return {"error": None, "result": f"clicked {req.selector}", "image_base64": img_b64, "title": title}
+
+        elif req.action == "hover":
+            if req.click_x >= 0 and req.click_y >= 0:
+                await page.mouse.move(req.click_x, req.click_y)
+                await page.wait_for_timeout(200)
+                screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+                img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+                return {"error": None, "result": f"hovered at ({req.click_x},{req.click_y})", "image_base64": img_b64}
+            return {"error": "coordinates required for hover", "result": None, "image_base64": ""}
+
+        elif req.action == "evaluate":
+            if not req.js:
+                return {"error": "js required for evaluate", "result": None, "image_base64": ""}
+            result = await page.evaluate(req.js)
+            return {"error": None, "result": result, "image_base64": ""}
+
+        elif req.action == "extract_text":
+            text = await page.evaluate("""
+                () => {
+                    const h1 = document.querySelector('h1')?.innerText || '';
+                    const title = document.title || '';
+                    const meta = document.querySelector('meta[name="description"]')?.content || '';
+                    const body = document.body.innerText.slice(0, 8000);
+                    return { title, h1, meta, body };
+                }
+            """)
+            return {"error": None, "result": text, "image_base64": ""}
+
+        elif req.action == "find":
+            # Find elements matching selector, return text + bounding boxes
+            if not req.selector:
+                return {"error": "selector required for find", "result": None, "image_base64": ""}
+            elements = await page.evaluate(f"""
+                () => {{
+                    const els = document.querySelectorAll({repr(req.selector)});
+                    return Array.from(els).slice(0, 20).map(el => {{
+                        const rect = el.getBoundingClientRect();
+                        return {{
+                            tag: el.tagName.toLowerCase(),
+                            text: (el.innerText || el.textContent || '').trim().slice(0, 200),
+                            href: el.href || '',
+                            rect: {{ x: rect.x, y: rect.y, w: rect.width, h: rect.height }},
+                        }};
+                    }});
+                }}
+            """)
+            return {"error": None, "result": elements, "image_base64": ""}
+
+        elif req.action == "navigate":
+            if not req.js:  # reuse js field for URL
+                return {"error": "js field should contain URL for navigate", "result": None, "image_base64": ""}
+            try:
+                await page.goto(req.js, wait_until="domcontentloaded", timeout=10000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(600)
+            await _dismiss_popups(page)
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+            img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            title = await page.title()
+            current_url = page.url
+            return {"error": None, "result": f"navigated to {req.js}", "image_base64": img_b64, "title": title, "current_url": current_url}
+
+        elif req.action == "back":
+            try:
+                await page.go_back(wait_until="domcontentloaded", timeout=8000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(400)
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+            img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            title = await page.title()
+            current_url = page.url
+            return {"error": None, "result": "went back", "image_base64": img_b64, "title": title, "current_url": current_url}
+
+        elif req.action == "forward":
+            try:
+                await page.go_forward(wait_until="domcontentloaded", timeout=8000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(400)
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+            img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            title = await page.title()
+            current_url = page.url
+            return {"error": None, "result": "went forward", "image_base64": img_b64, "title": title, "current_url": current_url}
+
+        elif req.action == "reload":
+            try:
+                await page.reload(wait_until="domcontentloaded", timeout=10000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(600)
+            await _dismiss_popups(page)
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+            img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            title = await page.title()
+            current_url = page.url
+            return {"error": None, "result": "reloaded", "image_base64": img_b64, "title": title, "current_url": current_url}
+
+        elif req.action == "type":
+            if not req.js:
+                return {"error": "js field should contain text to type", "result": None, "image_base64": ""}
+            await page.keyboard.type(req.js, delay=30)
+            await page.wait_for_timeout(200)
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+            img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            title = await page.title()
+            current_url = page.url
+            return {"error": None, "result": f"typed '{req.js}'", "image_base64": img_b64, "title": title, "current_url": current_url}
+
+        elif req.action == "keypress":
+            # Send special keys: Enter, Tab, Escape, Backspace, etc.
+            key = req.js or "Enter"
+            await page.keyboard.press(key)
+            await page.wait_for_timeout(300)
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
+            img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            title = await page.title()
+            current_url = page.url
+            return {"error": None, "result": f"pressed {key}", "image_base64": img_b64, "title": title, "current_url": current_url}
+
+        else:
+            return {"error": f"Unknown action: {req.action}", "result": None, "image_base64": ""}
+
+    except Exception as e:
+        return {"error": str(e), "result": None, "image_base64": ""}
+
+
+@app.post("/session/close")
+async def session_close(session_id: str = ""):
+    """Close an active session page."""
+    page = _active_pages.pop(session_id, None)
+    if page:
+        try:
+            await page.close()
+        except Exception:
+            pass
+        return {"closed": True}
+    return {"closed": False, "error": "No such session"}
 
 
 # ── Smart screenshot — agentic popup dismissal via JS execution ──
@@ -263,35 +553,29 @@ class SmartScreenshotRequest(BaseModel):
     viewport_width: int = 1280
     viewport_height: int = 1080
     quality: int = 70
-    dismiss_js: str = ""  # JavaScript to execute before screenshot (e.g., popup dismissal)
+    dismiss_js: str = ""
 
 
 @app.post("/screenshot/smart")
 async def smart_screenshot(req: SmartScreenshotRequest):
-    """Take screenshot with optional JS execution before capture.
-    Used by the agentic vision loop: vision detects popup → GLM generates JS → execute here.
-    """
+    """Take screenshot with optional JS execution before capture."""
     try:
-        browser = await _get_browser()
-        page = await browser.new_page(viewport={"width": req.viewport_width, "height": req.viewport_height})
+        ctx = await _get_context()
+        page = await ctx.new_page()
         try:
+            await page.set_viewport_size({"width": req.viewport_width, "height": req.viewport_height})
             try:
-                await page.goto(req.url, wait_until="networkidle", timeout=30000)
+                await page.goto(req.url, wait_until="domcontentloaded", timeout=10000)
             except Exception:
-                try:
-                    await page.goto(req.url, wait_until="domcontentloaded", timeout=15000)
-                    await page.wait_for_timeout(3000)
-                except Exception:
-                    pass
+                pass
 
-            # Always try generic popup dismissal first
+            await page.wait_for_timeout(800)
             await _dismiss_popups(page)
 
-            # Execute custom dismiss JS if provided (from agentic vision loop)
             if req.dismiss_js:
                 try:
                     await page.evaluate(req.dismiss_js)
-                    await page.wait_for_timeout(1000)
+                    await page.wait_for_timeout(500)
                 except Exception as e:
                     print(f"[Smart Screenshot] Custom JS failed: {e}")
 
@@ -307,16 +591,10 @@ async def smart_screenshot(req: SmartScreenshotRequest):
         finally:
             await page.close()
     except Exception as e:
-        return {
-            "url": req.url,
-            "image_base64": "",
-            "width": 0,
-            "height": 0,
-            "error": str(e),
-        }
+        return {"url": req.url, "image_base64": "", "width": 0, "height": 0, "error": str(e)}
 
 
-# ── Scrape + screenshot combo (text + visual in one call) ──
+# ── Scrape + screenshot combo ──
 
 
 class ScrapeAndScreenshotRequest(BaseModel):
@@ -328,34 +606,26 @@ class ScrapeAndScreenshotRequest(BaseModel):
 
 @app.post("/analyze-page")
 async def analyze_page(req: ScrapeAndScreenshotRequest):
-    """Combined text scraping + screenshot in a single Playwright session.
-    Returns both the page text content AND the screenshot.
-    """
+    """Combined text scraping + screenshot in a single Playwright session."""
     try:
-        browser = await _get_browser()
-        page = await browser.new_page(viewport={"width": req.viewport_width, "height": req.viewport_height})
+        ctx = await _get_context()
+        page = await ctx.new_page()
         try:
+            await page.set_viewport_size({"width": req.viewport_width, "height": req.viewport_height})
             try:
-                await page.goto(req.url, wait_until="networkidle", timeout=30000)
+                await page.goto(req.url, wait_until="domcontentloaded", timeout=10000)
             except Exception:
-                try:
-                    await page.goto(req.url, wait_until="domcontentloaded", timeout=15000)
-                    await page.wait_for_timeout(3000)
-                except Exception:
-                    pass
+                pass
 
-            # Extract page text BEFORE dismissing popups (popups may have useful text too)
+            await page.wait_for_timeout(800)
+
             page_text = await page.evaluate("""
                 () => {
-                    // Get main content text, structured by sections
                     const getTextContent = (selector) => {
                         const el = document.querySelector(selector);
                         return el ? el.innerText.trim() : '';
                     };
-
                     const sections = {};
-
-                    // Try common product page selectors
                     sections.title = document.title;
                     sections.h1 = getTextContent('h1');
                     sections.price = getTextContent('[class*="price"], .price, [data-price]');
@@ -365,26 +635,18 @@ async def analyze_page(req: ScrapeAndScreenshotRequest):
                     sections.ingredients = getTextContent(
                         '[class*="ingredient"], .ingredients, [data-ingredients]'
                     );
-
-                    // Get all visible text
                     sections.fullText = document.body.innerText.slice(0, 15000);
-
-                    // Get meta tags
                     const metaDesc = document.querySelector('meta[name="description"]');
                     if (metaDesc) sections.metaDescription = metaDesc.getAttribute('content');
-
-                    // Get JSON-LD structured data (Shopify, WooCommerce use this)
                     const jsonLd = document.querySelectorAll('script[type="application/ld+json"]');
                     sections.structuredData = [];
                     jsonLd.forEach(script => {
                         try { sections.structuredData.push(JSON.parse(script.textContent)); } catch(e) {}
                     });
-
                     return sections;
                 }
             """)
 
-            # Dismiss popups, then screenshot
             await _dismiss_popups(page)
             screenshot_bytes = await page.screenshot(type="jpeg", quality=req.quality)
             img_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
@@ -400,45 +662,36 @@ async def analyze_page(req: ScrapeAndScreenshotRequest):
         finally:
             await page.close()
     except Exception as e:
-        return {
-            "url": req.url,
-            "image_base64": "",
-            "width": 0,
-            "height": 0,
-            "page_text": {},
-            "error": str(e),
-        }
+        return {"url": req.url, "image_base64": "", "width": 0, "height": 0, "page_text": {}, "error": str(e)}
 
 
 class CrawlRequest(BaseModel):
     url: str
-    link_pattern: str = ""  # Optional regex filter for links
+    link_pattern: str = ""
 
 
 @app.post("/crawl")
 async def crawl_links(req: CrawlRequest):
-    """Navigate to a page with Playwright, scroll to load dynamic content, extract all links."""
+    """Navigate to a page, scroll to load dynamic content, extract all links."""
     import re
 
     try:
-        browser = await _get_browser()
-        page = await browser.new_page(viewport={"width": 1280, "height": 4000})
+        ctx = await _get_context()
+        page = await ctx.new_page()
         try:
+            await page.set_viewport_size({"width": 1280, "height": 4000})
             try:
-                await page.goto(req.url, wait_until="networkidle", timeout=30000)
+                await page.goto(req.url, wait_until="domcontentloaded", timeout=10000)
             except Exception:
-                try:
-                    await page.goto(req.url, wait_until="domcontentloaded", timeout=15000)
-                    await page.wait_for_timeout(3000)
-                except Exception:
-                    pass
+                pass
+
+            await page.wait_for_timeout(800)
 
             # Scroll down to trigger lazy-loaded content
             for _ in range(5):
                 await page.evaluate("window.scrollBy(0, window.innerHeight)")
-                await page.wait_for_timeout(800)
+                await page.wait_for_timeout(400)
 
-            # Close any modals/popups that might be blocking
             try:
                 await page.evaluate("""
                     document.querySelectorAll('[class*="modal"], [class*="popup"], [class*="overlay"]')
@@ -447,15 +700,12 @@ async def crawl_links(req: CrawlRequest):
             except Exception:
                 pass
 
-            # Extract all links (including onclick handlers that navigate)
             links = await page.evaluate("""
                 () => {
                     const results = [];
-                    // Standard <a> tags
                     document.querySelectorAll('a[href]').forEach(el => {
                         results.push({ href: el.href, text: (el.textContent || '').trim().slice(0, 200) });
                     });
-                    // Elements with data-href or onclick navigation
                     document.querySelectorAll('[data-href], [data-url]').forEach(el => {
                         const href = el.getAttribute('data-href') || el.getAttribute('data-url');
                         if (href) {
@@ -463,7 +713,6 @@ async def crawl_links(req: CrawlRequest):
                             results.push({ href: fullHref, text: (el.textContent || '').trim().slice(0, 200) });
                         }
                     });
-                    // Shopify-style product cards (clickable divs wrapping product info)
                     document.querySelectorAll('[class*="product"] a, [class*="card"] a, [data-product-id] a').forEach(el => {
                         if (el.href) results.push({ href: el.href, text: (el.textContent || '').trim().slice(0, 200) });
                     });
@@ -471,12 +720,10 @@ async def crawl_links(req: CrawlRequest):
                 }
             """)
 
-            # Optional regex filter
             if req.link_pattern:
                 pat = re.compile(req.link_pattern, re.IGNORECASE)
                 links = [l for l in links if pat.search(l["href"])]
 
-            # Deduplicate by href
             seen = set()
             unique = []
             for l in links:
@@ -491,7 +738,7 @@ async def crawl_links(req: CrawlRequest):
         return {"url": req.url, "links": [], "total": 0, "error": str(e)}
 
 
-# ── Batch crawl — crawl multiple URLs simultaneously ──
+# ── Batch crawl ──
 
 
 class BatchCrawlRequest(BaseModel):
@@ -502,9 +749,7 @@ class BatchCrawlRequest(BaseModel):
 
 @app.post("/crawl/batch")
 async def batch_crawl(req: BatchCrawlRequest):
-    """Crawl multiple URLs simultaneously with configurable concurrency.
-    Returns scraped text content for each URL.
-    """
+    """Crawl multiple URLs simultaneously with configurable concurrency."""
     sem = asyncio.Semaphore(req.concurrency)
 
     async def _fetch_one(url: str) -> dict:
@@ -518,31 +763,16 @@ async def batch_crawl(req: BatchCrawlRequest):
                     config=FetchConfig(request_timeout=15.0),
                 )
                 content = page.content if page else ""
-                return {
-                    "url": url,
-                    "content": content,
-                    "content_length": len(content),
-                    "error": None,
-                }
+                return {"url": url, "content": content, "content_length": len(content), "error": None}
             except Exception as e:
-                return {
-                    "url": url,
-                    "content": "",
-                    "content_length": 0,
-                    "error": str(e),
-                }
+                return {"url": url, "content": "", "content_length": 0, "error": str(e)}
 
     results = await asyncio.gather(*[_fetch_one(u) for u in req.urls])
     success = sum(1 for r in results if not r["error"])
-    return {
-        "results": list(results),
-        "total": len(req.urls),
-        "success": success,
-    }
+    return {"results": list(results), "total": len(req.urls), "success": success}
 
 
 # ── Ollama proxy (bypasses browser CORS) ──
-
 @app.api_route("/ollama/{path:path}", methods=["GET", "POST", "DELETE"])
 async def ollama_proxy(path: str, request: Request):
     body = await request.body()

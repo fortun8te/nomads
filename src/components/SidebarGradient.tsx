@@ -17,57 +17,56 @@ export function SidebarGradient() {
     s.textContent = `
       @keyframes nsg-float1 {
         0%   { transform: translate(0, 0) scale(1); }
-        15%  { transform: translate(12%, -10%) scale(1.08); }
-        35%  { transform: translate(-8%, 15%) scale(0.92); }
-        55%  { transform: translate(14%, 5%) scale(1.06); }
-        80%  { transform: translate(-5%, -10%) scale(0.96); }
+        25%  { transform: translate(22%, -18%) scale(1.1); }
+        50%  { transform: translate(-14%, 24%) scale(0.88); }
+        75%  { transform: translate(18%, 10%) scale(1.06); }
         100% { transform: translate(0, 0) scale(1); }
       }
       @keyframes nsg-float2 {
         0%   { transform: translate(0, 0) scale(1); }
-        25%  { transform: translate(-14%, 10%) scale(1.1); }
-        50%  { transform: translate(10%, -12%) scale(0.9); }
-        75%  { transform: translate(-9%, 7%) scale(1.06); }
+        25%  { transform: translate(-22%, 18%) scale(1.12); }
+        50%  { transform: translate(18%, -20%) scale(0.86); }
+        75%  { transform: translate(-14%, 12%) scale(1.08); }
         100% { transform: translate(0, 0) scale(1); }
       }
       @keyframes nsg-float3 {
         0%   { transform: translate(0, 0) scale(1) rotate(0deg); }
-        20%  { transform: translate(16%, 7%) scale(1.07) rotate(2deg); }
-        45%  { transform: translate(-7%, -13%) scale(0.93) rotate(-1.5deg); }
-        65%  { transform: translate(-13%, 9%) scale(1.05) rotate(1deg); }
-        85%  { transform: translate(9%, -5%) scale(0.97) rotate(-0.5deg); }
+        25%  { transform: translate(26%, 12%) scale(1.08) rotate(4deg); }
+        50%  { transform: translate(-12%, -20%) scale(0.9) rotate(-3deg); }
+        75%  { transform: translate(-18%, 16%) scale(1.06) rotate(2deg); }
         100% { transform: translate(0, 0) scale(1) rotate(0deg); }
       }
       @keyframes nsg-pulse {
-        0%, 100% { opacity: 0.25; }
+        0%, 100% { opacity: 0.2; }
         20%  { opacity: 0.85; }
-        50%  { opacity: 0.45; }
-        70%  { opacity: 0.95; }
-        90%  { opacity: 0.35; }
+        45%  { opacity: 0.3; }
+        70%  { opacity: 0.9; }
+        85%  { opacity: 0.35; }
       }
       @keyframes nsg-breathe {
-        0%, 100% { opacity: 0.12; transform: scale(1); }
+        0%, 100% { opacity: 0.1; transform: scale(1); }
         30%  { opacity: 0.45; transform: scale(1.18); }
-        65%  { opacity: 0.2; transform: scale(0.92); }
+        60%  { opacity: 0.12; transform: scale(0.9); }
+        80%  { opacity: 0.38; transform: scale(1.12); }
       }
       @keyframes nsg-sway {
         0%, 100% { transform: rotate(0deg) translateY(0) translateX(0); }
-        20%  { transform: rotate(5deg) translateY(-4%) translateX(3%); }
-        50%  { transform: rotate(-3.5deg) translateY(3%) translateX(-4%); }
-        75%  { transform: rotate(4deg) translateY(-2%) translateX(5%); }
+        25%  { transform: rotate(5deg) translateY(-6%) translateX(4%); }
+        50%  { transform: rotate(-4deg) translateY(4%) translateX(-5%); }
+        75%  { transform: rotate(4.5deg) translateY(-3%) translateX(5%); }
       }
       @keyframes nsg-lightray {
         0%   { transform: rotate(-35deg) translateX(-120%); opacity: 0; }
-        10%  { opacity: 0.6; }
-        50%  { opacity: 0.9; }
-        90%  { opacity: 0.5; }
+        10%  { opacity: 0.5; }
+        50%  { opacity: 0.8; }
+        90%  { opacity: 0.4; }
         100% { transform: rotate(-35deg) translateX(60%); opacity: 0; }
       }
       @keyframes nsg-drift {
         0%   { transform: translate(0, 0); }
-        25%  { transform: translate(-28px, 36px); }
-        50%  { transform: translate(22px, -20px); }
-        75%  { transform: translate(-18px, 28px); }
+        25%  { transform: translate(-40px, 55px); }
+        50%  { transform: translate(35px, -30px); }
+        75%  { transform: translate(-28px, 42px); }
         100% { transform: translate(0, 0); }
       }
       @keyframes nomad-btn-shimmer {
@@ -86,14 +85,14 @@ export function SidebarGradient() {
 
   return (
     <>
-      {/* Black base */}
-      <div className="absolute inset-0 bg-black" />
+      {/* Black base — extends right to bleed behind main content rounded corners */}
+      <div className="absolute bg-black" style={{ inset: 0, right: -40 }} />
 
       {/* ── Group 1: Main gradient circles ── */}
       <div className="absolute" style={{ left: -589, top: -574 }}>
 
         {/* Ellipse 1: Blue glow circle, blur 250 */}
-        <div className="absolute" style={{ left: -544, top: 182, width: 686, height: 686, animation: 'nsg-float1 28s ease-in-out infinite' }}>
+        <div className="absolute" style={{ left: -544, top: 182, width: 686, height: 686, animation: 'nsg-float1 24s ease-in-out infinite' }}>
           <div className="absolute" style={{ inset: '-72.89%' }}>
             <svg className="block w-full h-full" fill="none" preserveAspectRatio="none" viewBox="0 0 1686 1686">
               <defs>
@@ -109,7 +108,7 @@ export function SidebarGradient() {
         </div>
 
         {/* Ellipse 4: Black dark orb, blur 600 */}
-        <div className="absolute" style={{ left: 118, top: -401, width: 686, height: 686, animation: 'nsg-float3 34s ease-in-out infinite' }}>
+        <div className="absolute" style={{ left: 118, top: -401, width: 686, height: 686, animation: 'nsg-float3 28s ease-in-out infinite' }}>
           <div className="absolute" style={{ inset: '-174.93%' }}>
             <svg className="block w-full h-full" fill="none" preserveAspectRatio="none" viewBox="0 0 3086 3086">
               <defs>
@@ -125,7 +124,7 @@ export function SidebarGradient() {
         </div>
 
         {/* Ellipse 5: Very diffused blue, blur 1250 */}
-        <div className="absolute" style={{ left: -461, top: -574, width: 686, height: 686, animation: 'nsg-float2 30s ease-in-out infinite' }}>
+        <div className="absolute" style={{ left: -461, top: -574, width: 686, height: 686, animation: 'nsg-float2 22s ease-in-out infinite' }}>
           <div className="absolute" style={{ inset: '-364.43%' }}>
             <svg className="block w-full h-full" fill="none" preserveAspectRatio="none" viewBox="0 0 5686 5686">
               <defs>
@@ -141,7 +140,7 @@ export function SidebarGradient() {
         </div>
 
         {/* Ellipse 3a: Blue glow, blur 450, 0.15 opacity */}
-        <div className="absolute" style={{ left: -589, top: 0, width: 1050, height: 1050, animation: 'nsg-float3 36s ease-in-out infinite' }}>
+        <div className="absolute" style={{ left: -589, top: 0, width: 1050, height: 1050, animation: 'nsg-float3 30s ease-in-out infinite' }}>
           <div className="absolute" style={{ inset: '-85.71%' }}>
             <svg className="block w-full h-full" fill="none" preserveAspectRatio="none" viewBox="0 0 2850 2850">
               <defs>
@@ -157,14 +156,14 @@ export function SidebarGradient() {
         </div>
 
         {/* Ellipse 6: Blue circle, no blur, 0.15 opacity */}
-        <div className="absolute" style={{ left: -246, top: -240, width: 1050, height: 1050, animation: 'nsg-breathe 24s ease-in-out infinite' }}>
+        <div className="absolute" style={{ left: -246, top: -240, width: 1050, height: 1050, animation: 'nsg-breathe 18s ease-in-out infinite' }}>
           <svg className="absolute block w-full h-full" fill="none" preserveAspectRatio="none" viewBox="0 0 1050 1050">
             <circle cx="525" cy="525" r="525" fill="#2B79FF" opacity="0.15" />
           </svg>
         </div>
 
         {/* Ellipse 2a: White spotlight, blur 75, plus-lighter blend */}
-        <div className="absolute" style={{ left: -420, top: 285, width: 480, height: 544, animation: 'nsg-pulse 18s ease-in-out infinite, nsg-drift 40s ease-in-out infinite', mixBlendMode: 'plus-lighter' as any }}>
+        <div className="absolute" style={{ left: -420, top: 285, width: 480, height: 544, animation: 'nsg-pulse 16s ease-in-out infinite, nsg-drift 32s ease-in-out infinite', mixBlendMode: 'plus-lighter' as any }}>
           <div className="absolute" style={{ inset: '-27.57% -31.25%' }}>
             <svg className="block w-full h-full" fill="none" preserveAspectRatio="none" viewBox="0 0 780 844">
               <defs>
@@ -183,7 +182,7 @@ export function SidebarGradient() {
       </div>
 
       {/* ── Light streaks (Group 6) — curved white-to-blue paths ── */}
-      <div className="absolute" style={{ left: -317, top: 329, width: 778, height: 838, animation: 'nsg-sway 22s ease-in-out infinite', transformOrigin: 'center' }}>
+      <div className="absolute" style={{ left: -317, top: 329, width: 778, height: 838, animation: 'nsg-sway 20s ease-in-out infinite', transformOrigin: 'center' }}>
         <div className="absolute" style={{ inset: '-17.9% -19.28%' }}>
           <svg className="block w-full h-full" fill="none" preserveAspectRatio="none" viewBox="0 0 1078 1138">
             <defs>
@@ -226,7 +225,7 @@ export function SidebarGradient() {
       </div>
 
       {/* ── Ellipse 3b: Blue glow, blur 450, bottom area ── */}
-      <div className="absolute" style={{ left: -407, top: 536, width: 1050, height: 1050, animation: 'nsg-float1 32s ease-in-out infinite' }}>
+      <div className="absolute" style={{ left: -407, top: 536, width: 1050, height: 1050, animation: 'nsg-float1 26s ease-in-out infinite' }}>
         <div className="absolute" style={{ inset: '-85.71%' }}>
           <svg className="block w-full h-full" fill="none" preserveAspectRatio="none" viewBox="0 0 2850 2850">
             <defs>
@@ -242,7 +241,7 @@ export function SidebarGradient() {
       </div>
 
       {/* ── Ellipse 2b: White glow, blur 75, plus-lighter, top-right ── */}
-      <div className="absolute" style={{ left: 250, top: 0, width: 480, height: 799, animation: 'nsg-pulse 16s ease-in-out infinite 3s, nsg-drift 36s ease-in-out infinite reverse', mixBlendMode: 'plus-lighter' as any }}>
+      <div className="absolute" style={{ left: 250, top: 0, width: 480, height: 799, animation: 'nsg-pulse 14s ease-in-out infinite 3s, nsg-drift 28s ease-in-out infinite reverse', mixBlendMode: 'plus-lighter' as any }}>
         <div className="absolute" style={{ inset: '-18.77% -31.25%' }}>
           <svg className="block w-full h-full" fill="none" preserveAspectRatio="none" viewBox="0 0 780 1099">
             <defs>
@@ -318,7 +317,7 @@ export function SidebarGradient() {
           height: 200,
           background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.02) 30%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0.02) 70%, transparent 100%)',
           filter: 'blur(30px)',
-          animation: 'nsg-lightray 22s ease-in-out infinite',
+          animation: 'nsg-lightray 35s ease-in-out infinite',
         }} />
       </div>
     </>

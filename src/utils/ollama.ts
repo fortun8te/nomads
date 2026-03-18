@@ -1,36 +1,36 @@
 // Ollama routing:
-//   Default: Wayfarer proxy (localhost:8889/ollama/...) → remote Ollama
+//   Default: Wayfayer proxy (localhost:8889/ollama/...) → remote Ollama
 //   "local:" prefix: direct to localhost:11434 (no proxy needed, same-origin)
-// Wayfarer handles: CORS bypass, streaming, duplicate-header tolerance
+// Wayfayer handles: CORS bypass, streaming, duplicate-header tolerance
 import { tokenTracker } from './tokenStats';
 
-const WAYFARER_OLLAMA = 'http://localhost:8889/ollama';
-const LOCAL_OLLAMA = 'http://localhost:11434';
+const WAYFAYER_OLLAMA = 'http://localhost:8889/ollama';
+const LOCAL_OLLAMA = 'http://100.74.135.83:11435';
 
 /** Strip "local:" prefix and return [cleanModel, apiBase] */
-export function resolveModel(model: string): [string, string] {
+function resolveModel(model: string): [string, string] {
   if (model.startsWith('local:')) {
     return [model.slice(6), LOCAL_OLLAMA];
   }
-  return [model, WAYFARER_OLLAMA];
+  return [model, WAYFAYER_OLLAMA];
 }
 
 export function getOllamaHost(): string {
-  return WAYFARER_OLLAMA;
-}
-
-export function getLocalOllamaHost(): string {
-  return LOCAL_OLLAMA;
+  return WAYFAYER_OLLAMA;
 }
 
 export interface OllamaOptions {
   model?: string;
   temperature?: number;
-  images?: string[];  // base64-encoded images (no data: prefix), for vision models like minicpm-v
+  top_p?: number;        // nucleus sampling (default 0.9)
+  num_predict?: number;  // max tokens to generate (caps output length)
+  images?: string[];  // base64-encoded images (no data: prefix), for vision models
   onChunk?: (chunk: string) => void;
+  onThink?: (chunk: string) => void;  // thinking/reasoning tokens (Qwen3, GLM-4.7, etc.)
   onComplete?: () => void;
   onError?: (error: Error) => void;
   signal?: AbortSignal;
+  keep_alive?: string;  // e.g. "30m" — keep model loaded in VRAM
 }
 
 export const ollamaService = {
@@ -50,7 +50,7 @@ export const ollamaService = {
     systemPrompt: string,
     options: OllamaOptions = {}
   ): Promise<string> {
-    const { model = 'qwen3.5:9b', temperature = 0.7, images, onChunk, onComplete, onError, signal } = options;
+    const { model = 'qwen3.5:9b', temperature = 0.7, top_p = 0.9, num_predict, images, onChunk, onThink, onComplete, onError, signal, keep_alive } = options;
     const [cleanModel, apiBase] = resolveModel(model);
 
     const fullPrompt = `${systemPrompt}\n\n${prompt}`;
@@ -79,7 +79,9 @@ export const ollamaService = {
           prompt: fullPrompt,
           stream: true,
           temperature,
-          top_p: 0.9,
+          top_p,
+          ...(num_predict ? { num_predict } : {}),
+          ...(keep_alive ? { keep_alive } : {}),
           ...(images && images.length > 0 ? { images } : {}),
         }),
         signal: fetchSignal,
@@ -127,6 +129,7 @@ export const ollamaService = {
               // but tick so the UI shows "thinking" instead of "loading model".
               if (json.thinking) {
                 tokenTracker.tickThinking(json.thinking);
+                onThink?.(json.thinking);
               }
 
               if (json.done) {
@@ -150,6 +153,7 @@ export const ollamaService = {
           }
           if (json.thinking) {
             tokenTracker.tickThinking(json.thinking);
+            onThink?.(json.thinking);
           }
           if (json.done) {
             tokenTracker.endCall(json.eval_count, json.eval_duration);

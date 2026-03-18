@@ -9,13 +9,11 @@ try {
     throw new Error('Root element not found!');
   }
 
-  console.log('Creating React root...');
   createRoot(root).render(
     <StrictMode>
       <App />
     </StrictMode>,
   );
-  console.log('React app rendered successfully');
 } catch (error) {
   console.error('Failed to render React app:', error);
   const msg = error instanceof Error ? error.message : String(error);

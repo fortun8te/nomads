@@ -37,7 +37,7 @@ function verdictStyle(verdict: string, isDark: boolean): { bg: string; text: str
     default:
       return {
         bg: isDark ? 'bg-zinc-500/15' : 'bg-zinc-100',
-        text: isDark ? 'text-zinc-500' : 'text-zinc-500',
+        text: isDark ? 'text-white/[0.30]' : 'text-zinc-500',
         label: 'Skip',
       };
   }
@@ -49,7 +49,7 @@ function ScoreBar({ label, score, isDark }: { label: string; score: number; isDa
 
   return (
     <div className="flex items-center gap-2">
-      <span className={`text-[11px] w-[120px] flex-shrink-0 ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>
+      <span className={`text-[11px] w-[120px] flex-shrink-0 ${isDark ? 'text-white/[0.30]' : 'text-zinc-500'}`}>
         {label}
       </span>
       <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-zinc-800' : 'bg-zinc-200'}`}>
@@ -72,7 +72,7 @@ function ConceptCard({ concept, isDark, isWinner }: { concept: TestConceptVerdic
     <div className={`rounded-lg border p-4 ${
       isWinner
         ? isDark ? 'border-blue-500/30 bg-blue-500/5' : 'border-blue-200 bg-blue-50/30'
-        : isDark ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-white'
+        : isDark ? 'border-white/[0.08] bg-white/[0.03]' : 'border-zinc-200 bg-white'
     }`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
@@ -84,7 +84,7 @@ function ConceptCard({ concept, isDark, isWinner }: { concept: TestConceptVerdic
               Winner
             </span>
           )}
-          <span className={`text-[13px] font-semibold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+          <span className={`text-[13px] font-semibold ${isDark ? 'text-white/[0.85]' : 'text-zinc-800'}`}>
             {concept.name}
           </span>
         </div>
@@ -92,8 +92,8 @@ function ConceptCard({ concept, isDark, isWinner }: { concept: TestConceptVerdic
           <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${badge.bg} ${badge.text}`}>
             {badge.label}
           </span>
-          <span className={`text-[15px] font-bold tabular-nums ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
-            {concept.totalScore}<span className={`text-[10px] font-normal ${isDark ? 'text-zinc-600' : 'text-zinc-400'}`}>/50</span>
+          <span className={`text-[15px] font-bold tabular-nums ${isDark ? 'text-white/[0.85]' : 'text-zinc-800'}`}>
+            {concept.totalScore}<span className={`text-[10px] font-normal ${isDark ? 'text-white/[0.30]' : 'text-zinc-400'}`}>/50</span>
           </span>
         </div>
       </div>
@@ -112,7 +112,7 @@ function ConceptCard({ concept, isDark, isWinner }: { concept: TestConceptVerdic
 
       {/* Notes */}
       {concept.notes && (
-        <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>
+        <p className={`text-[11px] leading-relaxed ${isDark ? 'text-white/[0.30]' : 'text-zinc-500'}`}>
           {concept.notes}
         </p>
       )}
@@ -127,16 +127,16 @@ export function TestResultsPanel({ cycle, isDarkMode }: TestResultsPanelProps) {
   // Empty state
   if (!verdict || !verdict.concepts || verdict.concepts.length === 0) {
     return (
-      <div className={`flex flex-col items-center justify-center gap-3 py-16 ${isDark ? 'bg-[#0a0a0a]' : 'bg-zinc-50'}`}>
-        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isDark ? 'bg-zinc-800/60' : 'bg-zinc-100'}`}>
+      <div className={`flex flex-col items-center justify-center gap-3 py-16 ${isDark ? 'bg-transparent' : 'bg-zinc-50'}`}>
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isDark ? 'bg-white/[0.04]' : 'bg-zinc-100'}`}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isDark ? '#52525b' : '#a1a1aa'} strokeWidth="1.5" strokeLinecap="round">
             <path d="M9 3h6M12 3v3M8 6h8l1.5 15H6.5L8 6z" /><path d="M10 10c0 2 4 2 4 0" />
           </svg>
         </div>
-        <span className={`text-[13px] font-semibold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+        <span className={`text-[13px] font-semibold ${isDark ? 'text-white/[0.55]' : 'text-zinc-500'}`}>
           Creative Testing
         </span>
-        <p className={`text-[11px] max-w-[260px] text-center leading-relaxed ${isDark ? 'text-zinc-600' : 'text-zinc-400'}`}>
+        <p className={`text-[11px] max-w-[260px] text-center leading-relaxed ${isDark ? 'text-white/[0.30]' : 'text-zinc-400'}`}>
           Run the full pipeline to evaluate ad concepts. The test stage scores each creative against desire activation, root cause reveal, emotional logic, audience language, and competitive differentiation.
         </p>
       </div>
@@ -147,7 +147,7 @@ export function TestResultsPanel({ cycle, isDarkMode }: TestResultsPanelProps) {
   const winnerScore = winnerConcept?.totalScore ?? 0;
 
   return (
-    <div className={`p-5 space-y-4 ${isDark ? 'bg-[#0a0a0a]' : 'bg-zinc-50'}`}>
+    <div className={`p-5 space-y-4 ${isDark ? 'bg-transparent' : 'bg-zinc-50'}`}>
       {/* Winner card */}
       <div className={`rounded-lg border p-4 ${
         isDark ? 'border-blue-500/20 bg-gradient-to-br from-blue-500/8 to-transparent' : 'border-blue-200 bg-gradient-to-br from-blue-50 to-white'
@@ -157,7 +157,7 @@ export function TestResultsPanel({ cycle, isDarkMode }: TestResultsPanelProps) {
             <span className={`text-[10px] uppercase tracking-wider font-semibold ${isDark ? 'text-blue-500/60' : 'text-blue-400'}`}>
               Recommended Lead
             </span>
-            <h3 className={`text-[18px] font-bold mt-0.5 ${isDark ? 'text-zinc-100' : 'text-zinc-900'}`}>
+            <h3 className={`text-[18px] font-bold mt-0.5 ${isDark ? 'text-white/[0.85]' : 'text-zinc-900'}`}>
               {verdict.winner}
             </h3>
           </div>
@@ -165,7 +165,7 @@ export function TestResultsPanel({ cycle, isDarkMode }: TestResultsPanelProps) {
             <span className={`text-[28px] font-bold tabular-nums ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
               {winnerScore}
             </span>
-            <span className={`text-[12px] ${isDark ? 'text-zinc-600' : 'text-zinc-400'}`}>/50</span>
+            <span className={`text-[12px] ${isDark ? 'text-white/[0.30]' : 'text-zinc-400'}`}>/50</span>
           </div>
         </div>
       </div>
@@ -184,11 +184,11 @@ export function TestResultsPanel({ cycle, isDarkMode }: TestResultsPanelProps) {
 
       {/* Next cycle improvement */}
       {verdict.nextCycleImprovement && (
-        <div className={`rounded-lg border p-4 ${isDark ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-white'}`}>
+        <div className={`rounded-lg border p-4 ${isDark ? 'border-white/[0.08] bg-white/[0.03]' : 'border-zinc-200 bg-white'}`}>
           <span className={`text-[10px] uppercase tracking-wider font-semibold ${isDark ? 'text-amber-500/60' : 'text-amber-500'}`}>
             Next Cycle Improvement
           </span>
-          <p className={`text-[12px] leading-relaxed mt-1.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+          <p className={`text-[12px] leading-relaxed mt-1.5 ${isDark ? 'text-white/[0.55]' : 'text-zinc-600'}`}>
             {verdict.nextCycleImprovement}
           </p>
         </div>

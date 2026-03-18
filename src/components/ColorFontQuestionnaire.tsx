@@ -21,9 +21,9 @@ export function ColorFontQuestionnaire({ onComplete, isDarkMode: propDarkMode }:
   const [fontStyle, setFontStyle] = useState<'system' | 'serif' | 'geometric' | 'script' | 'mono'>('system');
   const [textDensity, setTextDensity] = useState<'minimal' | 'balanced' | 'detailed'>('balanced');
 
-  const bgClass = isDarkMode ? 'bg-[#0b0b0b]' : 'bg-zinc-50';
-  const labelClass = isDarkMode ? 'text-zinc-300' : 'text-zinc-700';
-  const borderClass = isDarkMode ? 'border-zinc-700' : 'border-zinc-300';
+  const bgClass = isDarkMode ? 'bg-[#0f0f0f]' : 'bg-zinc-50';
+  const labelClass = isDarkMode ? 'text-white/[0.55]' : 'text-zinc-700';
+  const borderClass = isDarkMode ? 'border-white/[0.08]' : 'border-zinc-300';
 
   const colorPalettes = {
     warm: {
@@ -110,10 +110,10 @@ export function ColorFontQuestionnaire({ onComplete, isDarkMode: propDarkMode }:
                 What color palette resonates with your brand?
               </h3>
               <div className="grid grid-cols-2 gap-4">
-                {Object.entries(colorPalettes).map(([key, palette]) => (
+                {(Object.entries(colorPalettes) as [keyof typeof colorPalettes, typeof colorPalettes[keyof typeof colorPalettes]][]).map(([key, palette]) => (
                   <button
                     key={key}
-                    onClick={() => setColorPalette(key as any)}
+                    onClick={() => setColorPalette(key)}
                     className={`p-4 border-2 rounded transition-all ${
                       colorPalette === key
                         ? `${borderClass} bg-opacity-10`
@@ -150,10 +150,10 @@ export function ColorFontQuestionnaire({ onComplete, isDarkMode: propDarkMode }:
                 What typography best represents your brand?
               </h3>
               <div className="space-y-3">
-                {Object.entries(fontStyles).map(([key, style]) => (
+                {(Object.entries(fontStyles) as [keyof typeof fontStyles, typeof fontStyles[keyof typeof fontStyles]][]).map(([key, style]) => (
                   <button
                     key={key}
-                    onClick={() => setFontStyle(key as any)}
+                    onClick={() => setFontStyle(key)}
                     className={`w-full p-4 border-2 rounded transition-all text-left ${
                       fontStyle === key
                         ? `${borderClass} bg-opacity-10`
