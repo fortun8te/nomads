@@ -83,8 +83,8 @@ export function parseAdjustment(message: string, currentProfile: SkillProfile): 
   if (modelSwap) {
     const size = (modelSwap[2] || modelSwap[1]).toLowerCase();
     const modelMap: Record<string, string> = {
-      '0.8b': 'qwen3.5:0.8b', '1.2b': 'lfm2.5-thinking:latest',
-      '9b': 'qwen3.5:9b', '20b': 'gpt-oss:20b', '35b': 'qwen3.5:35b',
+      '0.8b': 'qwen3.5:0.8b', '2b': 'qwen3.5:2b', '4b': 'qwen3.5:4b',
+      '9b': 'qwen3.5:9b', '27b': 'qwen3.5:27b', '35b': 'qwen3.5:35b',
     };
     const newModel = modelMap[size];
     if (newModel) {

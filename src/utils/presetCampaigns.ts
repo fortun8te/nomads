@@ -932,7 +932,7 @@ export const SIMPLETICS_PRESET = {
       example_output: 'FOUND: r/haircare thread comparing Based vs alternatives. 12 users mention silicone buildup after 2-3 weeks. Zero alternatives mentioned in top comments = market gap.',
     },
 
-    researcher_minicpm: {
+    researcher_vision: {
       name: 'Visual Intelligence (Vision Model)',
       role: 'Image analysis, competitor creative inspection, design insights',
       personality: 'Visual thinker. Spots design patterns. Sees what\'s being communicated without words.',
@@ -955,10 +955,10 @@ export const SIMPLETICS_PRESET = {
   researchMetricsTemplate: {
     tracking: {
       totalSearchesRun: 'Tracks how many search queries executed across all phases',
-      visualAnalyzesRun: 'Tracks how many images analyzed via minicpm-v',
+      visualAnalyzesRun: 'Tracks how many images analyzed via vision model',
       subagentsDeployed: 'Tracks how many parallel researcher subagents active',
-      webPagesScraped: 'Tracks how many unique pages fetched via Wayfayer',
-      apiCallsUsed: 'Tracks API usage across LFM, GLM, minicpm-v',
+      webPagesScraped: 'Tracks how many unique pages fetched via Wayfarer',
+      apiCallsUsed: 'Tracks API usage across Qwen 3.5 model variants',
       topicsResearched: 'Topics covered (audience, competitive, messaging, etc)',
       timelinePerPhase: 'Elapsed time per research phase',
       confidenceLevelPerTopic: 'Research confidence 0-100% per dimension',
@@ -1766,9 +1766,9 @@ export const SIMPLETICS_PRESET = {
     researchMetricsForUI: {
       description: 'Track and display research effort + confidence to build credibility in findings',
       metricsToTrack: {
-        totalSearchesRun: 'Count of Wayfayer queries executed (label: "Searches run")',
-        visualAnalyzesRun: 'Count of images analyzed via minicpm-v (label: "Visual analyses")',
-        subagentsDeployed: 'Count of parallel LFM researchers launched (label: "Subagents deployed")',
+        totalSearchesRun: 'Count of Wayfarer queries executed (label: "Searches run")',
+        visualAnalyzesRun: 'Count of images analyzed via vision model (label: "Visual analyses")',
+        subagentsDeployed: 'Count of parallel researchers launched (label: "Subagents deployed")',
         webPagesScraped: 'Count of pages fetched + parsed (label: "Pages scraped")',
         apiCallsUsed: 'Count of API calls to Wayfayer + Ollama (label: "API calls")',
         topicsResearched: 'Count of distinct research dimensions covered (label: "Topics covered")',

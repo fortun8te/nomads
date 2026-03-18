@@ -75,7 +75,7 @@ COMPETITIVE_INSIGHT: ...`;
 }
 
 // ─────────────────────────────────────────────────────────────
-// Parse minicpm-v output into structured VisualAnalysis
+// Parse vision model output into structured VisualAnalysis
 // ─────────────────────────────────────────────────────────────
 
 function parseVisualAnalysis(output: string, url: string): VisualAnalysis {
@@ -104,7 +104,7 @@ function parseVisualAnalysis(output: string, url: string): VisualAnalysis {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Synthesize across all visual analyses (uses GLM for strategy)
+// Synthesize across all visual analyses (uses Qwen 3.5 for strategy)
 // ─────────────────────────────────────────────────────────────
 
 async function synthesizeVisualFindings(
@@ -171,7 +171,7 @@ Be specific and actionable.`;
 }
 
 // ─────────────────────────────────────────────────────────────
-// Analyze a single image with minicpm-v (for reflector use)
+// Analyze a single image with vision model (for reflector use)
 // ─────────────────────────────────────────────────────────────
 
 export async function analyzeImageWithVision(
@@ -213,7 +213,7 @@ function emptyVisualFindings(): VisualFindings {
 
 export const visualScoutAgent = {
   /**
-   * Screenshot competitor URLs and analyze with minicpm-v:8b
+   * Screenshot competitor URLs and analyze with vision model:8b
    * Returns structured VisualFindings for downstream stages
    */
   async analyzeCompetitorVisuals(
@@ -274,7 +274,7 @@ export const visualScoutAgent = {
       return emptyVisualFindings();
     }
 
-    // Step 2: Analyze each screenshot sequentially with minicpm-v
+    // Step 2: Analyze each screenshot sequentially with vision model
     const analyses: VisualAnalysis[] = [];
     for (let i = 0; i < validScreenshots.length; i++) {
       if (signal?.aborted) break;

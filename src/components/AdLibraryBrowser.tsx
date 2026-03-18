@@ -145,9 +145,9 @@ export function AdLibraryBrowser({ onClose, theme, onReferenceLayout, onCopyTarg
 
         const rawBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
 
-        setUploadProgress('Analyzing with minicpm...');
+        setUploadProgress('Analyzing with vision model...');
 
-        // Analyze with minicpm using same prompt as library analysis
+        // Analyze with vision model using same prompt as library analysis
         const desc = await ollamaService.generateStream(
           `Describe this ad's design in detail so someone could recreate it in HTML/CSS. Include ALL of these:
 
@@ -484,7 +484,7 @@ Be specific enough that this description alone could be used as a prompt to gene
                 ) : (
                   <div className="text-center">
                     <p className="mb-2">Click "Upload" to select an image</p>
-                    <p className="text-xs">Will analyze with minicpm and auto-categorize</p>
+                    <p className="text-xs">Will analyze with vision model and auto-categorize</p>
                   </div>
                 )}
               </div>

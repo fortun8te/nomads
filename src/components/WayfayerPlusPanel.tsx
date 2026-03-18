@@ -85,9 +85,9 @@ let cssInjected = false;
 const CSS = `
 @keyframes wf-morph {
   0%   { border-radius: 50%; transform: scale(1) rotate(0deg); }
-  30%  { border-radius: 35% 50% 45% 40%; transform: scale(1.08) rotate(40deg); }
-  55%  { border-radius: 50%; transform: scale(1) rotate(90deg); }
-  80%  { border-radius: 42% 38% 50% 44%; transform: scale(1.05) rotate(130deg); }
+  25%  { border-radius: 22% 50% 50% 22%; transform: scale(1.06) rotate(45deg); }
+  50%  { border-radius: 50%; transform: scale(1) rotate(90deg); }
+  75%  { border-radius: 50% 22% 22% 50%; transform: scale(1.06) rotate(135deg); }
   100% { border-radius: 50%; transform: scale(1) rotate(180deg); }
 }
 @keyframes wf-status-in {
@@ -121,8 +121,9 @@ const CSS = `
   80%, 100% { opacity: 0.2; }
 }
 @keyframes wf-click-ripple {
-  0% { transform: scale(0.3); opacity: 0.8; }
-  100% { transform: scale(2); opacity: 0; }
+  0% { transform: scale(0.2); opacity: 0.7; }
+  50% { opacity: 0.35; }
+  100% { transform: scale(2.8); opacity: 0; }
 }
 @keyframes wf-scan {
   0% { top: 0; opacity: 0; }
@@ -135,12 +136,12 @@ const CSS = `
   100% { background-position: 200% 0; }
 }
 @keyframes wf-cursor-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.8; }
-  50% { transform: scale(1.3); opacity: 1; }
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.15); opacity: 0.85; }
 }
 @keyframes wf-cursor-glow {
-  0%, 100% { filter: drop-shadow(0 0 4px rgba(250,204,21,0.4)) drop-shadow(0 2px 8px rgba(250,204,21,0.2)); }
-  50% { filter: drop-shadow(0 0 8px rgba(250,204,21,0.6)) drop-shadow(0 2px 12px rgba(250,204,21,0.35)); }
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(249,115,22,0.35)) drop-shadow(0 2px 10px rgba(249,115,22,0.15)); }
+  50% { filter: drop-shadow(0 0 12px rgba(249,115,22,0.5)) drop-shadow(0 2px 16px rgba(249,115,22,0.3)); }
 }
 @keyframes wf-cursor-click {
   0% { transform: scale(1); }
@@ -155,8 +156,9 @@ const CSS = `
   100% { opacity: 0; transform: translateY(var(--scroll-dir, 12px)); }
 }
 @keyframes wf-click-ring {
-  0% { transform: scale(0.3); opacity: 0.9; border-width: 2px; }
-  100% { transform: scale(2.5); opacity: 0; border-width: 0.5px; }
+  0% { transform: scale(0.3); opacity: 0.85; border-width: 2.5px; }
+  40% { opacity: 0.5; }
+  100% { transform: scale(3); opacity: 0; border-width: 0.5px; }
 }
 .wf-browser-frame { cursor: pointer; position: relative; user-select: none; }
 .wf-browser-frame:active { cursor: grabbing; }
@@ -1387,53 +1389,51 @@ RULES: Click visible targets immediately. Only scroll if target not visible. ask
           style={{ maxHeight: maxH, objectFit: 'contain' }} draggable={false} />
       )}
 
-      {/* AI Cursor — yellow gradient 3D style */}
+      {/* AI Cursor — 3D orange glass cursor image */}
       {aiCursor.visible && (
         <motion.div
           className="absolute pointer-events-none z-50"
           initial={false}
-          animate={{ left: aiCursor.x - 4, top: aiCursor.y - 2 }}
+          animate={{ left: aiCursor.x - 6, top: aiCursor.y - 4 }}
           transition={{ type: 'spring', stiffness: 180, damping: 18, duration: 0.4 }}
-          style={{ animation: 'wf-cursor-glow 1.5s ease-in-out infinite' }}
+          style={{ animation: 'wf-cursor-glow 2s ease-in-out infinite' }}
         >
-          {/* 3D yellow gradient cursor */}
-          <svg width="22" height="28" viewBox="0 0 22 28" fill="none" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))' }}>
-            <defs>
-              <linearGradient id="cursorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#fde68a" />
-                <stop offset="40%" stopColor="#fbbf24" />
-                <stop offset="100%" stopColor="#d97706" />
-              </linearGradient>
-              <linearGradient id="cursorHighlight" x1="30%" y1="0%" x2="70%" y2="60%">
-                <stop offset="0%" stopColor="rgba(255,255,255,0.6)" />
-                <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-              </linearGradient>
-            </defs>
-            {/* Main cursor shape */}
-            <path d="M2 1L19 14H10L15 26L12 27L7 15L2 20V1Z" fill="url(#cursorGrad)" stroke="#92400e" strokeWidth="1.2" strokeLinejoin="round" />
-            {/* 3D highlight overlay */}
-            <path d="M3 3L17 13.5H10.5L7.5 14L3 18V3Z" fill="url(#cursorHighlight)" />
-          </svg>
-          {/* Soft glow ring */}
-          <div className="absolute -inset-3 rounded-full" style={{
-            animation: 'wf-cursor-pulse 1.2s ease-in-out infinite',
-            background: 'radial-gradient(circle, rgba(251,191,36,0.2), transparent 70%)',
+          <img
+            src="/icons/cursor-orange.png"
+            alt=""
+            width={28}
+            height={28}
+            draggable={false}
+            style={{ filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}
+          />
+          {/* Soft orange glow under cursor */}
+          <div className="absolute -inset-4 rounded-full" style={{
+            animation: 'wf-cursor-pulse 1.5s ease-in-out infinite',
+            background: 'radial-gradient(circle, rgba(249,115,22,0.18), transparent 70%)',
           }} />
         </motion.div>
       )}
 
-      {/* Click ripples — yellow ring + radial burst */}
+      {/* Click ripples — clean orange expanding rings */}
       {ripples.map(r => (
-        <div key={r.id} className="absolute pointer-events-none" style={{ left: r.x - 18, top: r.y - 18, width: 36, height: 36 }}>
-          {/* Outer ring */}
+        <div key={r.id} className="absolute pointer-events-none" style={{ left: r.x - 20, top: r.y - 20, width: 40, height: 40 }}>
+          {/* Primary expanding ring */}
           <div className="absolute inset-0 rounded-full" style={{
-            border: '2px solid rgba(251,191,36,0.7)',
-            animation: 'wf-click-ring 0.6s ease-out forwards',
+            border: '2px solid rgba(249,115,22,0.75)',
+            animation: 'wf-click-ring 0.7s cubic-bezier(0.2, 0, 0.2, 1) forwards',
           }} />
-          {/* Inner burst */}
-          <div className="absolute inset-[6px] rounded-full" style={{
-            background: 'radial-gradient(circle, rgba(251,191,36,0.5), rgba(217,119,6,0.2) 40%, transparent 70%)',
-            animation: 'wf-click-ripple 0.5s ease-out forwards',
+          {/* Secondary ring — delayed, wider */}
+          <div className="absolute inset-[-4px] rounded-full" style={{
+            border: '1.5px solid rgba(249,115,22,0.35)',
+            animation: 'wf-click-ring 0.7s cubic-bezier(0.2, 0, 0.2, 1) 0.08s forwards',
+            opacity: 0,
+          }} />
+          {/* Center dot flash */}
+          <div className="absolute rounded-full" style={{
+            top: '50%', left: '50%', width: 6, height: 6,
+            marginTop: -3, marginLeft: -3,
+            background: 'rgba(249,115,22,0.6)',
+            animation: 'wf-click-ripple 0.4s ease-out forwards',
           }} />
         </div>
       ))}
@@ -2058,11 +2058,11 @@ function ThinkingOrb({ mode = 'thinking', streamText = '', reasoning = '' }: {
             borderRightColor: 'rgba(59,130,246,0.3)',
             animation: 'wf-spin 1s linear infinite',
           }} />
-          {/* Inner morphing shape */}
+          {/* Inner morphing shape — Manus-style square/circle */}
           <div className="absolute" style={{
             top: 5, left: 5, width: 10, height: 10,
-            background: '#3b82f6',
-            animation: 'wf-morph 3s ease-in-out infinite',
+            background: 'linear-gradient(135deg, #60a5fa, #3b82f6)',
+            animation: 'wf-morph 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite',
             boxShadow: '0 0 8px rgba(59,130,246,0.4)',
           }} />
         </div>

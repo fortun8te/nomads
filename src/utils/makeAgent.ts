@@ -495,7 +495,7 @@ Generate ONLY the HTML/CSS, no explanation. Make it production-ready, modern, an
     const html = await ollamaService.generateStream(
       prompt,
       'Generate custom HTML ad layouts. Be creative. Prioritize conversion.',
-      { model: 'gpt-oss:20b', signal }
+      { model: 'qwen3.5:35b', signal }
     );
 
     // Validate HTML looks reasonable

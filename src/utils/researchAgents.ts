@@ -194,7 +194,7 @@ async function compressPage(
   if (!pageContent || pageContent.length < 200) return '';
 
   // Truncate very long pages — keep enough for meaningful extraction
-  // LFM-2.5 has a 32K context window, so 24K content + prompt is safe
+  // Qwen 3.5 models have 32K context, so 24K content + prompt is safe
   const truncated = pageContent.slice(0, 24000);
 
   // Tell compressor what we already know so it focuses on NEW information
@@ -202,35 +202,35 @@ async function compressPage(
     ? `\nWE ALREADY KNOW (skip repeating these — extract NEW info only):\n${knowledgeSummary.slice(0, 1500)}\n`
     : '';
 
-  const prompt = `Extract facts relevant to "${researchQuery}" from this page.
+  const prompt = `Extract facts from this page relevant to: "${researchQuery}"
 ${knowledgeBlock}
-Source: ${pageUrl}
+SOURCE_URL: ${pageUrl}
 Title: ${pageTitle}
 
-Content:
+Page content:
 ${truncated}
 
-EXTRACT these types of data (PRIORITIZE what we DON'T already know):
-- NUMBERS: market size, growth rates, percentages, prices, user counts
-- QUOTES: verbatim customer language, complaints, reviews (keep exact wording in "quotes")
-- COMPETITORS: names, positioning, pricing, strengths, weaknesses
-- OBJECTIONS: real complaints, reasons for switching, failed solutions
-- EVIDENCE: study results, clinical data, expert opinions with attribution
-- NEW INSIGHT: anything surprising or contradicting what we already know
+RULES:
+1. Every fact MUST include [Source: ${pageUrl}] tag
+2. Preserve exact quotes in "quotation marks" with [Source: ${pageUrl}]
+3. Numbers must be specific: "$4.2B" not "large market"
+4. Skip facts we already know — NEW data only
+5. Max 400 words
+6. If nothing new: NO_RELEVANT_CONTENT
 
-Rules:
-- Keep source attribution (who said it, what study)
-- Preserve exact quotes in quotation marks
-- SKIP facts we already have — focus on NEW data points
-- Maximum 400 words
-- If nothing NEW or relevant, output: NO_RELEVANT_CONTENT
+EXTRACT:
+- NUMBERS: market size, growth %, prices, user counts [Source: URL]
+- QUOTES: exact customer words from reviews/forums [Source: URL]
+- COMPETITORS: names + positioning + pricing [Source: URL]
+- OBJECTIONS: complaints, reasons for switching [Source: URL]
+- EVIDENCE: studies, clinical data, expert opinions [Source: URL]
 
 FACTS:`;
 
   try {
     const compressed = await ollamaService.generateStream(
       prompt,
-      'Extract relevant facts from web pages. Be concise and specific. Preserve numbers and quotes.',
+      'Extract facts from web pages. Keep source URLs. Preserve exact quotes and numbers. Be concise.',
       { model: getResearchModelConfig().compressionModel, signal }
     );
 
@@ -320,40 +320,43 @@ export const researcherAgent = {
         ? `\nWE ALREADY KNOW (don't repeat — focus on NEW insights):\n${knowledgeSummary.slice(0, 800)}\n`
         : '';
 
-      const synthesisPrompt = `Synthesize ${hasWebData ? 'these web research findings' : 'your knowledge'} for desire-driven ad campaign strategy.
+      const synthesisPrompt = `Synthesize ${hasWebData ? 'web research findings' : 'your knowledge'} for ad campaign strategy.
 
-${hasWebData ? `Research Data:\n${compressedContent}` : '(No web data — use training knowledge)'}
+${hasWebData ? `Research Data:\n${compressedContent}` : '(No web data available)'}
 ${knowledgeHint}
 Topic: ${query.topic}
 Context: ${query.context}
 
-Synthesize into these sections (SKIP sections where you found nothing new):
+Output these sections. Each claim MUST have [Source: URL] or [Source: LLM] tag.
+Skip sections with nothing new.
 
 FINDINGS:
-- NEW insights not in "WE ALREADY KNOW" above
-- Specific numbers, data points with source attribution
-- What's SURPRISING or contradicts existing knowledge?
+- New data points not in "WE ALREADY KNOW" [Source: URL]
+- Surprising or contradicting evidence [Source: URL]
 
 VERBATIM:
-- Exact quotes from real customers/users (preserve their language, slang, typos)
-- How they describe the PROBLEM (not how brands describe it)
+- Exact customer quotes preserving slang/typos [Source: URL]
+- How they describe the PROBLEM (not brand language) [Source: URL]
 
 COMPETITORS:
-- Named competitors with SPECIFIC claims, prices, positioning
-- What they CAN'T claim (structural limitations)
+- Named brands + specific pricing + positioning [Source: URL]
+- Structural limitations they can never overcome [Source: URL]
 
 EVIDENCE:
-- Numbers: market size, growth %, prices, user counts
-- Studies or reports with attribution
+- Specific numbers: "$X.XB market", "XX% growth" [Source: URL]
+- Studies/reports with attribution [Source: URL]
+
+CONFIDENCE: [high/medium/low] — high = 3+ web sources confirm, medium = 1-2 sources, low = LLM inference only
+UNSOURCED_CLAIMS: [list any claims above that lack a web source — these need verification]
 
 COVERAGE: [dimension: covered/uncovered]
 Dimensions: market_size, competitors, objections, trends, regional, pricing, channels, positioning, psychology, media
 
-Be specific. Real names, real numbers, real quotes. No generic marketing-speak. If a section has nothing new, write "Nothing new found" and move on.`;
+Be specific. Real names, real numbers, real quotes. No filler.`;
 
       const response = await ollamaService.generateStream(
         synthesisPrompt,
-        'Synthesize research findings for marketing strategy. Be specific, cite sources. Identify which dimensions you covered.',
+        'Synthesize research into structured findings. Tag every claim with [Source: URL]. Flag unsourced claims. Be concise.',
         {
           model: getResearchModelConfig().researcherSynthesisModel,
           onChunk,
@@ -377,15 +380,16 @@ Be specific. Real names, real numbers, real quotes. No generic marketing-speak. 
       // Fallback to LLM-only research
       try {
         onChunk?.('Web search failed, using LLM knowledge only\n');
-        const fallbackPrompt = `You are a research analyst. Provide insights on this topic based on your knowledge:
-Topic: ${query.topic}
+        const fallbackPrompt = `Research analyst — provide insights on: ${query.topic}
 Context: ${query.context}
 
-Cover as many dimensions as possible: market size, competitors, objections, trends, regional, pricing, channels, positioning, psychology, media patterns.`;
+Cover: market size, competitors, objections, pricing, positioning, psychology.
+Tag all claims with [Source: LLM] since no web data available.
+Flag low-confidence claims in UNSOURCED_CLAIMS section.`;
 
         const response = await ollamaService.generateStream(
           fallbackPrompt,
-          'Provide research insights. Note which dimensions you cover.',
+          'Provide research insights. Tag claims [Source: LLM]. Be concise and specific.',
           { model: getResearchModelConfig().researcherSynthesisModel, onChunk, signal }
         );
 
@@ -459,7 +463,7 @@ export const orchestrator = {
         let lastThinkEmit = 0;
         const decision = await ollamaService.generateStream(
           evaluationPrompt,
-          'You decide what research is needed. Be specific about topics.',
+          'Decide what to research next. Output RESEARCH: [query] lines or COMPLETE: true. Be specific, no filler.',
           {
             model: getResearchModelConfig().orchestratorModel,
             signal,
@@ -616,12 +620,18 @@ export const orchestrator = {
           .flatMap(t => t.visualScoutUrls || [])
           .filter(Boolean);
 
-        if (visualScoutUrls.length > 0 && !state._visualFindings) {
-          onProgressUpdate?.(`\n[Visual Scout] Orchestrator requested visual analysis of ${visualScoutUrls.length} URLs\n`);
+        // Enforce visual batch limits from preset
+        const visualBudgetUsed = (state as any)._visualBatchesUsed || 0;
+        const visualBudgetRemaining = limits.maxVisualBatches - visualBudgetUsed;
+        const maxVisualUrlsRemaining = limits.maxVisualUrls - ((state as any)._visualUrlsUsed || 0);
+
+        if (visualScoutUrls.length > 0 && !state._visualFindings && visualBudgetRemaining > 0 && maxVisualUrlsRemaining > 0) {
+          const cappedCount = Math.min(visualScoutUrls.length, maxVisualUrlsRemaining, 5);
+          onProgressUpdate?.(`\n[Visual Scout] Orchestrator requested visual analysis of ${visualScoutUrls.length} URLs (budget: ${visualBudgetRemaining} batches, ${maxVisualUrlsRemaining} URLs remaining)\n`);
           try {
             const { visualScoutAgent } = await import('./visualScoutAgent');
             const { visualProgressStore } = await import('./visualProgressStore');
-            const cappedUrls = visualScoutUrls.slice(0, 5);
+            const cappedUrls = visualScoutUrls.slice(0, cappedCount);
             const visualFindings = await visualScoutAgent.analyzeCompetitorVisuals(
               cappedUrls,
               state.campaign,
@@ -664,10 +674,14 @@ export const orchestrator = {
               }
             );
             state._visualFindings = visualFindings;
+            (state as any)._visualBatchesUsed = visualBudgetUsed + 1;
+            (state as any)._visualUrlsUsed = ((state as any)._visualUrlsUsed || 0) + cappedUrls.length;
             onProgressUpdate?.(`[Visual Scout] Visual analysis complete — ${visualFindings.totalAnalyzed} sites analyzed\n`);
           } catch (err) {
             onProgressUpdate?.(`[Visual Scout] Visual analysis failed: ${err}\n`);
           }
+        } else if (visualScoutUrls.length > 0 && visualBudgetRemaining <= 0) {
+          onProgressUpdate?.(`[Visual Scout] Skipped — visual budget exhausted (${limits.maxVisualBatches} batches used)\n`);
         }
 
         // Evaluate coverage
@@ -695,11 +709,10 @@ export const orchestrator = {
           totalQueries: allResults.length,
         })}\n`);
 
-        // Always run 3-perspective reflection agents after iteration 1+
-        // Devil's Advocate, Depth Auditor, Coverage Checker — each contributes gap suggestions
+        // Run reflection agents unless preset says to skip (SQ mode)
         const MIN_ITERATIONS_BEFORE_EXIT = limits.minIterations;
-        if (iteration >= 1 && iteration < maxIterations) {
-          onProgressUpdate?.(`\nRunning 3 reflection agents (Devil's Advocate → Depth Auditor → Coverage Checker)...\n`);
+        if (!limits.skipReflection && iteration >= 1 && iteration < maxIterations) {
+          onProgressUpdate?.(`\nRunning reflection agents (Devil's Advocate → Depth Auditor → Coverage Checker)...\n`);
 
           const reflectionAngles = await reflectionAgent.evaluateGaps(
             state,
@@ -720,6 +733,12 @@ export const orchestrator = {
               `\nReflection found ${reflectionAngles.length} gaps — feeding top ${Math.min(reflectionAngles.length, 8)} into next iteration\n`
             );
           }
+        }
+
+        // Single-pass mode (SQ): exit after first iteration
+        if (limits.singlePassResearch && iteration >= 1) {
+          onProgressUpdate?.(`Single-pass mode — research complete after ${iteration} iteration(s)`);
+          break;
         }
 
         // Require minimum iterations AND minimum sources before allowing exit
@@ -802,33 +821,31 @@ DIMENSIONAL GAPS: ${gaps.length > 0 ? gaps.join(', ') : 'NONE DECLARED — OVERC
       // ── Perspective 1: Devil's Advocate ──
       onChunk?.(`\n[Reflection: Devil's Advocate] Finding where research is WRONG...\n`);
       if (!signal?.aborted) {
-        const devilPrompt = `You are the DEVIL'S ADVOCATE on a research team. Your ONLY job is to find where the research is WRONG, BIASED, or based on ASSUMPTIONS rather than evidence.
+        const devilPrompt = `Devil's advocate — find where research is WRONG or based on assumptions.
 
 ${sharedContext}
 
-YOUR TASK — be RUTHLESSLY skeptical:
-1. What conclusions are based on ASSUMPTION not EVIDENCE? Call them out specifically.
-2. Where is the research BIASED? (confirmation bias, survivorship bias, selection bias)
-3. What CONTRADICTIONS exist in the findings? (Brand claims vs user reality)
-4. What ALTERNATIVE EXPLANATIONS haven't been considered?
-5. What would a SKEPTICAL customer say about these findings?
-6. Where are we PROJECTING marketer assumptions onto real customers?
+Check for:
+1. Claims based on ASSUMPTION not evidence
+2. Confirmation bias, survivorship bias
+3. Contradictions between sources
+4. Missing alternative explanations
 
-For each weakness found, propose a SPECIFIC query to get REAL evidence:
-BAD: "Research sentiment about product"
-GOOD: "reddit [subreddit] '[competitor name]' disappointed OR 'waste of money' OR 'doesn't work'"
+For each weakness, propose a SPECIFIC search query:
+GOOD: "reddit [subreddit] '[competitor]' disappointed OR 'waste of money'"
+BAD: "research sentiment about product"
 
-Output:
-BIAS RISK: [what assumption are we making that could be wrong?]
-CONTRADICTION: [what evidence contradicts our current narrative?]
+Output format:
+BIAS RISK: [assumption that could be wrong]
+CONTRADICTION: [evidence contradicting our narrative]
 
 RESEARCH TO VERIFY:
-1. [hyperspecific query to test an assumption]
-2. [hyperspecific query to find contradicting evidence]
-3. [hyperspecific query to check alternative explanation]`;
+1. [specific query to test assumption]
+2. [specific query for contradicting evidence]
+3. [specific query for alternative explanation]`;
 
         try {
-          const response = await ollamaService.generateStream(devilPrompt, 'Be RUTHLESSLY skeptical. Challenge every assumption.', { model: reflectionModel, onChunk, signal });
+          const response = await ollamaService.generateStream(devilPrompt, 'Find bias and assumptions. Output specific queries to verify. Be concise.', { model: reflectionModel, onChunk, signal });
           const angles = extractResearchAngles(response);
           allAngles.push(...angles);
           onChunk?.(`  [Devil's Advocate] Found ${angles.length} angles\n`);
@@ -841,36 +858,29 @@ RESEARCH TO VERIFY:
       // ── Perspective 2: Depth Auditor ──
       onChunk?.(`\n[Reflection: Depth Auditor] Demanding specifics...\n`);
       if (!signal?.aborted) {
-        const depthPrompt = `You are the DEPTH AUDITOR. Your job is to ensure every claim has SPECIFIC, VERIFIABLE evidence — not vague assertions.
+        const depthPrompt = `Depth auditor — ensure every claim has SPECIFIC, VERIFIABLE evidence.
 
 ${sharedContext}
 
-YOUR AUDIT CRITERIA — FAIL anything that lacks specifics:
-1. NAMED SOURCES: Every competitor must have a real company name + URL. Not "various competitors".
-2. EXACT NUMBERS: Market size must be "$X billion", not "large market". Growth must be "X%", not "growing".
-3. VERBATIM QUOTES: Must be real customer words from real platforms. Not "customers say they want...".
-4. SPECIFIC PRICES: "$29.99/month" not "competitively priced".
-5. NAMED COMMUNITIES: "r/SkincareAddiction" not "skincare forums".
-6. DATED EVIDENCE: "2024 study by [org]" not "studies show".
-7. PURCHASE JOURNEY: Exact search terms people use, exact review sites they visit.
-8. EMOTIONAL SPECIFICS: "Shame when spouse notices aging" not "emotional concerns".
+FAIL any claim that is vague:
+- Competitors: need real names + URLs, not "various competitors"
+- Numbers: need "$X.XB", "XX%", not "large market" or "growing"
+- Quotes: need exact customer words, not "customers say they want..."
+- Prices: need "$29.99/month", not "competitively priced"
+- Communities: need "r/SkincareAddiction", not "skincare forums"
 
-For EACH gap in specificity, propose a query to get the real data:
-GOOD: "amazon [product category] best seller reviews 2024 2025"
-GOOD: "[competitor] trustpilot reviews 1 star complaints"
-GOOD: "reddit [subreddit] 'how much' OR 'is it worth' [product type]"
-GOOD: "meta ad library [competitor] active ads"
+For each vague claim, propose a specific search query.
 
 SPECIFICITY FAILURES:
-[list each vague claim that needs real evidence]
+[list vague claims]
 
 RESEARCH TO GET SPECIFICS:
-1. [query targeting a specific data gap]
-2. [query targeting a specific data gap]
-3. [query targeting a specific data gap]`;
+1. [query for worst gap]
+2. [query for next gap]
+3. [query for next gap]`;
 
         try {
-          const response = await ollamaService.generateStream(depthPrompt, 'Demand specific evidence. Reject vague claims.', { model: reflectionModel, onChunk, signal });
+          const response = await ollamaService.generateStream(depthPrompt, 'Audit for specificity. Output queries to fill gaps. Be concise.', { model: reflectionModel, onChunk, signal });
           const angles = extractResearchAngles(response);
           allAngles.push(...angles);
           onChunk?.(`  [Depth Auditor] Found ${angles.length} angles\n`);
@@ -883,51 +893,42 @@ RESEARCH TO GET SPECIFICS:
       // ── Perspective 3: Coverage Checker ──
       onChunk?.(`\n[Reflection: Coverage Checker] Counting data points per dimension...\n`);
       if (!signal?.aborted) {
-        const coveragePrompt = `You are the COVERAGE CHECKER. Your job is to count ACTUAL DATA POINTS per research dimension and find BLIND SPOTS.
+        const coveragePrompt = `Coverage checker — count data points per dimension, find blind spots.
 
 ${sharedContext}
 
-REQUIRED MINIMUMS (must have 5+ specific data points each):
-1. Market size/trends — numbers, growth rates, TAM data
-2. Competitor analysis — named brands with positioning, pricing, ad hooks
-3. Customer objections — real complaints from reviews/forums
-4. Emerging behaviors — new approaches, adoption shifts
-5. Regional differences — geographic demand patterns
-6. Pricing strategies — specific price points, value perception
-7. Channel effectiveness — which platforms convert
-8. Positioning gaps — what NO competitor can claim
-9. Psychological triggers — turning points, fears, identity
-10. Media consumption — where audience spends time
-11. Purchase journey — exact decision path, search terms, review sites
+Count data points per dimension (need 3+ each):
+1. Market size/trends  2. Competitors  3. Objections
+4. Emerging behaviors  5. Regional  6. Pricing
+7. Channels  8. Positioning gaps  9. Psychology
+10. Media consumption  11. Purchase journey
 
-For EACH dimension, count actual data points in our research:
-[Dimension]: [X] data points — ${'{'}PASS if 5+, FAIL if <5}
+Score each: [Dimension]: [X] data points — PASS/FAIL
 
-Then identify GEOGRAPHIC and TEMPORAL blind spots:
-- Are findings US-only? Europe? Global?
-- Are findings current (2024-2025) or outdated?
-- Are we missing a demographic segment?
+Check blind spots: US-only? Outdated? Missing segments?
 
-BLIND SPOTS:
-[list gaps not covered by dimensional analysis]
+BLIND SPOTS: [list]
 
 RESEARCH TO FILL GAPS:
-1. [query for worst-scoring dimension]
-2. [query for geographic blind spot]
-3. [query for temporal blind spot]
-
+1. [query for worst dimension]
+2. [query for geographic gap]
+3. [query for temporal gap]
+${getResearchLimits().maxVisualBatches > 0 ? `
 VISUAL_SCOUT: [competitor URLs to screenshot, if visual analysis lacking]
-AD_SCOUT: [ad library / marketing URLs to screenshot, if ad creative analysis is missing]`;
+AD_SCOUT: [ad library URLs to screenshot, if ad creative analysis missing]` : ''}`;
 
         try {
-          const response = await ollamaService.generateStream(coveragePrompt, 'Count data points. Find blind spots.', { model: reflectionModel, onChunk, signal });
+          const response = await ollamaService.generateStream(coveragePrompt, 'Count data points per dimension. Find blind spots. Output queries. Be concise.', { model: reflectionModel, onChunk, signal });
           const angles = extractResearchAngles(response);
           allAngles.push(...angles);
           onChunk?.(`  [Coverage Checker] Found ${angles.length} angles\n`);
 
           // Check if coverage checker requested visual scouting (VISUAL_SCOUT or AD_SCOUT)
+          // Enforce visual budget from preset limits
+          const reflVisualBudgetUsed = (state as any)._visualBatchesUsed || 0;
+          const reflVisualBudgetRemaining = getResearchLimits().maxVisualBatches - reflVisualBudgetUsed;
           const scoutDirective = response.includes('VISUAL_SCOUT:') || response.includes('AD_SCOUT:');
-          if (scoutDirective && !state._visualFindings) {
+          if (scoutDirective && !state._visualFindings && reflVisualBudgetRemaining > 0) {
             // Collect URLs from both VISUAL_SCOUT and AD_SCOUT directives
             const allScoutUrls: string[] = [];
             for (const directive of ['VISUAL_SCOUT', 'AD_SCOUT']) {
@@ -941,15 +942,17 @@ AD_SCOUT: [ad library / marketing URLs to screenshot, if ad creative analysis is
               }
             }
             const dedupedUrls = [...new Set(allScoutUrls)];
-            if (dedupedUrls.length > 0) {
+            const reflMaxUrls = getResearchLimits().maxVisualUrls - ((state as any)._visualUrlsUsed || 0);
+            const reflCappedCount = Math.min(dedupedUrls.length, reflMaxUrls, 5);
+            if (dedupedUrls.length > 0 && reflCappedCount > 0) {
               const hasAdScout = response.includes('AD_SCOUT:');
               const label = hasAdScout ? 'Ad Scout' : 'Visual Scout';
-              onChunk?.(`\n[${label}] Coverage Checker requested visual analysis of ${dedupedUrls.length} URLs\n`);
+              onChunk?.(`\n[${label}] Coverage Checker requested visual analysis of ${dedupedUrls.length} URLs (capped to ${reflCappedCount})\n`);
               try {
                 const { visualScoutAgent } = await import('./visualScoutAgent');
                 const { visualProgressStore } = await import('./visualProgressStore');
                 const visualFindings = await visualScoutAgent.analyzeCompetitorVisuals(
-                  dedupedUrls.slice(0, 5),
+                  dedupedUrls.slice(0, reflCappedCount),
                   state.campaign,
                   onChunk ? (msg: string | undefined) => onChunk(msg || '') : undefined,
                   signal,
@@ -965,6 +968,8 @@ AD_SCOUT: [ad library / marketing URLs to screenshot, if ad creative analysis is
                   }
                 );
                 state._visualFindings = visualFindings;
+                (state as any)._visualBatchesUsed = ((state as any)._visualBatchesUsed || 0) + 1;
+                (state as any)._visualUrlsUsed = ((state as any)._visualUrlsUsed || 0) + reflCappedCount;
                 onChunk?.(`[${label}] Visual analysis complete — ${visualFindings.totalAnalyzed} sites analyzed\n`);
               } catch (err) {
                 onChunk?.(`[${label}] Visual analysis failed: ${err}\n`);
@@ -1056,7 +1061,7 @@ interface OrchestratorDecision {
   shouldContinue: boolean;
   question?: string;
   questionContext?: string;
-  visualScoutUrls?: string[]; // URLs for visual analysis via minicpm-v
+  visualScoutUrls?: string[]; // URLs for visual analysis via vision model
 }
 
 function parseOrchestratorDecision(decision: string): OrchestratorDecision[] {
@@ -1274,11 +1279,6 @@ function buildEvaluationPrompt(
   researchMode: 'interactive' | 'autonomous' = 'autonomous',
   knowledge?: KnowledgeState
 ): string {
-  const interactiveNote = researchMode === 'interactive'
-    ? `\n\nYou can ask the user for clarification:
-Format: QUESTION: [your clarifying question]`
-    : '';
-
   const reflectionNote = state.reflectionSuggestedTopics?.length
     ? `\n\nREFLECTION AGENT FLAGGED THESE GAPS (high-priority):
 ${state.reflectionSuggestedTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')}
@@ -1305,116 +1305,89 @@ ${!knowledge.communities.length ? '- NO audience communities found — where do 
 
   const limits = getResearchLimits();
 
-  return `You are the RESEARCH ORCHESTRATOR for a desire-driven ad campaign. You decide what to research next.
+  // Adapt prompt verbosity based on preset tier
+  const isFast = limits.maxIterations <= 10; // SQ or QK
+  const isDeep = limits.maxIterations >= 40; // EX or MX
 
-YOUR MANDATE: This research must be DEEPER and MORE EXHAUSTIVE than anything a human researcher or any AI could produce. You are building the most comprehensive market intelligence document ever created for this brand.
+  // For fast presets, use a shorter, more direct prompt
+  const dimensionsList = isFast
+    ? `10 Dimensions to check:
+1. Market size/trends 2. Competitors (named) 3. Customer objections
+4. Pricing 5. Positioning gaps 6. Verbatim quotes
+7. Purchase triggers 8. Failed solutions 9. Communities
+10. Channel effectiveness`
+    : `16 Dimensions (need ${isDeep ? '5+' : '3+'} data points each):
+1. Market size & trends  2. Competitor analysis  3. Customer sentiment
+4. Emerging behaviors  5. Regional differences  6. Pricing strategies
+7. Channel effectiveness  8. Positioning gaps  9. Psychological triggers
+10. Media consumption  11. Amazon reviews  12. Reddit/forum research
+13. Identity markers  14. Ad style analysis  15. Market sophistication
+16. Visual competitive analysis`;
 
-ANTI-COMPLACENCY RULES (CRITICAL — fight your tendency to stop early):
-- NEVER use the words "sufficient", "adequate", "good enough", or "comprehensive enough"
-- You need ${limits.minSources}+ unique sources before you can even CONSIDER stopping
-- You need 15+ VERBATIM quotes from real customers (Reddit, Trustpilot, Amazon)
-- You need 8+ NAMED competitors with specific positioning data
-- COMPLETE: true is ONLY allowed when ALL 16 dimensions have 5+ SPECIFIC data points each
-- If you're tempted to say "research is complete" — you're almost certainly wrong. Keep going.
-- Your SATISFICING BIAS is your biggest enemy. Fight it. The user wants 10x more depth than you think is "enough".
+  const methodologyBlock = isFast
+    ? '' // SQ/QK: skip verbose methodology
+    : `
+${METHODOLOGY_STEPS.map((s, i) => `Step ${i + 1}: ${s.name} — ${s.goals.slice(0, 2).join(' | ')}
+  Queries: ${s.queryTemplates.slice(0, 2).join(' | ')}`).join('\n')}`;
 
-FRAMEWORK: People don't buy products — they buy fulfillment of desires. We need:
-- TURNING POINTS (when pain becomes unbearable — the exact moment)
-- VERBATIM LANGUAGE (how real people talk about this — NOT brand speak)
-- ROOT CAUSES (why nothing else worked for them)
-- AHA INSIGHTS (surprising truths that change the whole strategy)
-- PURCHASE JOURNEY (exact search terms, review sites, comparison criteria)
-- EMOTIONAL LANDSCAPE (shame, hope, identity, social pressure)
+  const platformHints = `Query patterns:
+- Amazon: "site:amazon.com {product} reviews" | "amazon {product} 1 star complaints"
+- Reddit: "site:reddit.com {product}" | "reddit r/{subreddit} honest review"
+- Competitor: "[competitor] meta ad library ads" | "[competitor] trustpilot reviews"`;
 
-Campaign:
-- Brand: ${state.campaign.brand}
-- Product: ${state.campaign.productDescription}
-- Features: ${Array.isArray(state.campaign.productFeatures) ? state.campaign.productFeatures.join(', ') : (state.campaign.productFeatures || 'Not specified')}
-- Target: ${state.campaign.targetAudience}
-- Goal: ${state.campaign.marketingGoal}
-${buildOrchestratorBrandContext(state.campaign)}${state.userProvidedContext ? `\nUser Context:\n${Object.entries(state.userProvidedContext).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
-
-Research Goals:
-${state.researchGoals.map((g, i) => `${i + 1}. ${g}`).join('\n')}
-${knowledgeSection}
-Queries Completed (${results.length}):
-${results.map((r) => {
-  const covered = Object.values(r.coverage_graph).filter(Boolean).length;
-  const total = Object.keys(r.coverage_graph).length;
-  return `- "${r.query}" (${covered}/${total} dims)`;
-}).join('\n')}
-
-16 Dimensions (ALL need 5+ SPECIFIC data points with evidence):
-1. Market size & trends (exact numbers, growth rates, TAM, market reports)
-2. Competitor analysis (8+ named competitors, their ads, hooks, visuals, pricing)
-3. Customer sentiment (BALANCED — what they love AND hate, from Reddit/Trustpilot/Amazon reviews)
-4. Emerging behaviors (new approaches, adoption patterns, category disruptors)
-5. Regional differences (where demand is strongest, geographic pricing)
-6. Pricing strategies (specific price points, bundles, value perception, willingness-to-pay)
-7. Channel effectiveness (which platforms work for ads, organic vs paid performance)
-8. Brand positioning gaps (what NO competitor can claim — structural limitations)
-9. Psychological triggers (turning points, fears, identity, shame/hope)
-10. Media consumption (where audience spends time, which creators, which platforms)
-11. Amazon research (40+ quotes from reviews, Q&A patterns, star distribution drivers)
-12. Reddit research (50+ quotes, subreddit language, holy grail products, failed solutions)
-13. Identity markers (values, visual markers, language patterns, influencers, tribal signals)
-14. Ad style analysis (UGC vs professional, emotional vs logical, bright vs dark side)
-15. Market sophistication (level 1-5 with evidence, positioning strategy recommendation)
-16. Visual competitive analysis (competitor visual styles, layout patterns, color palettes)
-
-${'═'.repeat(50)}
-9-STEP COMPREHENSIVE RESEARCH METHODOLOGY
-${'═'.repeat(50)}
-You MUST systematically cover ALL 9 steps. This is a 25+ page research document, not a quick summary.
-
-${METHODOLOGY_STEPS.map((s, i) => `STEP ${i + 1}: ${s.name.toUpperCase()}
-${s.description}
-Key goals: ${s.goals.slice(0, 4).join(' | ')}
-Query patterns: ${s.queryTemplates.slice(0, 3).join(' | ')}`).join('\n\n')}
-
-CRITICAL PLATFORM-SPECIFIC SEARCHES:
-- AMAZON: "site:amazon.com {product} reviews" | "amazon {product} 1 star reviews complaints" | "amazon {product} switched from"
-- REDDIT: "site:reddit.com {product}" | "reddit r/{subreddit} honest review" | "site:reddit.com {category} holy grail"
-- SOCIAL: "tiktok {product} viral" | "facebook ad library {category}" | "{category} instagram ads best performing"
-- IDENTITY: "{audience} influencers trust" | "{audience} language slang how they talk" | "{audience} tribe signals"
-- AD STYLE: "{category} best performing ads 2025" | "UGC vs professional ads {category}" | "{category} ad creative what converts"
-
-${(() => {
-  // Dynamic methodology progress tracking
+  // Coverage tracking
   const covGraph = evaluateCoverage(results);
   const coveredDims = Object.entries(covGraph).filter(([, v]) => v).map(([k]) => k);
-  return getMethodologySummary(
+  const methodSummary = isFast ? '' : getMethodologySummary(
     coveredDims,
     results.length,
     knowledge?.verbatimQuotes?.length || 0,
     knowledge?.competitors?.length || 0
   );
-})()}
 
-SOURCE LINK REQUIREMENT: Every finding must trace back to a specific source (URL, subreddit, Amazon listing, etc.)
-${'═'.repeat(50)}
+  // Visual scout availability based on preset limits
+  const visualNote = limits.maxVisualBatches > 0
+    ? `\nVISUAL_SCOUT: [URLs] — screenshot competitor pages (max ${limits.maxVisualUrls} URLs total)
+AD_SCOUT: [URLs] — screenshot ad creatives/landing pages`
+    : '';
+
+  return `You are the research orchestrator. Decide what to research next.
+
+CAMPAIGN:
+Brand: ${state.campaign.brand} | Product: ${state.campaign.productDescription}
+Features: ${Array.isArray(state.campaign.productFeatures) ? state.campaign.productFeatures.join(', ') : (state.campaign.productFeatures || 'N/A')}
+Target: ${state.campaign.targetAudience} | Goal: ${state.campaign.marketingGoal}
+${buildOrchestratorBrandContext(state.campaign)}${state.userProvidedContext ? `\nUser context: ${Object.entries(state.userProvidedContext).map(([k, v]) => `${k}: ${v}`).join(', ')}` : ''}
+${knowledgeSection}
+Queries done (${results.length}):
+${results.map((r) => {
+  const covered = Object.values(r.coverage_graph).filter(Boolean).length;
+  const total = Object.keys(r.coverage_graph).length;
+  return `- "${r.query}" (${covered}/${total})`;
+}).join('\n')}
+
+${dimensionsList}
+${methodologyBlock}
+${platformHints}
+${methodSummary}
 ${reflectionNote}
 
-YOUR DECISION PROCESS:
-1. COUNT the specific data points per dimension from WHAT WE KNOW above
-2. ANY dimension with <5 data points = CRITICAL GAP that needs filling
-3. Check which of the 9 METHODOLOGY STEPS have been covered — uncovered steps are HIGH PRIORITY
-4. For each gap, propose a HYPERSPECIFIC query tied to a methodology step
-5. Each query MUST explain what GAP it fills: "RESEARCH: [query] — fills [gap name] (Step N)"
-6. STOP CRITERIA: ALL 16 dimensions have 5+ data points AND ${limits.minSources}+ sources AND 40+ verbatim quotes AND 10+ named competitors AND all 9 methodology steps addressed
+RULES:
+- Need ${limits.minSources}+ sources before stopping
+- ${isFast ? 'Focus on highest-impact gaps only' : 'Every claim needs a source URL'}
+- Reject vague/trend-chasing queries
+- Each query must name the gap it fills: RESEARCH: [query] — fills [gap]
 
-If gaps remain, list 3-5 HYPERSPECIFIC queries with gap + step explanations:
-RESEARCH: [specific query] — fills [which gap] (Step N: name)
-RESEARCH: [specific query] — fills [which gap] (Step N: name)
+${isFast
+  ? `List 1-3 specific queries, or COMPLETE: true if key gaps are covered.`
+  : `List 3-5 SPECIFIC queries with gap explanations:
+RESEARCH: [query] — fills [gap]
+RESEARCH: [query] — fills [gap]
 
-REJECT: trend-chasing, vague sentiment queries, celebrity gossip, generic trends
-GOOD: "reddit r/[subreddit] [product] real reviews 2024" | "amazon [competitor] 1 star reviews complaints" | "[competitor] meta ad library ads 2025" | "[product type] trustpilot reviews frustrated" | "who switched from [A] to [B] why reddit"
-
-VISUAL_SCOUT: [competitor URLs to screenshot] — when you've found landing pages worth analyzing visually
-AD_SCOUT: [ad library or visual marketing URLs to screenshot] — for analyzing competitor ad creatives, Facebook Ad Library pages, Google Ads previews, landing pages, and visual marketing sites
-
-If need user input: QUESTION: [question]
-ONLY if ALL 16 dimensions have 5+ specific data points AND ${limits.minSources}+ unique sources AND all 9 methodology steps addressed: COMPLETE: true${interactiveNote}`;
+STOP ONLY when: ${limits.minSources}+ sources AND all major dimensions covered.`}
+${visualNote}
+${researchMode === 'interactive' ? '\nQUESTION: [question] — if you need user clarification' : ''}
+COMPLETE: true — ONLY when research targets met`;
 }
 
 function buildCoverageGraph(response: string): CoverageGraph {

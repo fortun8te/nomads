@@ -235,7 +235,7 @@ export interface ResearchAuditTrail {
   sourceList: ResearchSource[];            // full list with metadata
   modelsUsed: string[];                    // which models processed this data
   totalTokensGenerated: number;            // sum of all tokens across all phases
-  tokensByModel: Record<string, number>;   // { 'lfm-2.5': 50000, 'qwen3.5:9b': 120000 }
+  tokensByModel: Record<string, number>;   // { 'qwen3.5:2b': 50000, 'qwen3.5:9b': 120000 }
   phaseTimes: Record<string, number>;      // { 'web-research': 180, 'desire-analysis': 45, ... }
   researchDuration: number;                // total milliseconds
   preset: string;                          // which research preset was used

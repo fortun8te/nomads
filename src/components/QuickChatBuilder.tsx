@@ -142,7 +142,7 @@ export function QuickChatBuilder({ messages, setMessages, onComplete }: QuickCha
         prompt,
         SYSTEM_PROMPT,
         {
-          model: 'gpt-oss:20b',
+          model: 'qwen3.5:27b',
           temperature: 0.9,
           onChunk: (chunk) => {
             aiResponse += chunk;
@@ -214,7 +214,7 @@ export function QuickChatBuilder({ messages, setMessages, onComplete }: QuickCha
         prompt,
         'You are a JSON extraction tool. Output ONLY valid JSON.',
         {
-          model: 'gpt-oss:20b',
+          model: 'qwen3.5:27b',
           temperature: 0.9,
           onChunk: (chunk) => { extractionResponse += chunk; },
           signal: abortControllerRef.current.signal,

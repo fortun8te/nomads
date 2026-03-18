@@ -1,13 +1,14 @@
 // Model configuration for the research + ad pipeline
 //
 // Model roster (remote Ollama at 100.74.135.83:11435 via Tailscale proxy):
-//   qwen3.5:9b             (6.6GB, 9B) — default for analysis stages
-//   qwen3.5:35b            (24GB, 35B) — heavy lifting (make stage, complex reasoning)
-//   qwen3.5:0.8b           (530MB, 0.8B) — fast vision + HTML gen
-//   lfm2.5-thinking:latest (730MB, 1.2B) — grunt work: page compression, memory archiving
-//   gpt-oss:20b            (13GB, 20B) — make + test stages
+//   qwen3.5:0.8b  (530MB)  — compression, fast extraction, vision
+//   qwen3.5:2b    (1.5GB)  — page compression, memory archiving
+//   qwen3.5:4b    (2.8GB)  — researcher synthesis, fast analysis
+//   qwen3.5:9b    (6.6GB)  — orchestrator, reflection, desire analysis
+//   qwen3.5:27b   (18GB)   — complex reasoning, council brains
+//   qwen3.5:35b   (24GB)   — make + test stages, heavy lifting
 //
-// Vision uses qwen3.5:0.8b (fast, cheap). Thinking uses separate model.
+// All Qwen 3.5 variants. No other model families.
 // All model assignments are configurable via Dashboard → Settings → Research.
 // Each role reads from localStorage with fallback to defaults below.
 
@@ -22,12 +23,12 @@ export const MODEL_CONFIG: Record<string, string> = {
   angles: 'qwen3.5:9b',
   strategy: 'qwen3.5:9b',
   copywriting: 'qwen3.5:9b',
-  production: 'gpt-oss:20b',
-  test: 'gpt-oss:20b',
+  production: 'qwen3.5:35b',
+  test: 'qwen3.5:27b',
   vision: 'qwen3.5:0.8b',
-  thinking: 'qwen3.5:0.8b',
+  thinking: 'qwen3.5:4b',
   planner: 'qwen3.5:9b',
-  executor: 'qwen3.5:0.8b',
+  executor: 'qwen3.5:2b',
 };
 
 /** Get model for a pipeline stage — reads from localStorage with fallback */
@@ -80,24 +81,27 @@ export function getExecutorModel(): string {
 /** Available vision-capable models for the selector */
 export const VISION_MODEL_OPTIONS = [
   { value: 'qwen3.5:0.8b', label: 'Qwen 3.5 0.8B (Fast)' },
+  { value: 'qwen3.5:2b', label: 'Qwen 3.5 2B' },
+  { value: 'qwen3.5:4b', label: 'Qwen 3.5 4B' },
   { value: 'qwen3.5:9b', label: 'Qwen 3.5 9B' },
-  { value: 'qwen3.5:35b', label: 'Qwen 3.5 35B' },
 ] as const;
 
 /** Available thinking models for the selector */
 export const THINKING_MODEL_OPTIONS = [
-  { value: 'qwen3.5:0.8b', label: 'Qwen 3.5 0.8B (Fast)' },
+  { value: 'qwen3.5:2b', label: 'Qwen 3.5 2B (Fast)' },
+  { value: 'qwen3.5:4b', label: 'Qwen 3.5 4B' },
   { value: 'qwen3.5:9b', label: 'Qwen 3.5 9B' },
-  { value: 'qwen3.5:35b', label: 'Qwen 3.5 35B' },
+  { value: 'qwen3.5:27b', label: 'Qwen 3.5 27B' },
 ] as const;
 
 /** Available chat/general models for Brand DNA editor etc. */
 export const CHAT_MODEL_OPTIONS = [
   { value: 'qwen3.5:0.8b', label: 'Qwen 3.5 0.8B (Fast)' },
+  { value: 'qwen3.5:2b', label: 'Qwen 3.5 2B' },
+  { value: 'qwen3.5:4b', label: 'Qwen 3.5 4B' },
   { value: 'qwen3.5:9b', label: 'Qwen 3.5 9B' },
+  { value: 'qwen3.5:27b', label: 'Qwen 3.5 27B' },
   { value: 'qwen3.5:35b', label: 'Qwen 3.5 35B' },
-  { value: 'lfm2.5-thinking:latest', label: 'LFM 2.5 1.2B' },
-  { value: 'gpt-oss:20b', label: 'GPT-OSS 20B' },
 ] as const;
 
 /** Get chat model — used for Brand DNA editor and similar chat features */
@@ -127,33 +131,42 @@ export interface ResearchModelConfig {
 
 const RESEARCH_DEFAULTS: ResearchModelConfig = {
   orchestratorModel: 'qwen3.5:9b',
-  researcherSynthesisModel: 'qwen3.5:9b',
-  compressionModel: 'lfm2.5-thinking:latest',
+  researcherSynthesisModel: 'qwen3.5:4b',
+  compressionModel: 'qwen3.5:2b',
   reflectionModel: 'qwen3.5:9b',
   desireLayerModel: 'qwen3.5:9b',
   personaSynthesisModel: 'qwen3.5:9b',
-  councilBrainModel: 'qwen3.5:9b',
+  councilBrainModel: 'qwen3.5:27b',
   temperature: 0.7,
   maxContext: 8192,
 };
 
-/** Get research model config — reads per-role keys from localStorage with backward compat */
+/** Get research model config — reads per-role keys from localStorage with backward compat.
+ *  Preset model overrides (from applyResearchPreset) take priority over defaults but
+ *  user-explicit per-role overrides (from Settings modal) take highest priority. */
 export function getResearchModelConfig(): ResearchModelConfig {
   if (typeof window === 'undefined') return RESEARCH_DEFAULTS;
 
   // Backward compat: if new per-role keys aren't set, fall back to old 'research_model' key
   const legacyModel = localStorage.getItem('research_model') || '';
-  const get = (key: string, fallback: string) =>
-    localStorage.getItem(key) || legacyModel || fallback;
+
+  // Priority: user-explicit > preset override > defaults
+  const presetOrch = localStorage.getItem('preset_orchestrator_model') || '';
+  const presetComp = localStorage.getItem('preset_compression_model') || '';
+  const presetSynth = localStorage.getItem('preset_synthesis_model') || '';
+  const presetRefl = localStorage.getItem('preset_reflection_model') || '';
+
+  const get = (key: string, presetOverride: string, fallback: string) =>
+    localStorage.getItem(key) || presetOverride || legacyModel || fallback;
 
   return {
-    orchestratorModel: get('orchestrator_model', RESEARCH_DEFAULTS.orchestratorModel),
-    researcherSynthesisModel: get('researcher_synthesis_model', RESEARCH_DEFAULTS.researcherSynthesisModel),
-    compressionModel: localStorage.getItem('compression_model') || RESEARCH_DEFAULTS.compressionModel,
-    reflectionModel: get('reflection_model', RESEARCH_DEFAULTS.reflectionModel),
-    desireLayerModel: get('desire_layer_model', RESEARCH_DEFAULTS.desireLayerModel),
-    personaSynthesisModel: get('persona_synthesis_model', RESEARCH_DEFAULTS.personaSynthesisModel),
-    councilBrainModel: get('council_brain_model', RESEARCH_DEFAULTS.councilBrainModel),
+    orchestratorModel: get('orchestrator_model', presetOrch, RESEARCH_DEFAULTS.orchestratorModel),
+    researcherSynthesisModel: get('researcher_synthesis_model', presetSynth, RESEARCH_DEFAULTS.researcherSynthesisModel),
+    compressionModel: localStorage.getItem('compression_model') || presetComp || RESEARCH_DEFAULTS.compressionModel,
+    reflectionModel: get('reflection_model', presetRefl, RESEARCH_DEFAULTS.reflectionModel),
+    desireLayerModel: get('desire_layer_model', '', RESEARCH_DEFAULTS.desireLayerModel),
+    personaSynthesisModel: get('persona_synthesis_model', '', RESEARCH_DEFAULTS.personaSynthesisModel),
+    councilBrainModel: get('council_brain_model', '', RESEARCH_DEFAULTS.councilBrainModel),
     temperature: parseFloat(localStorage.getItem('research_temperature') || '') || RESEARCH_DEFAULTS.temperature,
     maxContext: parseInt(localStorage.getItem('research_max_context') || '') || RESEARCH_DEFAULTS.maxContext,
   };
@@ -171,6 +184,17 @@ export interface ResearchLimits {
   maxResearchersPerIteration: number;
   maxTimeMinutes: number;
   parallelCompressionCount: number;
+  // Visual scouting limits (Wayfarer Plus — Playwright screenshots + vision analysis)
+  maxVisualBatches: number;        // Max visual scout batches (each batch = 5 URLs)
+  maxVisualUrls: number;           // Hard cap on total visual URLs analyzed
+  // Per-preset model overrides (smaller presets use smaller models for speed)
+  orchestratorModel?: string;      // Override orchestrator model for this preset
+  compressionModel?: string;       // Override compression model for this preset
+  synthesisModel?: string;         // Override researcher synthesis model for this preset
+  reflectionModel?: string;        // Override reflection model for this preset
+  // Preset behavior flags
+  skipReflection: boolean;         // SQ: skip reflection agents entirely
+  singlePassResearch: boolean;     // SQ: one-shot research, no iteration loop
   // Max-tier exclusive features
   crossValidation: boolean;        // Re-search to verify claims from multiple sources
   multiLanguageSearch: boolean;    // Search in Spanish, French, German, Japanese etc.
@@ -188,6 +212,10 @@ const LIMITS_DEFAULTS: ResearchLimits = {
   maxResearchersPerIteration: 5,
   maxTimeMinutes: 90,
   parallelCompressionCount: 1,
+  maxVisualBatches: 1,
+  maxVisualUrls: 5,
+  skipReflection: false,
+  singlePassResearch: false,
   crossValidation: false,
   multiLanguageSearch: false,
   historicalAnalysis: false,
@@ -217,17 +245,27 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
     id: 'super-quick',
     label: 'Super Quick',
     shortLabel: 'SQ',
-    description: 'Surface scan, enough for a quick take',
+    description: 'Single-pass scan — fast directional take, no iteration',
     time: '~5 min',
     color: 'sky',
     limits: {
-      maxIterations: 5,
-      minIterations: 2,
-      coverageThreshold: 0.55,
-      minSources: 8,
-      maxResearchersPerIteration: 3,
+      maxIterations: 3,
+      minIterations: 1,
+      coverageThreshold: 0.40,
+      minSources: 5,
+      maxResearchersPerIteration: 2,
       maxTimeMinutes: 5,
-      parallelCompressionCount: 1,
+      parallelCompressionCount: 2,
+      maxVisualBatches: 0,
+      maxVisualUrls: 0,
+      // SQ uses smallest models for speed
+      orchestratorModel: 'qwen3.5:4b',
+      compressionModel: 'qwen3.5:0.8b',
+      synthesisModel: 'qwen3.5:2b',
+      reflectionModel: undefined,
+      // SQ skips reflection and does single-pass
+      skipReflection: true,
+      singlePassResearch: true,
       crossValidation: false,
       multiLanguageSearch: false,
       historicalAnalysis: false,
@@ -240,17 +278,26 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
     id: 'quick',
     label: 'Quick',
     shortLabel: 'QK',
-    description: 'Solid overview with real data',
+    description: 'Solid overview — iterates until key gaps filled',
     time: '~30 min',
     color: 'emerald',
     limits: {
-      maxIterations: 12,
-      minIterations: 4,
-      coverageThreshold: 0.75,
-      minSources: 25,
-      maxResearchersPerIteration: 4,
+      maxIterations: 10,
+      minIterations: 3,
+      coverageThreshold: 0.65,
+      minSources: 20,
+      maxResearchersPerIteration: 3,
       maxTimeMinutes: 30,
-      parallelCompressionCount: 1,
+      parallelCompressionCount: 2,
+      maxVisualBatches: 0,
+      maxVisualUrls: 0,
+      // QK uses mid-tier models
+      orchestratorModel: 'qwen3.5:4b',
+      compressionModel: 'qwen3.5:2b',
+      synthesisModel: 'qwen3.5:4b',
+      reflectionModel: 'qwen3.5:4b',
+      skipReflection: false,
+      singlePassResearch: false,
       crossValidation: false,
       multiLanguageSearch: false,
       historicalAnalysis: false,
@@ -263,17 +310,22 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
     id: 'normal',
     label: 'Normal',
     shortLabel: 'NR',
-    description: 'Thorough analysis, production quality',
+    description: 'Full analysis with reflection — production quality',
     time: '~90 min',
     color: 'violet',
     limits: {
-      maxIterations: 30,
-      minIterations: 8,
-      coverageThreshold: 0.99,
-      minSources: 75,
-      maxResearchersPerIteration: 5,
+      maxIterations: 25,
+      minIterations: 6,
+      coverageThreshold: 0.80,
+      minSources: 60,
+      maxResearchersPerIteration: 4,
       maxTimeMinutes: 90,
-      parallelCompressionCount: 1,
+      parallelCompressionCount: 2,
+      maxVisualBatches: 1,
+      maxVisualUrls: 5,
+      // NR uses default models (9b orchestrator, 2b compression, 4b synthesis)
+      skipReflection: false,
+      singlePassResearch: false,
       crossValidation: false,
       multiLanguageSearch: false,
       historicalAnalysis: false,
@@ -286,17 +338,26 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
     id: 'extended',
     label: 'Extended',
     shortLabel: 'EX',
-    description: 'Deep dive + visual competitor analysis, cross-validation',
+    description: 'Deep dive + visual scouting + cross-validation + community passes',
     time: '~2 hrs',
     color: 'amber',
     limits: {
-      maxIterations: 45,
-      minIterations: 12,
-      coverageThreshold: 0.99,
-      minSources: 200,
+      maxIterations: 40,
+      minIterations: 10,
+      coverageThreshold: 0.90,
+      minSources: 150,
       maxResearchersPerIteration: 5,
       maxTimeMinutes: 120,
-      parallelCompressionCount: 2,
+      parallelCompressionCount: 3,
+      maxVisualBatches: 3,
+      maxVisualUrls: 15,
+      // EX uses full-size models
+      orchestratorModel: 'qwen3.5:9b',
+      compressionModel: 'qwen3.5:4b',
+      synthesisModel: 'qwen3.5:9b',
+      reflectionModel: 'qwen3.5:9b',
+      skipReflection: false,
+      singlePassResearch: false,
       crossValidation: true,
       multiLanguageSearch: false,
       historicalAnalysis: false,
@@ -309,17 +370,26 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
     id: 'max',
     label: 'Maximum',
     shortLabel: 'MX',
-    description: 'Exhaustive — every angle, every source, every language, deep visuals',
+    description: 'Exhaustive — every angle, every source, deep visuals, multi-language',
     time: '~5 hrs',
     color: 'red',
     limits: {
-      maxIterations: 100,
-      minIterations: 25,
-      coverageThreshold: 0.995,
-      minSources: 400,
+      maxIterations: 80,
+      minIterations: 20,
+      coverageThreshold: 0.95,
+      minSources: 300,
       maxResearchersPerIteration: 5,
       maxTimeMinutes: 300,
       parallelCompressionCount: 4,
+      maxVisualBatches: 8,
+      maxVisualUrls: 40,
+      // MX uses largest available models
+      orchestratorModel: 'qwen3.5:27b',
+      compressionModel: 'qwen3.5:4b',
+      synthesisModel: 'qwen3.5:9b',
+      reflectionModel: 'qwen3.5:27b',
+      skipReflection: false,
+      singlePassResearch: false,
       crossValidation: true,
       multiLanguageSearch: true,
       historicalAnalysis: true,
@@ -343,12 +413,25 @@ export function applyResearchPreset(presetId: ResearchDepthPreset): void {
   localStorage.setItem('max_researchers_per_iteration', String(l.maxResearchersPerIteration));
   localStorage.setItem('max_research_time_minutes', String(l.maxTimeMinutes));
   localStorage.setItem('parallel_compression_count', String(l.parallelCompressionCount));
+  localStorage.setItem('max_visual_batches', String(l.maxVisualBatches));
+  localStorage.setItem('max_visual_urls', String(l.maxVisualUrls));
+  localStorage.setItem('research_skip_reflection', String(l.skipReflection));
+  localStorage.setItem('research_single_pass', String(l.singlePassResearch));
   localStorage.setItem('research_cross_validation', String(l.crossValidation));
   localStorage.setItem('research_multi_language', String(l.multiLanguageSearch));
   localStorage.setItem('research_historical_analysis', String(l.historicalAnalysis));
   localStorage.setItem('research_community_deep_dive', String(l.communityDeepDive));
   localStorage.setItem('research_competitor_ad_scrape', String(l.competitorAdScrape));
   localStorage.setItem('research_academic_search', String(l.academicSearch));
+  // Store per-preset model overrides
+  if (l.orchestratorModel) localStorage.setItem('preset_orchestrator_model', l.orchestratorModel);
+  else localStorage.removeItem('preset_orchestrator_model');
+  if (l.compressionModel) localStorage.setItem('preset_compression_model', l.compressionModel);
+  else localStorage.removeItem('preset_compression_model');
+  if (l.synthesisModel) localStorage.setItem('preset_synthesis_model', l.synthesisModel);
+  else localStorage.removeItem('preset_synthesis_model');
+  if (l.reflectionModel) localStorage.setItem('preset_reflection_model', l.reflectionModel);
+  else localStorage.removeItem('preset_reflection_model');
 }
 
 /** Get the active research depth preset (or 'custom' if values were tweaked) */
@@ -387,6 +470,14 @@ export function getResearchLimits(): ResearchLimits {
     maxResearchersPerIteration: getInt('max_researchers_per_iteration', LIMITS_DEFAULTS.maxResearchersPerIteration),
     maxTimeMinutes: getInt('max_research_time_minutes', LIMITS_DEFAULTS.maxTimeMinutes),
     parallelCompressionCount: getInt('parallel_compression_count', LIMITS_DEFAULTS.parallelCompressionCount),
+    maxVisualBatches: getInt('max_visual_batches', LIMITS_DEFAULTS.maxVisualBatches),
+    maxVisualUrls: getInt('max_visual_urls', LIMITS_DEFAULTS.maxVisualUrls),
+    orchestratorModel: localStorage.getItem('preset_orchestrator_model') || undefined,
+    compressionModel: localStorage.getItem('preset_compression_model') || undefined,
+    synthesisModel: localStorage.getItem('preset_synthesis_model') || undefined,
+    reflectionModel: localStorage.getItem('preset_reflection_model') || undefined,
+    skipReflection: getBool('research_skip_reflection', LIMITS_DEFAULTS.skipReflection),
+    singlePassResearch: getBool('research_single_pass', LIMITS_DEFAULTS.singlePassResearch),
     crossValidation: getBool('research_cross_validation', LIMITS_DEFAULTS.crossValidation),
     multiLanguageSearch: getBool('research_multi_language', LIMITS_DEFAULTS.multiLanguageSearch),
     historicalAnalysis: getBool('research_historical_analysis', LIMITS_DEFAULTS.historicalAnalysis),

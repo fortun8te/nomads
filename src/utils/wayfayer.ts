@@ -667,8 +667,8 @@ function inferProductName(url: string, linkText?: string): string {
  * batchAnalyzeProducts — Parallel vision analysis of multiple product pages.
  *
  * 1. Batch screenshot all URLs (parallel via Wayfayer)
- * 2. Run minicpm-v vision on each screenshot (sequential — model can only handle one at a time)
- * 3. GLM parse each vision output into structured data
+ * 2. Run vision model on each screenshot (sequential — model can only handle one at a time)
+ * 3. Qwen 3.5 parse each vision output into structured data
  * 4. Return array of ProductPageAnalysis
  */
 export async function batchAnalyzeProducts(

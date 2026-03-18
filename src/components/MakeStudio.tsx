@@ -5822,7 +5822,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                                   <option value="qwen3.5:9b">Qwen 3.5 9B</option>
                                   <option value="local:qwen3.5:9b">Qwen 9B Local</option>
                                   <option value="qwen3.5:0.8b">Qwen 0.8B</option>
-                                  <option value="lfm2.5-thinking:latest">LFM 2.5</option>
+                                  <option value="qwen3.5:2b">Qwen 3.5 2B</option>
                                 </select>
                               </div>
                               {htmlEnabled && (
@@ -5836,7 +5836,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                                     <option value="qwen3.5:9b">Qwen 3.5 9B</option>
                                     <option value="local:qwen3.5:9b">Qwen 9B Local</option>
                                     <option value="qwen3.5:0.8b">Qwen 0.8B</option>
-                                    <option value="lfm2.5-thinking:latest">LFM 2.5</option>
+                                    <option value="qwen3.5:2b">Qwen 3.5 2B</option>
                                   </select>
                                 </div>
                               )}

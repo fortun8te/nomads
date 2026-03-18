@@ -808,7 +808,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
                           'Say hi back in one short sentence.',
                           'You are a helpful assistant.',
                           {
-                            model: 'lfm2.5-thinking:latest',
+                            model: 'qwen3.5:0.8b',
                             onChunk: (chunk) => {
                               acc += chunk;
                               setStreamTestOutput(acc);
@@ -829,7 +829,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
                         : isDarkMode ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700/50' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 border border-zinc-200'
                     }`}
                   >
-                    {streamTesting ? 'Streaming from lfm2.5...' : 'Test streaming (lfm2.5 say hi)'}
+                    {streamTesting ? 'Streaming from qwen3.5:0.8b...' : 'Test streaming (qwen3.5:0.8b say hi)'}
                   </button>
                   {streamTestOutput !== null && (
                     <pre className={`mt-2 p-3 rounded-xl text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-words max-h-40 overflow-y-auto border ${

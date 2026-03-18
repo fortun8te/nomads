@@ -1,7 +1,7 @@
 import { orchestrator, type OrchestratorState } from '../utils/researchAgents';
 import { useResearchAgent } from './useResearchAgent';
 import { runCouncil, extractFindingsFromVerdict, type CouncilVerdict } from '../utils/council';
-import { getResearchModelConfig, getResearchLimits } from '../utils/modelConfig';
+import { getResearchModelConfig, getResearchLimits, getActiveResearchPreset } from '../utils/modelConfig';
 import { createResearchAudit, buildResearchAuditTrail, recordResearchModel } from '../utils/researchAudit';
 import type { Campaign, ResearchFindings } from '../types';
 
@@ -36,15 +36,20 @@ export function useOrchestratedResearch() {
     signal?: AbortSignal
   ): Promise<OrchestratedResearchResult> => {
     const startTime = Date.now();
+    const limits = getResearchLimits();
+    const activePreset = getActiveResearchPreset();
+    const researchConfig = getResearchModelConfig();
 
     // Initialize audit trail to track all sources and tokens
     createResearchAudit();
-    recordResearchModel(getResearchModelConfig().orchestratorModel);
-    recordResearchModel(getResearchModelConfig().compressionModel);
-    recordResearchModel(getResearchModelConfig().desireLayerModel);
+    recordResearchModel(researchConfig.orchestratorModel);
+    recordResearchModel(researchConfig.compressionModel);
+    recordResearchModel(researchConfig.desireLayerModel);
 
     onProgress?.('\n════════════════════════════════════════════════════════════════════\n');
-    onProgress?.('ORCHESTRATED RESEARCH: Web Intelligence → Deep Analysis → Council\n');
+    onProgress?.(`ORCHESTRATED RESEARCH [${activePreset.toUpperCase()}]: Web → Analysis → Council\n`);
+    onProgress?.(`Models: orch=${researchConfig.orchestratorModel} comp=${researchConfig.compressionModel} synth=${researchConfig.researcherSynthesisModel}\n`);
+    onProgress?.(`Limits: ${limits.maxIterations} iters, ${limits.minSources} sources, ${limits.maxVisualBatches} visual batches\n`);
     onProgress?.('════════════════════════════════════════════════════════════════════\n\n');
 
     // Initialize findings
@@ -199,7 +204,6 @@ export function useOrchestratedResearch() {
       onProgress?.('[PHASE 2] Desire-Driven Deep Dive (4-Layer Analysis)\n\n');
 
       try {
-        const researchConfig = getResearchModelConfig();
         const desireResult = await executeDesireResearch(
           campaign,
           (msg) => onProgress?.(msg),
@@ -386,7 +390,7 @@ Ready for: Brand DNA → Persona DNA → Angles`;
     return {
       processedOutput: finalOutput,
       rawOutput: finalOutput,
-      model: `wayfayer + council + ${getResearchModelConfig().orchestratorModel}`,
+      model: `wayfarer + council + ${researchConfig.orchestratorModel}`,
       processingTime: Date.now() - startTime,
       researchFindings,
     };

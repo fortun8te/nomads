@@ -4,8 +4,8 @@
  * Extracts competitor brand names from research findings and analyzes their ads:
  * 1. Searches for competitor ads + Ad Library pages
  * 2. Screenshots Facebook Ad Library
- * 3. Analyzes ad creatives via minicpm-v
- * 4. Extracts hook patterns, emotional drivers, offers, longevity signals via GLM
+ * 3. Analyzes ad creatives via vision model
+ * 4. Extracts hook patterns, emotional drivers, offers, longevity signals via Qwen 3.5
  * 5. Synthesizes industry patterns + unused angles (creative opportunities)
  *
  * Sources:

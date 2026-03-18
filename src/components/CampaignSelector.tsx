@@ -371,24 +371,24 @@ export function CampaignSelector() {
   ];
 
   return (
-    <div className="rounded-2xl overflow-hidden bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.03)]">
+    <div className="rounded-xl overflow-hidden bg-[#141416] border border-white/[0.06]">
       {/* Tab Navigation */}
-      <div className="flex items-center border-b border-zinc-100 px-1">
+      <div className="flex items-center border-b border-white/[0.06] px-1 bg-white/[0.02]">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`relative flex-1 px-3 py-3 text-[12px] font-medium transition-colors ${
+            className={`relative flex-1 px-3 py-2.5 text-[11px] font-medium transition-colors ${
               activeTab === tab.key
-                ? 'text-[#414243]'
-                : 'text-zinc-400 hover:text-zinc-600'
+                ? 'text-white/[0.85]'
+                : 'text-white/[0.25] hover:text-white/[0.45]'
             }`}
           >
             {tab.label}
             {activeTab === tab.key && (
               <motion.div
                 layoutId="campaign-tab-underline"
-                className="absolute bottom-0 left-2 right-2 h-[2px] bg-[#414243] rounded-full"
+                className="absolute bottom-0 left-2 right-2 h-[1.5px] bg-white/[0.55] rounded-full"
                 transition={{ type: 'spring', stiffness: 500, damping: 35 }}
               />
             )}
@@ -397,7 +397,7 @@ export function CampaignSelector() {
         {campaign && (
           <button
             onClick={() => clearCampaign()}
-            className="px-3 py-3 text-[11px] font-medium text-zinc-300 hover:text-red-500 transition-colors"
+            className="px-3 py-2.5 text-[10px] font-medium text-white/[0.15] hover:text-red-400 transition-colors"
           >
             Clear
           </button>
@@ -418,10 +418,10 @@ export function CampaignSelector() {
         {activeTab === 'detailed' && (
           <div className="max-h-[calc(100vh-280px)] overflow-y-auto">
             {/* Image Upload */}
-            <div className="p-4 border-b border-zinc-50">
+            <div className="p-4 border-b border-white/[0.04]">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] font-medium text-zinc-400 tracking-wider uppercase">Product Images</span>
-                <label className="text-[11px] font-medium text-zinc-500 hover:text-zinc-700 cursor-pointer transition-colors px-2.5 py-1 rounded-lg hover:bg-zinc-50">
+                <span className="text-[10px] font-medium text-white/[0.25] tracking-wider uppercase">Product Images</span>
+                <label className="text-[11px] font-medium text-white/[0.35] hover:text-white/[0.55] cursor-pointer transition-colors px-2.5 py-1 rounded-lg hover:bg-white/[0.04]">
                   + Add Image
                   <input
                     type="file"
@@ -436,7 +436,7 @@ export function CampaignSelector() {
               {imageFiles.length > 0 && (
                 <div className="space-y-3">
                   {imageFiles.map((img) => (
-                    <div key={img.uid} className="rounded-xl border border-zinc-100 p-3">
+                    <div key={img.uid} className="rounded-lg border border-white/[0.06] p-3 bg-white/[0.02]">
                       <div className="flex items-start gap-3">
                         {img.dataUrl && (
                           <img
@@ -447,10 +447,10 @@ export function CampaignSelector() {
                         )}
                         <div className="flex-1 min-w-0 space-y-2">
                           <div className="flex items-center justify-between">
-                            <p className="text-[12px] font-medium text-[#414243] truncate">{img.name}</p>
+                            <p className="text-[12px] font-medium text-white/[0.70] truncate">{img.name}</p>
                             <button
                               onClick={() => handleImageDelete(img.uid)}
-                              className="text-[10px] text-zinc-300 hover:text-red-500 transition-colors shrink-0 ml-2"
+                              className="text-[10px] text-white/[0.15] hover:text-red-400 transition-colors shrink-0 ml-2"
                             >
                               Remove
                             </button>
@@ -458,7 +458,7 @@ export function CampaignSelector() {
                           <select
                             value={img.imageType || ''}
                             onChange={(e) => handleImageMetadataChange(img.uid, 'imageType', e.target.value)}
-                            className="w-full text-[12px] px-2.5 py-1.5 rounded-lg border border-zinc-100 bg-zinc-50/50 text-[#414243] outline-none focus:border-zinc-300 transition-colors"
+                            className="w-full text-[12px] px-2.5 py-1.5 rounded-md border border-white/[0.06] bg-white/[0.04] text-white/[0.55] outline-none focus:border-white/[0.12] transition-colors"
                           >
                             <option value="">Select type...</option>
                             {IMAGE_TYPE_OPTIONS.map(opt => (
@@ -470,7 +470,7 @@ export function CampaignSelector() {
                             value={img.description || ''}
                             onChange={(e) => handleImageMetadataChange(img.uid, 'description', e.target.value)}
                             rows={2}
-                            className="w-full text-[12px] px-2.5 py-1.5 rounded-lg border border-zinc-100 bg-zinc-50/50 text-[#414243] outline-none focus:border-zinc-300 transition-colors resize-none placeholder:text-zinc-300"
+                            className="w-full text-[12px] px-2.5 py-1.5 rounded-md border border-white/[0.06] bg-white/[0.04] text-white/[0.55] outline-none focus:border-white/[0.12] transition-colors resize-none placeholder:text-white/[0.15]"
                           />
                         </div>
                       </div>
@@ -481,16 +481,16 @@ export function CampaignSelector() {
             </div>
 
             {/* Form Sections — Accordion */}
-            <div className="divide-y divide-zinc-50">
+            <div className="divide-y divide-white/[0.04]">
               {FORM_SECTIONS.map((section) => {
                 const isOpen = expandedSections.has(section.key);
                 return (
                   <div key={section.key}>
                     <button
                       onClick={() => toggleSection(section.key)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-50/50 transition-colors"
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.03] transition-colors"
                     >
-                      <span className="text-[12px] font-medium text-[#414243]">{section.label}</span>
+                      <span className="text-[12px] font-medium text-white/[0.55]">{section.label}</span>
                       <svg
                         width="12"
                         height="12"
@@ -499,7 +499,7 @@ export function CampaignSelector() {
                         stroke="currentColor"
                         strokeWidth="2"
                         strokeLinecap="round"
-                        className={`text-zinc-300 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                        className={`text-white/[0.15] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
                       >
                         <path d="M6 9l6 6 6-6" />
                       </svg>
@@ -513,14 +513,14 @@ export function CampaignSelector() {
                       >
                         {section.fields.map((field) => (
                           <div key={field.name}>
-                            <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">{field.label}</label>
+                            <label className="block text-[11px] font-medium text-white/[0.25] mb-1.5">{field.label}</label>
                             {field.type === 'textarea' ? (
                               <textarea
                                 placeholder={field.placeholder}
                                 value={formValues[field.name] || ''}
                                 onChange={(e) => setFormValue(field.name, e.target.value)}
                                 rows={3}
-                                className="w-full text-sm font-medium px-3 py-2 rounded-lg border border-zinc-100 bg-zinc-50/50 text-[#414243] outline-none focus:border-zinc-300 transition-colors resize-none placeholder:text-zinc-300 leading-5"
+                                className="w-full text-[12px] font-medium px-3 py-2 rounded-md border border-white/[0.06] bg-white/[0.04] text-white/[0.70] outline-none focus:border-white/[0.12] transition-colors resize-none placeholder:text-white/[0.12] leading-5"
                               />
                             ) : (
                               <input
@@ -528,7 +528,7 @@ export function CampaignSelector() {
                                 placeholder={field.placeholder}
                                 value={formValues[field.name] || ''}
                                 onChange={(e) => setFormValue(field.name, e.target.value)}
-                                className="w-full text-sm font-medium px-3 py-2 rounded-lg border border-zinc-100 bg-zinc-50/50 text-[#414243] outline-none focus:border-zinc-300 transition-colors placeholder:text-zinc-300 leading-5"
+                                className="w-full text-[12px] font-medium px-3 py-2 rounded-md border border-white/[0.06] bg-white/[0.04] text-white/[0.70] outline-none focus:border-white/[0.12] transition-colors placeholder:text-white/[0.12] leading-5"
                               />
                             )}
                           </div>
@@ -541,10 +541,10 @@ export function CampaignSelector() {
             </div>
 
             {/* Submit Button */}
-            <div className="p-4 border-t border-zinc-100">
+            <div className="p-4 border-t border-white/[0.04]">
               <button
                 onClick={handleDetailedSubmit}
-                className="w-full py-2.5 rounded-xl bg-[#414243] text-white text-[13px] font-medium hover:bg-[#333435] transition-colors"
+                className="w-full py-2.5 rounded-lg bg-white/[0.08] text-white/[0.70] text-[12px] font-medium hover:bg-white/[0.12] transition-colors border border-white/[0.06]"
               >
                 Create Campaign
               </button>
@@ -604,28 +604,32 @@ function PresetTab({
   }, [isLoaded, campaign?.id]);
 
   return (
-    <div className="p-4">
+    <div className="p-3">
       <div
-        className={`rounded-xl p-4 cursor-pointer transition-all duration-150 ${
+        className={`rounded-lg p-3.5 cursor-pointer transition-all duration-150 ${
           isLoaded
-            ? 'bg-emerald-50/50 border border-emerald-200/60'
-            : 'hover:bg-zinc-50 border border-zinc-100'
+            ? 'bg-emerald-950/20 border border-emerald-800/30'
+            : 'hover:bg-white/[0.03] border border-white/[0.04]'
         }`}
         onClick={() => onSelect(preset)}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[#414243]">{preset.label}</h3>
+          <h3 className="text-[13px] font-semibold text-white/[0.85]">{preset.label}</h3>
           {isLoaded && (
-            <span className="text-[9px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+            <span className="text-[9px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400/80">
               Active{cycleCount > 0 ? ` · ${cycleCount} cycle${cycleCount > 1 ? 's' : ''}` : ''}
             </span>
           )}
         </div>
-        <p className="text-[12px] mt-2 leading-relaxed text-zinc-500">
+        <p className="text-[11px] mt-1.5 leading-relaxed text-white/[0.30]">
           {preset.brand.description}
         </p>
         <div className="pt-3 flex items-center gap-2">
-          <button className="px-4 py-1.5 rounded-lg bg-[#414243] text-white text-[11px] font-medium hover:bg-[#333435] transition-colors">
+          <button className={`px-4 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
+            isLoaded
+              ? 'bg-emerald-900/30 text-emerald-400/70 border border-emerald-800/30'
+              : 'bg-white/[0.08] text-white/[0.70] hover:bg-white/[0.12] border border-white/[0.06]'
+          }`}>
             {isLoaded ? 'Loaded' : 'Use This Preset'}
           </button>
 
@@ -638,9 +642,9 @@ function PresetTab({
                   setCycleCount(0);
                 }
               }}
-              className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors border border-red-100"
+              className="px-3 py-1.5 rounded-md text-[10px] font-medium text-red-400/70 hover:bg-red-950/30 transition-colors border border-red-900/30"
             >
-              Reset Research
+              Reset
             </button>
           )}
         </div>

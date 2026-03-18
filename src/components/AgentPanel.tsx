@@ -142,7 +142,7 @@ function toolIcon(name: string) {
   return <TerminalIcon />;
 }
 
-// ── Morphing thinking animation ────────────────────────────────────────────
+// ── Manus-style morphing thinking animation ────────────────────────────────
 
 function ThinkingMorph() {
   return (
@@ -150,23 +150,21 @@ function ThinkingMorph() {
       <div
         className="w-5 h-5 shrink-0"
         style={{
-          background: '#2B79FF',
+          background: 'linear-gradient(135deg, #4d9aff, #2B79FF, #1a5fd4)',
           boxShadow: '0 0 12px rgba(43,121,255,0.35), 0 0 24px rgba(43,121,255,0.15)',
-          animation: 'morphShape 3s ease-in-out infinite, morphSpin 6s linear infinite',
+          animation: 'manusMorph 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite',
         }}
       />
       <span className="text-[11px] font-medium" style={{ color: 'rgba(255,255,255,0.4)' }}>
         Thinking...
       </span>
       <style>{`
-        @keyframes morphShape {
-          0%, 100% { border-radius: 50%; }
-          33% { border-radius: 30%; }
-          66% { border-radius: 50%; }
-        }
-        @keyframes morphSpin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+        @keyframes manusMorph {
+          0%   { border-radius: 50%; transform: rotate(0deg) scale(1); }
+          25%  { border-radius: 22% 50% 50% 22%; transform: rotate(45deg) scale(1.05); }
+          50%  { border-radius: 50%; transform: rotate(90deg) scale(1); }
+          75%  { border-radius: 50% 22% 22% 50%; transform: rotate(135deg) scale(1.05); }
+          100% { border-radius: 50%; transform: rotate(180deg) scale(1); }
         }
       `}</style>
     </div>
@@ -333,10 +331,10 @@ function ThinkingBlock({ msg }: { msg: ThinkingMessage }) {
         <div
           className="w-3.5 h-3.5 shrink-0"
           style={{
-            background: '#2B79FF',
+            background: 'linear-gradient(135deg, #4d9aff, #2B79FF)',
             opacity: 0.5,
-            borderRadius: open ? '30%' : '50%',
-            transition: 'border-radius 0.3s ease',
+            borderRadius: open ? '22%' : '50%',
+            transition: 'border-radius 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           }}
         />
         <span className="text-[11px] font-medium" style={{ color: 'rgba(255,255,255,0.3)' }}>

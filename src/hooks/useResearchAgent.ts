@@ -25,7 +25,7 @@ export function useResearchAgent() {
 
   /**
    * Strip model-internal content that isn't part of the JSON output:
-   *  - <think>...</think> blocks (GLM-4.7, Qwen3, lfm2.5-thinking, etc.)
+   *  - <think>...</think> blocks (Qwen3.5 thinking mode, etc.)
    *  - ```json ... ``` code-fence wrappers
    */
   const stripModelNoise = (raw: string): string =>

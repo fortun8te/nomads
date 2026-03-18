@@ -6,7 +6,6 @@ import { ControlPanel } from './ControlPanel';
 import { CycleTimeline } from './CycleTimeline';
 import { StagePanel } from './StagePanel';
 import { QuestionModal } from './QuestionModal';
-import { WayfayerPlusPanel } from './WayfayerPlusPanel';
 import {
   getResearchModelConfig, getResearchLimits, getBrainTemperature, setBrainTemperature,
   getAllBrainTempDefaults, RESEARCH_PRESETS, applyResearchPreset, getActiveResearchPreset
@@ -154,11 +153,12 @@ function LeftPanel({
   const modelOptions = [
     { value: 'qwen3.5:9b', label: 'Qwen 3.5 9B' },
     { value: 'qwen3.5:35b', label: 'Qwen 3.5 35B' },
+    { value: 'qwen3.5:27b', label: 'Qwen 3.5 27B' },
     { value: 'local:qwen3.5:9b', label: 'Qwen 9B Local' },
     { value: 'local:qwen3.5:35b', label: 'Qwen 35B Local' },
-    { value: 'gpt-oss:20b', label: 'GPT-OSS 20B' },
-    { value: 'lfm2.5-thinking:latest', label: 'LFM 2.5' },
-    { value: 'qwen3.5:0.8b', label: 'Qwen 0.8B' },
+    { value: 'qwen3.5:4b', label: 'Qwen 3.5 4B' },
+    { value: 'qwen3.5:2b', label: 'Qwen 3.5 2B' },
+    { value: 'qwen3.5:0.8b', label: 'Qwen 3.5 0.8B' },
   ];
 
   const modelRoles: { id: keyof typeof models; storageKey: string; label: string }[] = [
@@ -462,14 +462,43 @@ function VisionModelSelector({ selectCls, labelCls }: { selectCls: string; label
 // ── Ready Screen — campaign loaded, no cycles yet ──
 
 function StartScreen({ isDarkMode }: { isDarkMode: boolean }) {
+  const { startCycle } = useCampaign();
+  const [starting, setStarting] = useState(false);
+
+  const handleStart = async () => {
+    setStarting(true);
+    try {
+      await startCycle();
+    } catch {
+      setStarting(false);
+    }
+  };
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto p-6 gap-6">
-      <div className="text-center space-y-1">
-        <p className={`text-[12px] font-mono ${isDarkMode ? 'text-white/[0.30]' : 'text-zinc-400'}`}>Ready</p>
-        <p className={`text-[11px] ${isDarkMode ? 'text-white/[0.15]' : 'text-zinc-300'}`}>Select a preset to begin</p>
-      </div>
-      <div className="w-full max-w-xl">
-        <WayfayerPlusPanel />
+    <div className="flex-1 flex flex-col items-center justify-center p-6">
+      <div className="text-center space-y-4">
+        <div className={`w-10 h-10 mx-auto rounded-xl ${isDarkMode ? 'bg-white/[0.04] border border-white/[0.06]' : 'bg-zinc-50 border border-zinc-100'} flex items-center justify-center`}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? 'rgba(255,255,255,0.25)' : '#a1a1aa'} strokeWidth="1.5" strokeLinecap="round">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+        </div>
+        <div className="space-y-1">
+          <p className={`text-[12px] font-medium ${isDarkMode ? 'text-white/[0.55]' : 'text-zinc-500'}`}>Ready to research</p>
+          <p className={`text-[10px] ${isDarkMode ? 'text-white/[0.15]' : 'text-zinc-300'}`}>Select a depth preset, then start</p>
+        </div>
+        <button
+          onClick={handleStart}
+          disabled={starting}
+          className={`px-6 py-2 rounded-lg text-[11px] font-medium transition-all ${
+            starting
+              ? isDarkMode ? 'bg-white/[0.04] text-white/[0.15] cursor-wait' : 'bg-zinc-100 text-zinc-300 cursor-wait'
+              : isDarkMode
+                ? 'bg-white/[0.08] text-white/[0.85] hover:bg-white/[0.12] border border-white/[0.06]'
+                : 'bg-zinc-800 text-white hover:bg-zinc-700'
+          }`}
+        >
+          {starting ? 'Starting...' : 'Start Research'}
+        </button>
       </div>
     </div>
   );

@@ -27,11 +27,7 @@ function formatModelName(model: string): string {
   const modelPart = isLocal ? parts.slice(1).join(':') : model;
   const [name, size] = modelPart.split(':');
   let displayName = name
-    .replace(/^qwen/, 'Qwen ')
-    .replace(/^gpt-oss/, 'GPT-OSS')
-    .replace(/^lfm/, 'LFM ')
-    .replace(/^glm-/, 'GLM-')
-    .replace(/^minicpm/, 'MiniCPM');
+    .replace(/^qwen/, 'Qwen ');
   const displaySize = size ? ` ${size.toUpperCase()}` : '';
   const prefix = isLocal ? 'Local ' : '';
   return `${prefix}${displayName}${displaySize}`.trim();
