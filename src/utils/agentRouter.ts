@@ -118,9 +118,13 @@ Respond with only the category name, nothing else.`;
  * 2. If ambiguous, fall back to fast LFM-2.5 classification
  *
  * @param instruction - Raw text from the user
+ * @param conversationHistory - Recent messages for context (improves routing accuracy)
  * @returns AgentRoute with type and cleaned payload
  */
-export async function routeInstruction(instruction: string): Promise<AgentRoute> {
+export async function routeInstruction(
+  instruction: string,
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+): Promise<AgentRoute> {
   const text = instruction.trim();
   if (!text) return { type: 'chat', payload: '' };
 
@@ -130,7 +134,12 @@ export async function routeInstruction(instruction: string): Promise<AgentRoute>
     return { type: keywordType, payload: text };
   }
 
-  // Step 2: LLM classification for ambiguous inputs
-  const llmType = await classifyByLLM(text);
+  // Step 2: LLM classification for ambiguous inputs (with conversation context if available)
+  const contextText = conversationHistory && conversationHistory.length > 0
+    ? `\nRecent context:\n${conversationHistory.slice(-3).map(m => `${m.role}: ${m.content.slice(0, 100)}`).join('\n')}`
+    : '';
+
+  const instructionWithContext = contextText ? `${instruction}${contextText}` : instruction;
+  const llmType = await classifyByLLM(instructionWithContext);
   return { type: llmType, payload: text };
 }

@@ -705,7 +705,15 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
     scrollToBottom();
 
     try {
-      const route = await routeInstruction(userMessage);
+      // Build conversation history for context-aware routing
+      const conversationHistory = runs
+        .slice(-5) // Last 5 exchanges for context
+        .flatMap(run => [
+          { role: 'user' as const, content: run.userMessage },
+          ...(run.steps.some(s => s.output) ? [{ role: 'assistant' as const, content: run.steps.find(s => s.output)?.output || '' }] : [])
+        ]);
+
+      const route = await routeInstruction(userMessage, conversationHistory);
 
       updateStep(runId, routeStepId, s => ({
         ...s,
@@ -833,12 +841,23 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
 
           updateStep(runId, actionStepId, s => ({ ...s, status: 'done' }));
 
+          const systemPrompt = `You are a helpful AI agent assistant in Nomad, a marketing creative intelligence system.
+You help users with:
+- Research and analysis (web searches, competitor intelligence, audience research)
+- Writing and content creation (copy, plans, documents)
+- Web browsing and navigation
+- Memory and knowledge management
+- Strategic planning and ideation
+
+Answer concisely and directly. Understand context from the conversation history.
+If unsure how to help, ask clarifying questions. For marketing/creative tasks, provide strategic insights.`;
+
           await ollamaService.generateStream(
             userMessage,
-            'You are a helpful AI agent assistant in a marketing creative system called Nomad. Answer concisely.',
+            systemPrompt,
             {
               model: getChatModel(),
-              temperature: 0.7,
+              temperature: 0.6,
               num_predict: 512,
               signal: abort.signal,
               onChunk: (chunk) => {
