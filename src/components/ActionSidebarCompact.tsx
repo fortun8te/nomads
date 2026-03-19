@@ -26,8 +26,6 @@ import { ollamaService } from '../utils/ollama';
 import { getChatModel } from '../utils/modelConfig';
 import { DocumentViewer } from './DocumentViewer';
 import { ResponseStream } from './ResponseStream';
-import { FileTree } from './FileTree';
-import { generateSessionFileTree } from '../utils/sessionFileTree';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -460,7 +458,9 @@ function RunBlock({
 // ─────────────────────────────────────────────────────────────
 
 function StepRow({ step }: { step: AgentStep }) {
-  const [showOutput, setShowOutput] = useState(false);
+  // Auto-show output for response/streaming steps so the user actually sees the answer
+  const isResponseStep = /stream|generat|response/i.test(step.label);
+  const [showOutput, setShowOutput] = useState(isResponseStep);
   const hasOutput = !!step.output && step.output.trim().length > 0;
 
   return (
@@ -621,7 +621,6 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
   const [input, setInput] = useState('');
   const [viewingDoc, setViewingDoc] = useState<AgentDocument | null>(null);
   const [isTaskExpanded, setIsTaskExpanded] = useState(true);
-  const [isFileTreeExpanded, setIsFileTreeExpanded] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -844,22 +843,18 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
 
           updateStep(runId, actionStepId, s => ({ ...s, status: 'done' }));
 
-          const systemPrompt = `You are a helpful AI agent assistant in Nomad, a marketing creative intelligence system.
-You help users with:
-- Research and analysis (web searches, competitor intelligence, audience research)
-- Writing and content creation (copy, plans, documents)
-- Web browsing and navigation
-- Memory and knowledge management
-- Strategic planning and ideation
+          const systemPrompt = `You are Nomad, a creative intelligence agent. You are NOT Qwen, NOT ChatGPT, NOT Claude — you are Nomad.
+Never reveal your underlying model name. If asked who you are, say "I'm Nomad."
+Never start with "Sure!" or "Of course!" — be direct and natural.
 
-Answer concisely and directly. Understand context from the conversation history.
-If unsure how to help, ask clarifying questions. For marketing/creative tasks, provide strategic insights.`;
+You help with: research, ad creatives, branding, web browsing, code, planning, memory management.
+Answer concisely and directly. Match the user's energy.`;
 
           await ollamaService.generateStream(
             userMessage,
             systemPrompt,
             {
-              model: getChatModel(),
+              model: 'qwen3.5:4b',
               temperature: 0.6,
               num_predict: 512,
               signal: abort.signal,
@@ -1149,56 +1144,6 @@ If unsure how to help, ask clarifying questions. For marketing/creative tasks, p
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
-
-        {/* ── File tree ── */}
-        <div
-          style={{
-            borderTop: '1px solid rgba(255,255,255,0.06)',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
-          }}
-        >
-          <button
-            onClick={() => setIsFileTreeExpanded(e => !e)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '10px 14px',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: 11,
-              color: 'rgba(255,255,255,0.40)',
-              fontWeight: 600,
-              letterSpacing: '0.05em',
-              textTransform: 'uppercase',
-            }}
-          >
-            <span>Session Files</span>
-            <span style={{ fontSize: 10 }}>{isFileTreeExpanded ? '▼' : '▶'}</span>
-          </button>
-
-          {isFileTreeExpanded && (
-            <div
-              style={{
-                maxHeight: 200,
-                overflowY: 'auto',
-                padding: '8px 12px',
-                borderTop: '1px solid rgba(255,255,255,0.03)',
-                background: 'rgba(255,255,255,0.01)',
-              }}
-            >
-              <FileTree
-                data={generateSessionFileTree(machineId)}
-                onSelect={(node) => {
-                  // Agent can reference files in its reasoning
-                  console.log('[Agent] File selected:', node.name);
-                }}
-              />
-            </div>
-          )}
         </div>
 
         {/* ── Input bar ── */}

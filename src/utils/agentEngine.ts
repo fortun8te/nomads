@@ -937,14 +937,17 @@ function routeToModel(userMessage: string): { model: string; tier: ModelTier } {
   const msg = userMessage.toLowerCase().trim();
   const len = msg.length;
 
-  // Tiny: greetings, one-word, yes/no, acknowledgments
+  // NOTE: 0.8b is NEVER used for user-facing responses — only for compression/classification
+  // Minimum for any user response is 2b
+
+  // Small: greetings, one-word, yes/no, acknowledgments, simple questions
   if (len < 20 && /^(hi|hey|yo|sup|hello|thanks|ok|yes|no|sure|cool|nice|got it|what|why|how|when|where)\b/i.test(msg)) {
-    return { model: 'qwen3.5:0.8b', tier: 'tiny' };
+    return { model: 'qwen3.5:2b', tier: 'small' };
   }
 
-  // Small: simple questions, quick lookups, short tasks
+  // Medium: most general questions and short tasks (DEFAULT)
   if (len < 80 && !/\b(research|analyze|deep|thorough|comprehensive|compare|build|create|develop|implement|write.*code|deploy)\b/i.test(msg)) {
-    return { model: 'qwen3.5:2b', tier: 'small' };
+    return { model: 'qwen3.5:4b', tier: 'medium' };
   }
 
   // XLarge: explicitly complex, multi-step, creative, long prompts
@@ -1003,12 +1006,16 @@ export async function runAgentLoop(
   // Fast-path: simple greetings/acknowledgments skip the full loop — NO step cards
   if (isSimpleQuestion(userMessage)) {
     let response = '';
+    const NOMAD_FAST_PROMPT = `You are Nomad, a creative intelligence agent. You are NOT Qwen, NOT ChatGPT, NOT Claude — you are Nomad.
+Never reveal your underlying model. If asked who you are, say "I'm Nomad."
+Respond briefly, naturally, and directly. No corporate language. No filler like "Sure!" or "Of course!".
+If the user has shared their name before, use it naturally.`;
     await ollamaService.generateStream(
       userMessage,
-      'Respond briefly and naturally.',
+      NOMAD_FAST_PROMPT,
       {
-        model: 'qwen3.5:0.8b', think: getThinkMode('fast'), // Fast path — auto off
-        temperature: 0.8,
+        model: 'qwen3.5:2b', think: getThinkMode('fast'),
+        temperature: 0.7,
         num_predict: 150,
         signal,
         onChunk: (c: string) => {
@@ -1033,17 +1040,17 @@ export async function runAgentLoop(
   const model = modelOverride || routed.model;
   const temperature = tempOverride ?? (routed.tier === 'tiny' ? 0.8 : routed.tier === 'small' ? 0.7 : 0.6);
 
-  // If routing to a bigger model, have 0.8b generate a quick "hang on" while it loads
-  if (routed.tier !== 'tiny' && !modelOverride) {
+  // If routing to a bigger model, generate a quick acknowledgment while it loads
+  if (routed.tier !== 'small' && !modelOverride) {
     let ack = '';
     try {
       await ollamaService.generateStream(
         `Acknowledge this request in under 12 words: "${userMessage.slice(0, 80)}"`,
-        'Output one short sentence. No explanation.',
+        'You are Nomad. Output one short sentence. No explanation. Never say you are Qwen or any model name.',
         {
-          model: 'qwen3.5:0.8b',
+          model: 'qwen3.5:2b',
           think: getThinkMode('fast'),
-          temperature: 0.8,
+          temperature: 0.7,
           num_predict: 30,
           signal,
           onChunk: (c: string) => { ack += c; },
