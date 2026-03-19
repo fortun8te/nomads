@@ -7,8 +7,36 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, ChevronDown, Folder, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+// ─────────────────────────────────────────────────────────────
+// SVG Icons (inline, no external dependencies)
+// ─────────────────────────────────────────────────────────────
+
+const ChevronRight = (props: { size: number; className?: string }) => (
+  <svg width={props.size} height={props.size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+    <polyline points="9 18 15 12 9 6"></polyline>
+  </svg>
+);
+
+const ChevronDown = (props: { size: number; className?: string }) => (
+  <svg width={props.size} height={props.size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+    <polyline points="6 9 12 15 18 9"></polyline>
+  </svg>
+);
+
+const FolderIcon = (props: { size: number; className?: string }) => (
+  <svg width={props.size} height={props.size} viewBox="0 0 24 24" fill="currentColor" className={props.className}>
+    <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z" opacity="0.5"/>
+  </svg>
+);
+
+const FileIcon = (props: { size: number; className?: string }) => (
+  <svg width={props.size} height={props.size} viewBox="0 0 24 24" fill="currentColor" className={props.className}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" opacity="0.5"/>
+    <polyline points="14 2 14 8 20 8" strokeWidth="2" stroke="currentColor" fill="none"/>
+  </svg>
+);
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -87,12 +115,12 @@ export function FileTree({
                   <ChevronRight size={14} />
                 )}
               </div>
-              <Folder size={14} className="flex-shrink-0" />
+              <FolderIcon size={14} className="flex-shrink-0" />
             </>
           ) : (
             <>
               <div className="flex-shrink-0 w-4" />
-              {node.icon || <FileText size={14} className="flex-shrink-0" />}
+              {node.icon || <FileIcon size={14} className="flex-shrink-0" />}
             </>
           )}
           <span className="truncate text-xs font-medium">{node.name}</span>
