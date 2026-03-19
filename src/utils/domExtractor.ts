@@ -141,17 +141,15 @@ const EXTRACT_JS = `
 
 // ── Core extraction function ──
 
-export async function extractAccessibilityTree(sessionId?: string): Promise<AccessibilityTree> {
+export async function extractAccessibilityTree(_sessionId?: string): Promise<AccessibilityTree> {
   // Get basic page info from view()
   let url = '';
   let title = '';
-  let pageText = '';
 
   try {
     const view = await sandboxService.view();
     url = view.url;
     title = view.title;
-    pageText = view.pageText || '';
   } catch {
     // view() failed — try to get at least URL/title from consoleExec
     try {

@@ -35,8 +35,6 @@ export interface VerifyOptions {
 
 // ── Defaults ──
 
-const DEFAULT_WIDTH = 480;
-const DEFAULT_HEIGHT = 320;
 const DEFAULT_QUALITY = 40;
 const MAX_VERIFY_TOKENS = 200;
 

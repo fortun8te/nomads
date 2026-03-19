@@ -94,4 +94,10 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['@novnc/novnc'],
   },
+  build: {
+    target: 'esnext',
+    rollupOptions: {
+      external: (id) => id.includes('@novnc/novnc'),
+    },
+  },
 })

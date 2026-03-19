@@ -42,6 +42,12 @@ export interface TokenInfo {
   liveThinkSnippet: string;
   /** Last ~600 chars of response tokens for this call — raw output preview */
   liveResponseSnippet: string;
+  /** Full accumulated thinking text for this call (all thinking tokens concatenated) */
+  fullThinkingText: string;
+  /** Total thinking tokens for this call */
+  thinkingTokenCount: number;
+  /** Whether user has manually opened the thinking modal */
+  thinkingModalOpen: boolean;
 }
 
 // ─── Internal mutable state ───
@@ -58,6 +64,9 @@ const state: TokenInfo = {
   callCount: 0,
   liveThinkSnippet: '',
   liveResponseSnippet: '',
+  fullThinkingText: '',
+  thinkingTokenCount: 0,
+  thinkingModalOpen: false,
 };
 
 const THINK_MAX = 800;
@@ -153,6 +162,9 @@ export const tokenTracker = {
     state.callStartTime = Date.now();
     state.activeModel = modelName || '';
     state.callCount++;
+    // New call: clear thinking text and count
+    state.fullThinkingText = '';
+    state.thinkingTokenCount = 0;
     // Keep previous snippets visible until new tokens arrive
     // (prevents blank panel between rapid research sub-calls)
     firstResponseTokenTime = null;
@@ -179,7 +191,11 @@ export const tokenTracker = {
     }
     state.isThinking = true;
     state.liveTokens++;
+    state.thinkingTokenCount++;
     if (text) {
+      // Accumulate full thinking text
+      state.fullThinkingText += text;
+      // Keep rolling window for display
       state.liveThinkSnippet = (state.liveThinkSnippet + text).slice(-THINK_MAX);
     }
     notify();
@@ -240,7 +256,26 @@ export const tokenTracker = {
     state.callStartTime = null;
     state.activeModel = '';
     state.callCount = 0;
+    state.fullThinkingText = '';
+    state.thinkingTokenCount = 0;
+    state.thinkingModalOpen = false;
     firstResponseTokenTime = null;
     notifyNow();
+  },
+
+  /** Set thinking modal open state */
+  setThinkingModalOpen(open: boolean) {
+    state.thinkingModalOpen = open;
+    notifyNow();
+  },
+
+  /** Get the full thinking text accumulated for the current call */
+  getFullThinkingText(): string {
+    return state.fullThinkingText;
+  },
+
+  /** Get thinking token count for current call */
+  getThinkingTokenCount(): number {
+    return state.thinkingTokenCount;
   },
 };

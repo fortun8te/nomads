@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { layoutTemplates, selectTemplate } from '../utils/layoutTemplates';
+import type { AspectRatioType } from '../utils/layoutTemplates';
 import { useTheme } from '../context/ThemeContext';
 
 interface MakeTestPanelProps {
@@ -220,7 +221,7 @@ export function MakeTestPanel({ isDarkMode: propDarkMode }: MakeTestPanelProps) 
       let html = '';
 
       if (templateKey === 'heroCTA') {
-        html = templateFn({
+        html = layoutTemplates.heroCTA({
           heroImageUrl: '[HERO_IMAGE_URL]',
           headline,
           bodyText,
@@ -233,7 +234,7 @@ export function MakeTestPanel({ isDarkMode: propDarkMode }: MakeTestPanelProps) 
         });
       } else if (templateKey === 'features3Column') {
         const features = bodyText.split('\n').slice(0, 3);
-        html = templateFn({
+        html = layoutTemplates.features3Column({
           headline,
           feature1: features[0] || 'Feature 1',
           feature2: features[1] || 'Feature 2',
@@ -246,7 +247,7 @@ export function MakeTestPanel({ isDarkMode: propDarkMode }: MakeTestPanelProps) 
           aspectRatio,
         });
       } else if (templateKey === 'beforeAfter') {
-        html = templateFn({
+        html = layoutTemplates.beforeAfter({
           headline,
           beforeImageUrl: '[BEFORE_IMAGE_URL]',
           afterImageUrl: '[AFTER_IMAGE_URL]',
@@ -260,7 +261,7 @@ export function MakeTestPanel({ isDarkMode: propDarkMode }: MakeTestPanelProps) 
           aspectRatio,
         });
       } else if (templateKey === 'testimonial') {
-        html = templateFn({
+        html = layoutTemplates.testimonial({
           quote: bodyText,
           authorName: 'Customer Name',
           authorRole: 'Role / Location',

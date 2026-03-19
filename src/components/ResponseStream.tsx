@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils"
+import { cn } from "../lib/utils"
 import React, { useCallback, useEffect, useRef, useState } from "react"
 
 export type Mode = "typewriter" | "fade"
@@ -154,9 +154,14 @@ function useTextStream({
 
   const startStreaming = useCallback(() => {
     reset()
-    if (typeof textStream === "string") processStringTypewriter(textStream)
-    else if (textStream) processAsyncIterable(textStream)
-  }, [textStream, reset, processStringTypewriter, processAsyncIterable])
+    if (streamRef.current) { streamRef.current.abort(); streamRef.current = null }
+    if (typeof textStream === "string") {
+      if (textStream.length > 0) processStringTypewriter(textStream)
+      else markComplete()
+    } else if (textStream) {
+      processAsyncIterable(textStream)
+    }
+  }, [textStream, reset, processStringTypewriter, processAsyncIterable, markComplete])
 
   const pause = useCallback(() => {
     if (animationRef.current) { cancelAnimationFrame(animationRef.current); animationRef.current = null }
@@ -169,10 +174,11 @@ function useTextStream({
   useEffect(() => {
     startStreaming()
     return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current)
-      if (streamRef.current) streamRef.current.abort()
+      if (animationRef.current) { cancelAnimationFrame(animationRef.current); animationRef.current = null }
+      if (streamRef.current) { streamRef.current.abort(); streamRef.current = null }
     }
-  }, [textStream, startStreaming])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textStream])
 
   return { displayedText, isComplete, segments, getFadeDuration, getSegmentDelay, reset, startStreaming, pause, resume }
 }

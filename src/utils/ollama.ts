@@ -9,12 +9,13 @@
 
 import { tokenTracker } from './tokenStats';
 import { getOllamaEndpoint } from './modelConfig';
+import { INFRASTRUCTURE } from '../config/infrastructure';
 
 // ─────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────
 
-const DIRECT_OLLAMA = 'http://100.74.135.83:11440';
+const DIRECT_OLLAMA = INFRASTRUCTURE.ollamaUrl;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 

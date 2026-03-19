@@ -3,7 +3,13 @@ import { wayfayerService, screenshotService } from './wayfayer';
 import { getResearchModelConfig, getResearchLimits, getThinkMode } from './modelConfig';
 import { getMethodologySummary, METHODOLOGY_STEPS } from './researchMethodology';
 import { recordResearchSource } from './researchAudit';
+import { loadPromptBody } from './promptLoader';
 import type { Campaign } from '../types';
+
+// Orchestrator system message — loaded from /prompts/research/orchestrator.md if available
+// Falls back to the inline string if the prompt file is not found (e.g. during tests).
+const ORCHESTRATOR_SYSTEM_MSG = loadPromptBody('research/orchestrator.md')
+  || 'Output RESEARCH: [query] lines or COMPLETE: true. No filler.';
 
 // ─────────────────────────────────────────────────────────────
 // Tool integration — direct tool functions for orchestrator use
@@ -539,7 +545,7 @@ export const orchestrator = {
         let lastThinkEmit = 0;
         const decision = await ollamaService.generateStream(
           evaluationPrompt,
-          'Output RESEARCH: [query] lines or COMPLETE: true. No filler.',
+          ORCHESTRATOR_SYSTEM_MSG,
           {
             model: getResearchModelConfig().orchestratorModel,
             temperature: 0.5,
@@ -644,50 +650,100 @@ export const orchestrator = {
           onProgressUpdate?.(`  [Orchestrator] → "${t.query}"${gapNote}\n`);
         });
 
-        // Run researchers SEQUENTIALLY — each one does compress + synthesize (LLM calls)
-        // On local GPU, parallel LLM calls cause thrashing and garbled output
-        for (const topic of researchTopics) {
-          if (signal?.aborted) break;
-          onProgressUpdate?.(`\n  [Researcher] Starting: "${topic.query}"\n`);
+        if (limits.useSubagents) {
+          // ── Subagent path (NR / EX / MX) ──────────────────────────────────────
+          // Each topic gets a dedicated SubagentManager worker with its own AbortController
+          // that mirrors the parent signal. Workers run in parallel (Wayfarer fetches)
+          // then sequential LLM synthesis (avoids GPU thrashing on remote Ollama).
+          const { createSubagentManager } = await import('./subagentManager');
+          const subMgr = createSubagentManager();
 
-          let synthesisBuffer = '';
-          let isSynthesizing = false;
-          let lastSynthEmit = 0;
+          onProgressUpdate?.(`  [Subagents] Spawning ${researchTopics.length} researcher subagents...\n`);
 
-          const result = await researcherAgent.research(
-            { topic: topic.query, context: topic.context, depth: topic.depth },
-            (chunk) => {
-              // Structured messages — emit directly
-              if (chunk.includes('Searching:') || chunk.includes('Fetched') || chunk.includes('Compress') || chunk.includes('No web results') || chunk.includes('Web search failed') || chunk.includes('LLM knowledge')) {
-                if (isSynthesizing && synthesisBuffer.length > 0) {
-                  onProgressUpdate?.(`  [Researcher] ${synthesisBuffer.replace(/\n/g, ' ').trim()}\n`);
-                  synthesisBuffer = '';
-                  isSynthesizing = false;
-                }
-                onProgressUpdate?.(`  [Researcher] ${chunk}`);
-              } else {
-                // Synthesis tokens — stream live with throttling
-                isSynthesizing = true;
-                synthesisBuffer += chunk;
-                const now = Date.now();
-                if (now - lastSynthEmit >= 300 && synthesisBuffer.trim().length > 10) {
-                  onProgressUpdate?.(`  [Researcher] ${synthesisBuffer.replace(/\n/g, ' ').trim()}\n`);
-                  synthesisBuffer = '';
-                  lastSynthEmit = now;
-                }
+          const subagentPromises = researchTopics.map((topic, idx) => {
+            if (signal?.aborted) return Promise.resolve(null);
+            const subId = `researcher-${iteration}-${idx}`;
+            const campaignCtx = `Brand: ${state.campaign.brand || 'Unknown'} | Product: ${state.campaign.productDescription || ''} | Audience: ${state.campaign.targetAudience || ''}`;
+            onProgressUpdate?.(`  [Subagent ${idx + 1}/${researchTopics.length}] → "${topic.query}"\n`);
+            return subMgr.spawn({
+              id: subId,
+              role: 'researcher',
+              task: topic.query,
+              context: `${campaignCtx}\nResearch goal: ${topic.context}`,
+              input: knowledge.summary || undefined,
+              signal,
+            }).then((subResult) => {
+              if (subResult.status === 'cancelled' || subResult.status === 'failed') {
+                onProgressUpdate?.(`  [Subagent] ${subId} ${subResult.status}: ${subResult.error || ''}\n`);
+                return null;
               }
-            },
-            signal,
-            knowledge.summary, // Context-aware: compressor skips what we already know
-          );
+              // Wrap subagent output as ResearchResult
+              const coverage_graph = buildCoverageGraph(subResult.output);
+              const sources = extractSources(subResult.output);
+              onProgressUpdate?.(`  [Subagent] Done "${topic.query}" — ${sources.length} sources (${subResult.durationMs}ms)\n`);
+              return {
+                query: topic.query,
+                findings: groundSources(subResult.output),
+                sources,
+                coverage_graph,
+              } as ResearchResult;
+            }).catch((err) => {
+              onProgressUpdate?.(`  [Subagent] Error "${topic.query}": ${err instanceof Error ? err.message : err}\n`);
+              return null;
+            });
+          });
 
-          // Flush remaining synthesis buffer
-          if (synthesisBuffer.trim().length > 0) {
-            onProgressUpdate?.(`  [Researcher] ${synthesisBuffer.replace(/\n/g, ' ').trim()}\n`);
+          const subResults = await Promise.all(subagentPromises);
+          for (const r of subResults) {
+            if (r) allResults.push(r);
           }
+        } else {
+          // ── Sequential path (SQ / QK) ───────────────────────────────────────
+          // Run researchers SEQUENTIALLY — each one does compress + synthesize (LLM calls)
+          // On local GPU, parallel LLM calls cause thrashing and garbled output
+          for (const topic of researchTopics) {
+            if (signal?.aborted) break;
+            onProgressUpdate?.(`\n  [Researcher] Starting: "${topic.query}"\n`);
 
-          allResults.push(result);
-          onProgressUpdate?.(`  [Researcher] Done: "${topic.query}" — ${result.sources.length} sources\n`);
+            let synthesisBuffer = '';
+            let isSynthesizing = false;
+            let lastSynthEmit = 0;
+
+            const result = await researcherAgent.research(
+              { topic: topic.query, context: topic.context, depth: topic.depth },
+              (chunk) => {
+                // Structured messages — emit directly
+                if (chunk.includes('Searching:') || chunk.includes('Fetched') || chunk.includes('Compress') || chunk.includes('No web results') || chunk.includes('Web search failed') || chunk.includes('LLM knowledge')) {
+                  if (isSynthesizing && synthesisBuffer.length > 0) {
+                    onProgressUpdate?.(`  [Researcher] ${synthesisBuffer.replace(/\n/g, ' ').trim()}\n`);
+                    synthesisBuffer = '';
+                    isSynthesizing = false;
+                  }
+                  onProgressUpdate?.(`  [Researcher] ${chunk}`);
+                } else {
+                  // Synthesis tokens — stream live with throttling
+                  isSynthesizing = true;
+                  synthesisBuffer += chunk;
+                  const now = Date.now();
+                  if (now - lastSynthEmit >= 300 && synthesisBuffer.trim().length > 10) {
+                    onProgressUpdate?.(`  [Researcher] ${synthesisBuffer.replace(/\n/g, ' ').trim()}\n`);
+                    synthesisBuffer = '';
+                    lastSynthEmit = now;
+                  }
+                }
+              },
+              signal,
+              knowledge.summary, // Context-aware: compressor skips what we already know
+            );
+
+            // Flush remaining synthesis buffer
+            if (synthesisBuffer.trim().length > 0) {
+              onProgressUpdate?.(`  [Researcher] ${synthesisBuffer.replace(/\n/g, ' ').trim()}\n`);
+            }
+
+            allResults.push(result);
+            onProgressUpdate?.(`  [Researcher] Done: "${topic.query}" — ${result.sources.length} sources\n`);
+          }
         }
 
         // Track total unique sources across all research

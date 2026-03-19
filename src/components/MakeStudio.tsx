@@ -27,6 +27,7 @@ import { useSoundEngine } from '../hooks/useSoundEngine';
 import { ollamaService } from '../utils/ollama';
 import { generateImage, checkServerStatus, preloadFreepik, restartFreepikBrowser, forceKillFreepik } from '../utils/freepikService';
 import { storage } from '../utils/storage';
+import type { StoredImage, VisionRound } from '../utils/storage';
 import { knowledge } from '../utils/knowledge';
 import { NomadIcon } from './NomadIcon';
 import { OrbitalLoader } from './OrbitalLoader';
@@ -37,6 +38,7 @@ import { SIMPLETICS_PRESET } from '../utils/presetCampaigns';
 import { pdfToImages } from '../utils/pdfUtils';
 import { AdLibraryBrowser } from './AdLibraryBrowser';
 import { getRelevantReferences, getCache } from '../utils/adLibraryCache';
+import type { AdDescription } from '../utils/adLibraryCache';
 import { loadAdImageBase64 } from '../utils/adLibraryLoader';
 import { ProductAngleCreator } from './ProductAngleCreator';
 import { DesireBoard } from './DesireBoard';
@@ -549,13 +551,13 @@ export function MakeStudio() {
   const [presetEnabled, setPresetEnabled] = useState(true);   // Inject campaign/brand data
   const [htmlEnabled, setHtmlEnabled] = useState(false);      // HTML ads off by default
   const [researchEnabled, setResearchEnabled] = useState(false);
-  const [llmModel, setLlmModel] = useState(() => {
+  const [llmModel, _setLlmModel] = useState(() => {
     const v = localStorage.getItem('make_llm_model');
     // Migrate: local 35b is too slow — force remote
     if (v?.startsWith('local:') && v.includes('35b')) { localStorage.removeItem('make_llm_model'); return 'qwen3.5:27b'; }
     return v || 'qwen3.5:27b';
   });
-  const [htmlLlmModel, setHtmlLlmModel] = useState(() => {
+  const [htmlLlmModel, _setHtmlLlmModel] = useState(() => {
     const v = localStorage.getItem('make_html_llm_model');
     if (v?.startsWith('local:') && v.includes('35b')) { localStorage.removeItem('make_html_llm_model'); return 'qwen3.5:27b'; }
     return v || 'qwen3.5:27b';
@@ -4184,8 +4186,8 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                   )}
                   {/* ── Stats: elapsed · tokens · t/s — always visible, one line ── */}
                   <span className={`text-[10px] font-mono tabular-nums flex-shrink-0 ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                    {generationElapsed}s
-                    {tokenInfo.liveTokens > 0 && ` · ${tokenInfo.liveTokens} tok`}
+                    {generationElapsed < 60 ? `${generationElapsed}s` : generationElapsed < 3600 ? `${Math.floor(generationElapsed / 60)}m ${generationElapsed % 60}s` : `${Math.floor(generationElapsed / 3600)}h ${Math.floor((generationElapsed % 3600) / 60)}m`}
+                    {tokenInfo.liveTokens > 0 && ` · ${tokenInfo.liveTokens < 1000 ? tokenInfo.liveTokens : `${(tokenInfo.liveTokens / 1000).toFixed(1).replace(/\.0$/, '')}k`} tok`}
                     {tokenInfo.tokensPerSec > 0 && ` · ${tokenInfo.tokensPerSec} t/s`}
                     {generationPhase === 'streaming' && llmOutput && ` · ${(llmOutput.length / 1000).toFixed(1)}k`}
                   </span>
@@ -4934,7 +4936,7 @@ Output ONLY the complete HTML document. Start with <!DOCTYPE html>.`;
                         const durationSec = img.generationDurationMs ? (img.generationDurationMs / 1000).toFixed(1) : null;
                         const pipelineShort = img.pipeline === 'reference-copy' ? 'Clone' : img.pipeline?.includes('html') ? 'HTML' : img.pipeline === 'direct' ? 'Direct' : img.pipeline?.includes('llm') ? 'LLM' : null;
                         const hasVisionQA = img.visionRounds && img.visionRounds.length > 1;
-                        const visionPassed = img.visionRounds?.some(r => r.status === 'passed');
+                        const visionPassed = img.visionRounds?.some((r: VisionRound) => r.status === 'passed');
                         return (
                         <div
                           key={img.id}

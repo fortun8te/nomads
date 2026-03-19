@@ -230,17 +230,19 @@ export interface ResearchSource {
 }
 
 export interface ResearchAuditTrail {
-  totalSources: number;                    // unique URLs visited
-  sourcesByType: Record<string, number>;   // { 'text': 150, 'visual': 5, 'reddit': 20 }
-  sourceList: ResearchSource[];            // full list with metadata
-  modelsUsed: string[];                    // which models processed this data
-  totalTokensGenerated: number;            // sum of all tokens across all phases
-  tokensByModel: Record<string, number>;   // { 'qwen3.5:2b': 50000, 'qwen3.5:9b': 120000 }
-  phaseTimes: Record<string, number>;      // { 'web-research': 180, 'desire-analysis': 45, ... }
-  researchDuration: number;                // total milliseconds
-  preset: string;                          // which research preset was used
+  totalSources: number;                      // unique URLs visited
+  sourcesByType: Record<string, number>;     // { 'text': 150, 'visual': 5, 'reddit': 20 }
+  sourceList: ResearchSource[];              // full list with metadata
+  modelsUsed: string[];                      // which models processed this data
+  totalTokensGenerated: number;              // sum of all tokens across all phases
+  tokensByModel: Record<string, number>;     // { 'qwen3.5:2b': 50000, 'qwen3.5:9b': 120000 }
+  totalThinkingTokens?: number;              // Qwen 3.5 thinking tokens across all calls
+  thinkingTokensByModel?: Record<string, number>; // thinking tokens per model
+  phaseTimes: Record<string, number>;        // { 'web-research': 180, 'desire-analysis': 45, ... }
+  researchDuration: number;                  // total milliseconds
+  preset: string;                            // which research preset was used
   iterationsCompleted: number;
-  coverageAchieved: number;                // 0-1 scale
+  coverageAchieved: number;                  // 0-1 scale
 }
 
 export interface ResearchFindings {
@@ -522,6 +524,8 @@ export interface StageData {
   rawOutput?: string;
   model?: string;
   tokensUsed?: number;
+  thinkingTokenCount?: number;           // Qwen 3.5 thinking tokens (for this stage)
+  thinkingText?: string;                 // Full accumulated thinking for this stage
   processingTime?: number;
   artifacts: any[];
   startedAt: number | null;
@@ -652,4 +656,111 @@ export interface CampaignContextType {
   clearCampaign: () => void;
   resetResearch: () => Promise<void>;
   loadCampaignById: (id: string) => Promise<void>;
+}
+
+// ══════════════════════════════════════════════════════
+// ██  Subagent Types — Specialized research agents
+// ══════════════════════════════════════════════════════
+
+/** Legacy task shape — kept for compatibility */
+export interface SubagentTask {
+  id: string;
+  role: 'researcher' | 'analyzer' | 'synthesizer' | 'validator' | 'strategist' | 'compressor' | 'evaluator';
+  description: string;
+  input?: string;
+  context?: string;
+}
+
+/** Legacy result shape — kept for compatibility */
+export interface SubagentTaskResult {
+  taskId: string;
+  role: string;
+  status: 'success' | 'error' | 'aborted' | 'timeout';
+  output: string;
+  tokensUsed: number;
+  durationMs: number;
+  error?: string;
+}
+
+// ── Production-quality subagent types ──────────────────
+
+/**
+ * Full lifecycle status of a subagent instance.
+ * Transitions: idle → spawning → running → completed | failed | cancelled
+ */
+export type SubagentStatus =
+  | 'idle'       // created but not yet dispatched
+  | 'spawning'   // being set up, prompt assembled
+  | 'running'    // LLM generation in progress
+  | 'completed'  // finished successfully
+  | 'failed'     // terminal error (after all retries)
+  | 'cancelled'; // aborted by caller or signal
+
+/**
+ * Structured message a subagent can emit during its run.
+ * Used for inter-agent communication and progress reporting.
+ */
+export interface SubagentMessage {
+  type: 'request_context' | 'report_finding' | 'request_search' | 'complete';
+  payload: unknown;
+  /** Self-assessed confidence in this message's payload (0–1) */
+  confidence?: number;
+  /** Timestamp when the message was created */
+  timestamp: number;
+}
+
+/**
+ * Context object passed from the parent orchestrator to every subagent.
+ * Subagents use this to calibrate their analysis to the specific campaign.
+ */
+export interface SubagentParentContext {
+  brand: string;
+  productDescription: string;
+  targetAudience: string;
+  marketingGoal: string;
+  /** Key findings already collected this cycle — avoids redundant searches */
+  previousFindings?: string;
+  /** Any user-supplied creative direction injected by checkpoints */
+  userDirection?: string;
+}
+
+/**
+ * Rich result returned by every subagent, including quality metadata.
+ */
+export interface SubagentResult {
+  subagentId: string;
+  role: string;
+  task: string;
+  status: SubagentStatus;
+  output: string;
+  /**
+   * Self-assessed output quality score (0–1).
+   * Subagent rates its own confidence based on source quality and coverage.
+   */
+  confidence: number;
+  tokensUsed: number;
+  durationMs: number;
+  startedAt: number;
+  completedAt: number;
+  /** Set on 'failed' status — includes last error after all retries exhausted */
+  error?: string;
+  /** How many retry attempts were consumed */
+  retryCount?: number;
+  /** URLs and sources discovered during this subagent's run */
+  sources?: string[];
+}
+
+/**
+ * Live stats for an active SubagentPool, emitted via onStats callbacks.
+ */
+export interface SubagentPoolStats {
+  poolId: string;
+  active: number;
+  queued: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  totalTokensUsed: number;
+  oldestActiveMs: number;   // elapsed ms of longest-running current subagent
+  averageConfidence: number; // mean confidence of completed results
 }

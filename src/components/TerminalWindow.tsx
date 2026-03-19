@@ -1,7 +1,7 @@
 /**
  * TerminalWindow — AI-first command interface
  *
- * Not a real bash terminal. Every command is interpreted by the AI (glm-4.7-flash).
+ * Not a real bash terminal. Every command is interpreted by the AI (chat model).
  * Looks and feels like a real terminal (dark, monospace, green cursor), but
  * the AI decides what to do and streams its response back as terminal output.
  */

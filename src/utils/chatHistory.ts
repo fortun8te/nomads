@@ -41,6 +41,8 @@ export interface StoredMessageBlock {
   steps?: StoredStepCard[];
   uploadFilename?: string;
   uploadSize?: string;
+  /** Attached images/files sent with the user message */
+  attachments?: Array<{ id: string; dataUrl: string; name: string; type: 'image' | 'text'; textContent?: string }>;
 }
 
 /** A full conversation record */
@@ -79,13 +81,6 @@ const CONVERSATION_PREFIX = 'nomad-conv-';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function _deriveTitle(messages: StoredMessageBlock[]): string {
-  const firstUser = messages.find(m => m.type === 'user');
-  if (!firstUser) return 'New conversation';
-  const text = firstUser.content.trim();
-  if (text.length <= 50) return text;
-  return text.slice(0, 47) + '...';
-}
 
 function getDateGroup(ts: number): DateGroup {
   const now = new Date();

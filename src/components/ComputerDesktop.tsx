@@ -40,7 +40,7 @@ export function ComputerDesktop() {
 
   const openWindow = useCallback((id: WinId, setOpen: (v: boolean) => void, isOpen: boolean) => {
     if (!isOpen) bringToFront(id);
-    setOpen(prev => !prev);
+    setOpen(!isOpen);
   }, [bringToFront]);
 
   return (

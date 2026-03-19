@@ -269,7 +269,6 @@ export async function workspaceListDetailed(
       return { success: true, files: [] };
     }
 
-    const basePath = shellPath.replace('$HOME', ''); // relative after $HOME
     const files: WorkspaceFile[] = [];
     for (const line of result.stdout.trim().split('\n')) {
       // Format: epoch_seconds size full_path

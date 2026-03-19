@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { INFRASTRUCTURE } from '../config/infrastructure';
 import { useTheme } from '../context/ThemeContext';
 import { useCampaign } from '../context/CampaignContext';
 import { useSoundEngine } from '../hooks/useSoundEngine';
@@ -13,8 +14,6 @@ import {
   type ModelTier,
   getActiveModelTier,
   applyModelTier,
-  getThinkMode,
-  setThinkMode,
   getOllamaEndpoint,
   setOllamaEndpoint,
   getWorkspacePath,
@@ -243,7 +242,6 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
 
   // Models
   const [modelTier, setModelTierState] = useState<ModelTier>('standard');
-  const [thinkEnabled, setThinkEnabled] = useState(false);
 
   // Agent
   const [agentDuration, setAgentDurationState] = useState<AgentDuration>('5h');
@@ -274,10 +272,9 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
 
     setOllamaUrl(getOllamaEndpoint());
     const savedWf = localStorage.getItem('wayfayer_host');
-    setWayfayerHost(savedWf || 'http://localhost:8889');
+    setWayfayerHost(savedWf || INFRASTRUCTURE.wayfarerUrl);
 
     setModelTierState(getActiveModelTier());
-    setThinkEnabled(getThinkMode());
 
     setAgentDurationState(getAgentMaxDuration());
     setWorkspacePathState(getWorkspacePath());
@@ -345,7 +342,7 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
     }
 
     try {
-      const wfHost = localStorage.getItem('wayfayer_host') || 'http://localhost:8889';
+      const wfHost = localStorage.getItem('wayfayer_host') || INFRASTRUCTURE.wayfarerUrl;
       const wfResp = await fetch(`${wfHost}/health`, { signal: AbortSignal.timeout(5000) });
       if (wfResp.ok) {
         const testResp = await fetch(`${wfHost}/research`, {
@@ -503,9 +500,6 @@ export function SettingsModal({ isOpen, onClose, isRunning }: SettingsModalProps
                       </p>
                     </div>
 
-                    <SettingRow label="Think mode" hint="Enable chain-of-thought reasoning" isDarkMode={isDarkMode}>
-                      <Toggle enabled={thinkEnabled} onChange={(v) => { setThinkEnabled(v); setThinkMode(v); play('toggle'); }} isDarkMode={isDarkMode} />
-                    </SettingRow>
                   </div>
                 </div>
 

@@ -2,7 +2,7 @@
  * ActionSidebarCompact — Manus-style agent instruction panel
  *
  * Layout (top to bottom):
- * 1. Computer preview section: thumbnail + "Nomad's Computer" + status
+ * 1. Activity header: status indicator + step counter
  * 2. Task progression: collapsible step list with step counter
  * 3. Input bar: message input + 4 circular action buttons
  *
@@ -10,8 +10,7 @@
  * - Input always enabled (queue model): new messages queue while a run is active
  * - Runs displayed as collapsible blocks with step-level status dots
  * - Step states: pending (dim dot) | running (spinning ring) | done (green) | error (red)
- * - "Task completed" footer with 1-5 star rating
- * - Suggested follow-ups (LLM-generated) as clickable pills
+ * - Minimal "Done" footer on completed runs (no star rating, no suggested prompts)
  * - Document card inside run block when a doc is created (plan/write routes)
  * - DocumentViewer modal for full-screen doc reading
  */
@@ -233,46 +232,6 @@ function DocCardInline({
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Star rating
-// ─────────────────────────────────────────────────────────────
-
-function StarRating({
-  value,
-  onChange,
-}: {
-  value?: number;
-  onChange: (v: number) => void;
-}) {
-  const [hovered, setHovered] = useState(0);
-  return (
-    <div style={{ display: 'flex', gap: 2 }}>
-      {[1, 2, 3, 4, 5].map(n => (
-        <button
-          key={n}
-          onMouseEnter={() => setHovered(n)}
-          onMouseLeave={() => setHovered(0)}
-          onClick={() => onChange(n)}
-          style={{
-            width: 14,
-            height: 14,
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 0,
-            color: (hovered || value || 0) >= n
-              ? 'rgba(251,191,36,0.85)'
-              : 'rgba(255,255,255,0.18)',
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────
 // Run block
@@ -280,13 +239,9 @@ function StarRating({
 
 function RunBlock({
   run,
-  onRate,
-  onSuggestion,
   onDocClick,
 }: {
   run: AgentRun;
-  onRate: (runId: string, rating: number) => void;
-  onSuggestion: (text: string) => void;
   onDocClick: (doc: AgentDocument) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -396,22 +351,16 @@ function RunBlock({
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
+                    gap: 4,
                     marginTop: 10,
                     paddingTop: 8,
                     borderTop: '1px solid rgba(255,255,255,0.05)',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(52,211,153,0.8)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    <span style={{ fontSize: 10, color: 'rgba(52,211,153,0.80)' }}>Task completed</span>
-                  </div>
-                  <StarRating
-                    value={run.rating}
-                    onChange={v => onRate(run.id, v)}
-                  />
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(52,211,153,0.8)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span style={{ fontSize: 10, color: 'rgba(52,211,153,0.80)' }}>Done</span>
                 </div>
               )}
 
@@ -419,30 +368,6 @@ function RunBlock({
               {run.status === 'error' && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                   <span style={{ fontSize: 10, color: 'rgba(239,68,68,0.80)' }}>Task failed</span>
-                </div>
-              )}
-
-              {/* Suggestions */}
-              {run.status === 'done' && run.suggestions && run.suggestions.length > 0 && (
-                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {run.suggestions.map((s, i) => (
-                    <button
-                      key={i}
-                      onClick={() => onSuggestion(s)}
-                      style={{
-                        fontSize: 10,
-                        padding: '4px 10px',
-                        borderRadius: 8,
-                        background: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(255,255,255,0.07)',
-                        color: 'rgba(255,255,255,0.50)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      {s}
-                    </button>
-                  ))}
                 </div>
               )}
             </div>
@@ -652,34 +577,6 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
     }, 20);
   }, []);
 
-  // ── Generate suggestions ──
-
-  const generateSuggestions = useCallback(async (
-    userMessage: string,
-    response: string,
-    signal: AbortSignal
-  ): Promise<string[]> => {
-    try {
-      let raw = '';
-      await ollamaService.generateStream(
-        `Based on: '${userMessage}' and response: '${response.slice(0, 200)}', suggest 3 short follow-up questions as JSON array of strings. Max 8 words each. Output only JSON array, no other text.`,
-        'You output only valid JSON arrays of strings. No markdown, no explanation.',
-        {
-          model: getChatModel(),
-          temperature: 0.7,
-          num_predict: 80,
-          signal,
-          onChunk: (c) => { raw += c; },
-        }
-      );
-      const match = raw.match(/\[[\s\S]*\]/);
-      if (!match) return [];
-      const parsed = JSON.parse(match[0]);
-      return Array.isArray(parsed) ? parsed.slice(0, 3).map(String) : [];
-    } catch {
-      return [];
-    }
-  }, []);
 
   // ── Execute a run ──
 
@@ -874,12 +771,6 @@ Answer concisely and directly. Match the user's energy.`;
       // Mark run done
       updateRun(runId, r => ({ ...r, status: 'done' }));
 
-      // Generate suggestions for chat/plan routes
-      if (route.type === 'chat' || route.type === 'plan') {
-        const suggestions = await generateSuggestions(userMessage, responseText, abort.signal);
-        updateRun(runId, r => ({ ...r, suggestions }));
-      }
-
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         updateRun(runId, r => ({ ...r, status: 'error' }));
@@ -910,7 +801,7 @@ Answer concisely and directly. Match the user's energy.`;
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateStep, addStep, updateRun, generateSuggestions, onComputerTask, scrollToBottom]);
+  }, [updateStep, addStep, updateRun, onComputerTask, scrollToBottom]);
 
   // ── Submit ──
 
@@ -955,14 +846,6 @@ Answer concisely and directly. Match the user's energy.`;
     }
   };
 
-  const handleRate = useCallback((runId: string, rating: number) => {
-    updateRun(runId, r => ({ ...r, rating }));
-    const run = runs.find(r => r.id === runId);
-    if (run) {
-      addMemory('general', `Rating ${rating}/5 for: "${run.userMessage.slice(0, 80)}"`, ['rating', 'feedback']);
-    }
-  }, [updateRun, runs]);
-
   // ── Derived state ──
 
   const activeRun = activeRunId ? runs.find(r => r.id === activeRunId) : null;
@@ -995,98 +878,65 @@ Answer concisely and directly. Match the user's energy.`;
           backdropFilter: 'blur(16px)',
         }}
       >
-        {/* ── Computer preview + task progression ── */}
+        {/* ── Activity header + task progression ── */}
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-          {/* Computer preview header */}
+          {/* Compact activity header */}
           <button
             onClick={() => setIsTaskExpanded(e => !e)}
             style={{
               width: '100%',
               display: 'flex',
-              alignItems: 'flex-start',
-              gap: 12,
-              padding: '14px 14px 10px',
+              alignItems: 'center',
+              gap: 8,
+              padding: '12px 14px 10px',
               background: 'none',
               border: 'none',
               cursor: 'pointer',
               textAlign: 'left',
             }}
           >
-            {/* Thumbnail placeholder */}
-            <div
-              style={{
-                width: 120,
-                height: 80,
-                borderRadius: 10,
-                background: 'rgba(0,0,0,0.4)',
-                border: '1px solid rgba(255,255,255,0.06)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {isRouting && (
+                <span
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: '50%',
+                    background: 'rgba(52,211,153,0.8)',
+                    animation: '_nomad_pulse 1.2s ease-in-out infinite',
+                    flexShrink: 0,
+                    display: 'inline-block',
+                  }}
+                />
+              )}
+              <span style={{
+                fontSize: 11,
+                color: isRouting ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)',
+                fontWeight: 500,
+                whiteSpace: 'nowrap',
                 overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}>
+                {isRouting ? statusText : (runs.length > 0 ? `${runs.length} task${runs.length !== 1 ? 's' : ''}` : 'Activity')}
+              </span>
+              {currentTotal > 0 && (
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.22)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                  {currentDone}/{currentTotal}
+                </span>
+              )}
+            </div>
+            <svg
+              width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+              style={{
+                color: 'rgba(255,255,255,0.20)',
+                transform: isTaskExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.15s ease',
+                flexShrink: 0,
               }}
             >
-              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.15)', textAlign: 'center', lineHeight: 1.3, padding: 8 }}>
-                Computer Preview
-              </span>
-            </div>
-
-            {/* Right side: title + status */}
-            <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.70)', fontWeight: 600 }}>
-                Nomad's Computer
-              </div>
-              <div
-                style={{
-                  fontSize: 10,
-                  color: isRouting ? 'rgba(52,211,153,0.60)' : 'rgba(255,255,255,0.30)',
-                  marginTop: 4,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                }}
-              >
-                {isRouting && (
-                  <span
-                    style={{
-                      width: 5,
-                      height: 5,
-                      borderRadius: '50%',
-                      background: 'rgba(52,211,153,0.8)',
-                      animation: '_nomad_pulse 1.2s ease-in-out infinite',
-                      flexShrink: 0,
-                      display: 'inline-block',
-                    }}
-                  />
-                )}
-                <span style={{
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}>
-                  {statusText}
-                </span>
-              </div>
-
-              {/* Step counter + chevron inline */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
-                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontVariantNumeric: 'tabular-nums' }}>
-                  {currentTotal > 0 ? `${currentDone}/${currentTotal}` : ''}
-                </span>
-                <svg
-                  width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                  style={{
-                    color: 'rgba(255,255,255,0.20)',
-                    transform: isTaskExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.15s ease',
-                  }}
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </div>
-            </div>
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
 
           {/* Task progression (collapsible) */}
@@ -1107,13 +957,7 @@ Answer concisely and directly. Match the user's energy.`;
 
                   <div className="overflow-y-auto px-3 py-2" ref={scrollRef}>
                     {runs.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/[0.10]">
-                          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                        </svg>
-                        <span className="text-[10px] text-white/[0.13]">No activity yet</span>
-                      </div>
+                      <div className="py-6" />
                     ) : (
                       <AnimatePresence>
                         {runs.map(run => (
@@ -1126,8 +970,6 @@ Answer concisely and directly. Match the user's energy.`;
                           >
                             <RunBlock
                               run={run}
-                              onRate={handleRate}
-                              onSuggestion={text => handleSendInstruction(text)}
                               onDocClick={setViewingDoc}
                             />
                           </motion.div>
@@ -1159,7 +1001,7 @@ Answer concisely and directly. Match the user's energy.`;
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Send a message to Nomad"
+            placeholder="Give Nomad a task..."
             data-role="instruction-input"
             aria-label="Send a message to the Nomad agent"
             style={{

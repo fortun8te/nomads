@@ -16,6 +16,8 @@ export interface ResearchMetrics {
   modelsUsed: Set<string>;
   iterationsCompleted: number;
   coverageAchieved: number;
+  totalThinkingTokens?: number;        // Qwen 3.5 thinking tokens across all calls
+  thinkingByModel?: Map<string, number>; // thinking token count per model
 }
 
 class ResearchAuditCollector {
@@ -30,6 +32,8 @@ class ResearchAuditCollector {
       modelsUsed: new Set(),
       iterationsCompleted: 0,
       coverageAchieved: 0,
+      totalThinkingTokens: 0,
+      thinkingByModel: new Map(),
     };
   }
 
@@ -61,6 +65,13 @@ class ResearchAuditCollector {
     this.metrics.coverageAchieved = percentage;
   }
 
+  // Record thinking tokens
+  addThinkingTokens(modelName: string, count: number) {
+    this.metrics.totalThinkingTokens = (this.metrics.totalThinkingTokens || 0) + count;
+    if (!this.metrics.thinkingByModel) this.metrics.thinkingByModel = new Map();
+    this.metrics.thinkingByModel.set(modelName, (this.metrics.thinkingByModel.get(modelName) || 0) + count);
+  }
+
   // Build final audit trail
   buildAuditTrail(): ResearchAuditTrail {
     const endTime = Date.now();
@@ -72,6 +83,14 @@ class ResearchAuditCollector {
     const tokensByModel: Record<string, number> = {};
     if (snapshot.activeModel) {
       tokensByModel[snapshot.activeModel] = totalTokens;
+    }
+
+    // Build thinking token map
+    const thinkingByModel: Record<string, number> = {};
+    if (this.metrics.thinkingByModel) {
+      for (const [model, count] of this.metrics.thinkingByModel) {
+        thinkingByModel[model] = count;
+      }
     }
 
     return {
@@ -86,6 +105,8 @@ class ResearchAuditCollector {
       preset: getActiveResearchPreset(),
       iterationsCompleted: this.metrics.iterationsCompleted,
       coverageAchieved: this.metrics.coverageAchieved,
+      totalThinkingTokens: this.metrics.totalThinkingTokens || 0,
+      thinkingTokensByModel: thinkingByModel,
     };
   }
 }

@@ -9,9 +9,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TextShimmer } from './TextShimmer';
-import { ProgressiveBlur } from './ProgressiveBlur';
 import { runAgentLoop } from '../utils/agentEngine';
-import type { TaskProgress, AgentEngineEvent, ToolCall } from '../utils/agentEngine';
+import type { TaskProgress, AgentEngineEvent, ToolCall, CampaignContextData, SubagentEventData } from '../utils/agentEngine';
+import { useCampaign } from '../context/CampaignContext';
+import { getMemories } from '../utils/memoryStore';
+import { getUserMemories, touchUserProfile } from '../utils/userProfile';
 import { getModelForStage } from '../utils/modelConfig';
 import { generateWorkspaceId, getWorkspacePath, workspaceSaveBinary, workspaceListDetailed, ensureWorkspace, workspacePreview, type WorkspaceFile } from '../utils/workspace';
 import {
@@ -29,8 +31,23 @@ import VoiceInput from './VoiceInput';
 import { ResponseStream } from './ResponseStream';
 import { LiquidGlass } from './LiquidGlass';
 import { FilesystemTree, buildTreeFromFlatFiles, renderWorkspaceResult, type FileNode } from './FilesystemTree';
+import { AgentUIWrapper } from './AgentUIWrapper';
+import type { StepConfig } from './AgentUIWrapper';
+import type { Campaign, Cycle } from '../types';
 
 // ── Types ──────────────────────────────────────────────────────────────────
+
+/** An image or file pasted/dropped into the chat input */
+interface ChatAttachment {
+  id: string;
+  dataUrl: string;       // base64 data URL for images, or empty for text files
+  name: string;
+  type: 'image' | 'text';
+  textContent?: string;  // raw text for text-type attachments
+}
+
+const IMAGE_ACCEPT = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const TEXT_ACCEPT = ['application/pdf', 'text/plain', 'text/markdown', 'application/json'];
 
 interface ActionPill {
   id: string;
@@ -43,6 +60,18 @@ interface ActionPill {
 type StepEntry =
   | { type: 'text'; content: string }
   | { type: 'action'; pill: ActionPill };
+
+/** Live state for a single spawned subagent */
+interface SubagentInfo {
+  agentId: string;
+  role: string;
+  task: string;
+  status: 'spawning' | 'running' | 'complete' | 'failed';
+  tokens: number;
+  result?: string;
+  confidence?: number;
+  error?: string;
+}
 
 interface StepCard {
   id: string;
@@ -59,6 +88,8 @@ interface StepCard {
   browserScreenshot?: string;
   /** Contextual status text based on current activity */
   activityLabel?: string;
+  /** Active subagents spawned from this step */
+  subagents?: SubagentInfo[];
 }
 
 function getActivityLabel(toolName?: string): string {
@@ -81,8 +112,28 @@ function getActivityLabel(toolName?: string): string {
     case 'think': return 'Reasoning';
     case 'remember': return 'Remembering';
     case 'wait': return 'Waiting';
+    case 'spawn_agents': return 'Spawning agents';
     default: return 'Working';
   }
+}
+
+/** Format token counts: under 1000 as-is, 1000+ as "1.2k" etc. */
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+}
+
+/** Format duration: <60s → "12s", 60s+ → "1m 4s", 60min+ → "1h 3m" */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
 interface MessageBlock {
@@ -93,6 +144,8 @@ interface MessageBlock {
   steps?: StepCard[];
   uploadFilename?: string;
   uploadSize?: string;
+  /** Attached images/files sent with the message */
+  attachments?: ChatAttachment[];
   /** Timing + tokens for agent messages */
   startedAt?: number;
   completedAt?: number;
@@ -154,13 +207,6 @@ function CheckIcon({ size = 12 }: { size?: number }) {
   );
 }
 
-function ClockIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-    </svg>
-  );
-}
 
 function GlobeIcon() {
   return (
@@ -171,29 +217,6 @@ function GlobeIcon() {
   );
 }
 
-function TerminalIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
-    </svg>
-  );
-}
-
-function FileIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" />
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  );
-}
 
 function FolderIcon() {
   return (
@@ -215,6 +238,14 @@ function XIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function FileDocIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
     </svg>
   );
 }
@@ -254,40 +285,8 @@ function SidebarToggleIcon({ open }: { open: boolean }) {
   );
 }
 
-function _MessageIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-    </svg>
-  );
-}
 
-function _TrashIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-    </svg>
-  );
-}
 
-function ComputerIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
-    </svg>
-  );
-}
-
-function actionIcon(name: string) {
-  if (name === 'use_computer') return <ComputerIcon />;
-  if (name.includes('browse') || name.includes('navigate') || name.includes('screenshot') || name.includes('analyze_page')) return <GlobeIcon />;
-  if (name.includes('shell') || name.includes('exec') || name.includes('command') || name.includes('run_code')) return <TerminalIcon />;
-  if (name.includes('sandbox_pull')) return <UploadIcon />;
-  if (name.includes('workspace')) return <FolderIcon />;
-  if (name.includes('file') || name.includes('read') || name.includes('write') || name.includes('save')) return <FileIcon />;
-  if (name.includes('search') || name.includes('scrape') || name.includes('fetch')) return <SearchIcon />;
-  return <ClockIcon />;
-}
 
 function actionLabel(name: string, args: Record<string, unknown>): string {
   switch (name) {
@@ -309,6 +308,11 @@ function actionLabel(name: string, args: Record<string, unknown>): string {
     case 'remember': return `Remembering: ${String(args.key || '')}`;
     case 'wait': return `Waiting ${String(args.seconds || '')}s`;
     case 'ask_user': return 'Asking user...';
+    case 'spawn_agents': {
+      const tasks = args.tasks as Array<{ role?: string; query?: string }> | undefined;
+      const count = tasks?.length ?? 0;
+      return `Spawning ${count} agent${count !== 1 ? 's' : ''}${args.reason ? ': ' + String(args.reason).slice(0, 40) : ''}`;
+    }
     default: return name.replace(/_/g, ' ');
   }
 }
@@ -331,7 +335,7 @@ function RoutingIndicator() {
         </div>
         <div className="flex items-center gap-2">
           <ThinkingMorph size={14} />
-          <TextShimmer className="text-[12px] font-medium [--shimmer-base:rgba(43,121,255,0.3)] [--shimmer-highlight:rgba(43,121,255,0.9)]" duration={1.8}>Routing</TextShimmer>
+          <TextShimmer className="text-[12px] font-medium [--shimmer-base:rgba(255,255,255,0.4)] [--shimmer-highlight:rgba(255,255,255,0.9)]" duration={1.8}>Routing</TextShimmer>
         </div>
       </div>
     </div>
@@ -351,12 +355,13 @@ function LiveTimer({ startedAt, tokenCount }: { startedAt: number; tokenCount?: 
 
   return (
     <span className="text-[10px] font-sans" style={{ color: 'rgba(255,255,255,0.3)' }}>
-      {elapsed}s{tokenCount != null && tokenCount > 0 ? <span style={{ color: 'rgba(43,121,255,0.6)' }}> · {tokenCount}tk</span> : ''}
+      {formatDuration(elapsed)}{tokenCount != null && tokenCount > 0 ? <span style={{ color: 'rgba(43,121,255,0.6)' }}> · {formatTokens(tokenCount)}</span> : ''}
     </span>
   );
 }
 
 // ── ThinkingMorph ──────────────────────────────────────────────────────────
+// WHITE thinking animation (not blue) for Manus Lite
 
 function ThinkingMorph({ size = 18 }: { size?: number }) {
   return (
@@ -365,7 +370,7 @@ function ThinkingMorph({ size = 18 }: { size?: number }) {
       style={{
         width: size,
         height: size,
-        background: 'linear-gradient(135deg, #4d9aff, #2B79FF, #1a5fd4)',
+        background: 'linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.7), rgba(255,255,255,0.5))',
         backgroundSize: '200% 200%',
       }}
       animate={{
@@ -373,9 +378,9 @@ function ThinkingMorph({ size = 18 }: { size?: number }) {
         rotate: [0, 90, 180],
         scale: [0.95, 1.08, 0.95],
         boxShadow: [
-          `0 0 ${size * 0.3}px rgba(43,121,255,0.2), 0 0 ${size * 0.6}px rgba(43,121,255,0.06)`,
-          `0 0 ${size * 0.5}px rgba(77,154,255,0.35), 0 0 ${size}px rgba(43,121,255,0.12)`,
-          `0 0 ${size * 0.3}px rgba(43,121,255,0.2), 0 0 ${size * 0.6}px rgba(43,121,255,0.06)`,
+          `0 0 ${size * 0.3}px rgba(255,255,255,0.2), 0 0 ${size * 0.6}px rgba(255,255,255,0.06)`,
+          `0 0 ${size * 0.5}px rgba(255,255,255,0.35), 0 0 ${size}px rgba(255,255,255,0.12)`,
+          `0 0 ${size * 0.3}px rgba(255,255,255,0.2), 0 0 ${size * 0.6}px rgba(255,255,255,0.06)`,
         ],
         backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
       }}
@@ -401,10 +406,7 @@ function AnimatedAgentText({ text, animate }: { text: string; animate: boolean }
       <ResponseStream
         textStream={text}
         mode={isLong ? "typewriter" : "fade"}
-        speed={isLong ? 95 : 60}
-        fadeDuration={400}
-        segmentDelay={15}
-        characterChunkSize={isLong ? 8 : undefined}
+        speed={isLong ? 50 : 40}
         className="whitespace-pre-wrap text-[13px] leading-[1.7]"
       />
     </div>
@@ -510,59 +512,184 @@ function inlineFormat(text: string): React.ReactNode[] {
   return parts.length > 0 ? parts : [text];
 }
 
-// ── ActionPillView ─────────────────────────────────────────────────────────
+// ── ActionPillView — Manus style: ◎ text (no pill border) ─────────────────
 
 function ActionPillView({ action }: { action: ActionPill }) {
+  // Circle icon: filled = done/error, outline = pending/running
+  const circleSvg = action.status === 'done' ? (
+    // Filled green circle with check
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" fill="rgba(34,197,94,0.2)" stroke="rgba(34,197,94,0.5)" strokeWidth="1.5" />
+      <polyline points="7 12 10 15 17 9" stroke="rgba(34,197,94,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ) : action.status === 'error' ? (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" fill="rgba(239,68,68,0.15)" stroke="rgba(239,68,68,0.4)" strokeWidth="1.5" />
+      <line x1="8" y1="8" x2="16" y2="16" stroke="rgba(239,68,68,0.8)" strokeWidth="2" strokeLinecap="round" />
+      <line x1="16" y1="8" x2="8" y2="16" stroke="rgba(239,68,68,0.8)" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  ) : action.status === 'running' ? (
+    // Pulsing outline circle
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" className="animate-pulse">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="rgba(43,121,255,0.5)" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="4" fill="rgba(43,121,255,0.4)" />
+    </svg>
+  ) : (
+    // Outline only — pending
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+    </svg>
+  );
+
   return (
-    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={{
-        background: action.status === 'done' ? 'rgba(34,197,94,0.12)' : action.status === 'error' ? 'rgba(239,68,68,0.12)' : 'rgba(43,121,255,0.12)',
-        border: `1px solid ${action.status === 'done' ? 'rgba(34,197,94,0.25)' : action.status === 'error' ? 'rgba(239,68,68,0.25)' : 'rgba(43,121,255,0.25)'}`,
-      }}>
-        {action.status === 'done' ? <CheckIcon size={9} /> : action.status === 'error' ? <XIcon /> : <span style={{ color: 'rgba(43,121,255,0.7)' }}>{actionIcon(action.toolName)}</span>}
-      </div>
-      <span className="text-[11px]" style={{ color: action.status === 'running' ? 'rgba(255,255,255,0.6)' : action.status === 'error' ? 'rgba(239,68,68,0.6)' : 'rgba(255,255,255,0.4)' }}>{action.argsPreview}</span>
-      {action.status === 'running' && <span className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0" style={{ background: '#2B79FF' }} />}
+    <div className="flex items-center gap-2 py-0.5">
+      <span className="shrink-0 mt-px">{circleSvg}</span>
+      <span className="text-[12px] leading-snug" style={{
+        color: action.status === 'done' ? 'rgba(255,255,255,0.4)' :
+               action.status === 'error' ? 'rgba(239,68,68,0.6)' :
+               action.status === 'running' ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.35)',
+        fontStyle: action.status === 'running' ? 'normal' : 'normal',
+      }}>{action.argsPreview}</span>
     </div>
   );
 }
 
-// ── BlurredThinkingBox — live thinking text with progressive blur edges ────
+// ── SubagentPanel — shows spawned subagents in a compact list ──────────────
 
-function BlurredThinkingBox({ content }: { content: string }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // Auto-scroll to bottom as content streams in
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [content]);
+function roleIcon(role: string): string {
+  switch (role) {
+    case 'researcher': return 'R';
+    case 'analyzer': return 'A';
+    case 'synthesizer': return 'S';
+    case 'validator': return 'V';
+    case 'strategist': return 'T';
+    case 'compressor': return 'C';
+    case 'evaluator': return 'E';
+    default: return role.charAt(0).toUpperCase();
+  }
+}
+
+function roleColor(role: string): string {
+  switch (role) {
+    case 'researcher': return 'rgba(43,121,255,0.7)';
+    case 'analyzer': return 'rgba(168,85,247,0.7)';
+    case 'synthesizer': return 'rgba(16,185,129,0.7)';
+    case 'validator': return 'rgba(245,158,11,0.7)';
+    case 'strategist': return 'rgba(239,68,68,0.7)';
+    case 'compressor': return 'rgba(100,116,139,0.7)';
+    case 'evaluator': return 'rgba(251,146,60,0.7)';
+    default: return 'rgba(255,255,255,0.4)';
+  }
+}
+
+function SubagentPanel({ subagents }: { subagents: SubagentInfo[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (subagents.length === 0) return null;
+
+  const activeCount = subagents.filter(s => s.status === 'spawning' || s.status === 'running').length;
+  const completeCount = subagents.filter(s => s.status === 'complete').length;
+  const failedCount = subagents.filter(s => s.status === 'failed').length;
+  const totalTokens = subagents.reduce((s, a) => s + (a.tokens || 0), 0);
+  const allDone = activeCount === 0;
+
   return (
-    <div className="relative overflow-hidden" style={{ maxHeight: 150 }}>
-      <div ref={scrollRef} className="max-h-[150px] overflow-y-auto" style={{ color: 'rgba(255,255,255,0.4)' }}>
-        <ResponseStream
-          textStream={content}
-          mode="typewriter"
-          speed={90}
-          characterChunkSize={3}
-          className="text-[11px] leading-relaxed whitespace-pre-wrap"
-          as="div"
-        />
-      </div>
-      <ProgressiveBlur
-        scrollRef={scrollRef}
-        height={22}
-        maxBlur={3}
-        tint="rgba(10, 10, 14, 0.97)"
-      />
+    <div className="mt-2 rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
+      {/* Header row — collapsed summary */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-left"
+        style={{ borderBottom: expanded ? '1px solid rgba(255,255,255,0.05)' : 'none' }}
+      >
+        {/* Status indicator */}
+        {allDone ? (
+          <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0" style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)' }}>
+            <CheckIcon size={8} />
+          </div>
+        ) : (
+          <span className="w-2 h-2 rounded-full animate-pulse shrink-0" style={{ background: '#2B79FF' }} />
+        )}
+
+        {/* Label */}
+        <span className="text-[11px] font-medium flex-1" style={{ color: allDone ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.65)' }}>
+          {allDone
+            ? `${subagents.length} agent${subagents.length !== 1 ? 's' : ''} complete — ${formatTokens(totalTokens)} tokens`
+            : `${activeCount} agent${activeCount !== 1 ? 's' : ''} running${completeCount > 0 ? ` · ${completeCount} done` : ''}`}
+          {failedCount > 0 && <span style={{ color: 'rgba(239,68,68,0.6)' }}> · {failedCount} failed</span>}
+        </span>
+
+        {/* Role badges (collapsed) */}
+        {!expanded && (
+          <div className="flex gap-1">
+            {subagents.map(sa => (
+              <span key={sa.agentId} className="text-[9px] font-bold w-4 h-4 rounded flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', color: roleColor(sa.role) }}>
+                {roleIcon(sa.role)}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <span style={{ color: 'rgba(255,255,255,0.2)' }}><ChevronIcon open={expanded} /></span>
+      </button>
+
+      {/* Expanded rows */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.15 }} className="overflow-hidden">
+            <div className="px-3 py-2 space-y-1.5">
+              {subagents.map(sa => (
+                <div key={sa.agentId} className="flex items-start gap-2.5">
+                  {/* Status icon */}
+                  <div className="shrink-0 mt-0.5">
+                    {sa.status === 'complete' ? (
+                      <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                        <CheckIcon size={7} />
+                      </div>
+                    ) : sa.status === 'failed' ? (
+                      <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                        <XIcon />
+                      </div>
+                    ) : (
+                      <span className="w-2 h-2 mt-1 rounded-full block animate-pulse" style={{ background: roleColor(sa.role) }} />
+                    )}
+                  </div>
+
+                  {/* Role badge */}
+                  <span className="text-[9px] font-bold shrink-0 px-1 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.04)', color: roleColor(sa.role) }}>
+                    {sa.role}
+                  </span>
+
+                  {/* Task text */}
+                  <span className="text-[11px] flex-1 leading-snug" style={{ color: sa.status === 'complete' ? 'rgba(255,255,255,0.35)' : sa.status === 'failed' ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.6)' }}>
+                    {sa.error ? sa.error.slice(0, 80) : sa.task.slice(0, 80)}
+                  </span>
+
+                  {/* Token count */}
+                  {sa.tokens != null && sa.tokens > 0 && (
+                    <span className="text-[9px] shrink-0 font-sans" style={{ color: 'rgba(255,255,255,0.18)' }}>{formatTokens(sa.tokens!)}</span>
+                  )}
+
+                  {/* Confidence pill */}
+                  {sa.status === 'complete' && sa.confidence != null && (
+                    <span className="text-[9px] shrink-0 px-1 rounded" style={{ background: sa.confidence > 0.7 ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)', color: sa.confidence > 0.7 ? 'rgba(34,197,94,0.6)' : 'rgba(245,158,11,0.6)' }}>
+                      {Math.round(sa.confidence * 100)}%
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-// ── StepCardView ───────────────────────────────────────────────────────────
+
+// ── StepCardView — Manus-style collapsible step block ──────────────────────
 
 function StepCardView({ step }: { step: StepCard }) {
   const [expanded, setExpanded] = useState(step.status === 'active');
-  const [expandedTexts, setExpandedTexts] = useState<Set<number>>(new Set());
   // Expand when active, collapse when done
   useEffect(() => {
     if (step.status === 'active') setExpanded(true);
@@ -577,46 +704,80 @@ function StepCardView({ step }: { step: StepCard }) {
         ...step.actions.map(a => ({ type: 'action' as const, pill: a })),
       ];
 
-  const allPills = entries.filter((e): e is { type: 'action'; pill: ActionPill } => e.type === 'action').map(e => e.pill);
+  // Title to show in header
+  const headerTitle = step.title || (step.isThinking ? 'Thinking...' : 'Working...');
 
   return (
-    <div className="mt-3">
-      <button onClick={() => setExpanded(e => !e)} className="flex items-center gap-2.5 w-full text-left group">
-        <div className="w-5 h-5 flex items-center justify-center shrink-0">
-          {step.status === 'done' ? (
-            <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)' }}><CheckIcon size={10} /></div>
-          ) : step.status === 'active' ? <ThinkingMorph size={16} /> : (
-            <div className="w-4 h-4 rounded-full" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }} />
-          )}
-        </div>
-        <span className="text-[13px] font-medium flex-1 leading-snug" style={{ color: step.status === 'active' ? 'rgba(255,255,255,0.85)' : step.status === 'done' ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.3)' }}>{step.title}</span>
-        <span className="shrink-0" style={{ color: 'rgba(255,255,255,0.2)' }}><ChevronIcon open={expanded} /></span>
+    <div className="mt-2.5">
+      {/* Step header: ▼ Title   ∧ (chevron) */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-2 w-full text-left group"
+      >
+        {/* Leading triangle — ▶ collapsed / ▼ expanded */}
+        <span className="shrink-0 text-[10px]" style={{ color: 'rgba(255,255,255,0.25)', lineHeight: 1, marginTop: 1, transition: 'transform 0.15s ease', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+        {/* Title */}
+        {step.isThinking && !step.title ? (
+          <TextShimmer
+            className="text-[13px] font-medium flex-1 leading-snug [--shimmer-base:rgba(255,255,255,0.35)] [--shimmer-highlight:rgba(255,255,255,0.85)]"
+            duration={1.8}
+          >
+            Thinking...
+          </TextShimmer>
+        ) : (
+          <span
+            className="text-[13px] font-medium flex-1 leading-snug"
+            style={{ color: step.status === 'active' ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.45)' }}
+          >
+            {headerTitle}
+          </span>
+        )}
+        {/* Trailing chevron */}
+        <span className="shrink-0" style={{ color: 'rgba(255,255,255,0.18)' }}>
+          <ChevronIcon open={expanded} />
+        </span>
       </button>
+
       <AnimatePresence>
         {expanded && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.15 }} className="overflow-hidden">
-            <div className="mt-2.5 ml-7 space-y-2">
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-2 ml-5 space-y-1.5">
               {/* Interleaved text + action entries */}
               {entries.map((entry, idx) => {
                 if (entry.type === 'text') {
                   const isLast = idx === entries.length - 1;
-                  const isTextExpanded = expandedTexts.has(idx);
-                  // Live thinking: last text entry while still thinking
+                  // Live thinking stream: show as italic grey blurred text
                   if (isLast && step.isThinking) {
                     return (
-                      <BlurredThinkingBox key={`t-${idx}`} content={entry.content} />
+                      <div key={`t-${idx}`} className="relative overflow-hidden rounded-lg" style={{ maxHeight: 120, maxWidth: '85%', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '8px 10px' }}>
+                        <p
+                          className="text-[12px] leading-relaxed whitespace-pre-wrap"
+                          style={{ color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' }}
+                        >
+                          {entry.content.slice(-400)}
+                        </p>
+                        {/* Fade-out at bottom */}
+                        <div className="rounded-b-lg" style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 30, background: 'linear-gradient(transparent, rgba(16,16,20,0.95))' }} />
+                      </div>
                     );
                   }
-                  // Completed text (collapsed by default)
+                  // Completed thinking text — show brief description in a contained card
+                  const brief = entry.content.length > 160 ? entry.content.slice(0, 157) + '...' : entry.content;
                   return (
-                    <button key={`t-${idx}`} onClick={() => setExpandedTexts(prev => { const n = new Set(prev); if (n.has(idx)) n.delete(idx); else n.add(idx); return n; })} className="text-left w-full">
-                      <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                        {isTextExpanded ? entry.content : (entry.content.length > 120 ? entry.content.slice(0, 117) + '...' : entry.content)}
+                    <div key={`t-${idx}`} className="rounded-lg" style={{ maxWidth: '85%', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '6px 10px' }}>
+                      <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' }}>
+                        {brief}
                       </p>
-                    </button>
+                    </div>
                   );
                 }
-                // Action pill + optional workspace result tree
+                // Action entry: ◎ text (Manus style)
                 const wsResult = entry.pill.status === 'done' && entry.pill.result
                   ? renderWorkspaceResult(entry.pill.toolName, entry.pill.result)
                   : null;
@@ -628,17 +789,22 @@ function StepCardView({ step }: { step: StepCard }) {
                 );
               })}
 
-              {/* Activity indicator */}
-              {(step.isThinking || allPills.some(a => a.status === 'running')) && (
-                <div className="flex items-center gap-2 py-1">
-                  <ThinkingMorph size={14} />
-                  <TextShimmer className="text-[12px] font-medium [--shimmer-base:rgba(43,121,255,0.3)] [--shimmer-highlight:rgba(43,121,255,0.9)]" duration={1.8}>{step.activityLabel || 'Thinking'}</TextShimmer>
-                </div>
+              {/* Subagent panel — rendered inside expanded step card */}
+              {step.subagents && step.subagents.length > 0 && (
+                <SubagentPanel subagents={step.subagents} />
               )}
+
+              {/* Browser preview thumbnail */}
               {step.browserUrl && (
-                <div className="mt-2 rounded-lg overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', maxWidth: 240 }}>
-                  <div className="px-2 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}><div className="flex items-center gap-1.5"><span style={{ color: 'rgba(255,255,255,0.2)' }}><GlobeIcon /></span><span className="text-[9px] font-sans truncate" style={{ color: 'rgba(255,255,255,0.25)' }}>{step.browserUrl}</span></div></div>
-                  <div className="h-[120px] flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.02)' }}><span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.12)' }}>Browser preview</span></div>
+                <div className="mt-2 rounded-lg overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', maxWidth: 280 }}>
+                  <div className="px-2 py-1.5 flex items-center gap-1.5">
+                    <span style={{ color: 'rgba(255,255,255,0.2)', flexShrink: 0 }}><GlobeIcon /></span>
+                    <span className="text-[9px] font-sans truncate flex-1" style={{ color: 'rgba(255,255,255,0.3)' }}>{step.browserUrl}</span>
+                    <a href={step.browserUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[8px] font-medium px-1 py-0.5 rounded" style={{ color: 'rgba(43,121,255,0.5)', background: 'rgba(43,121,255,0.07)' }} onClick={e => e.stopPropagation()}>open</a>
+                  </div>
+                  {step.browserScreenshot && (
+                    <img src={`data:image/jpeg;base64,${step.browserScreenshot}`} alt="Page screenshot" className="w-full block" style={{ maxHeight: 160, objectFit: 'cover', objectPosition: 'top' }} />
+                  )}
                 </div>
               )}
             </div>
@@ -649,41 +815,87 @@ function StepCardView({ step }: { step: StepCard }) {
   );
 }
 
-// ── StickyProgressBar ──────────────────────────────────────────────────────
+// ── BottomStatusBar — Manus-style fixed bar above input ────────────────────
+// Shows: [browser thumb] · current step title · N/M · Thinking (blue dot)
 
-function StickyProgressBar({ progress }: { progress: TaskProgress }) {
-  const [expanded, setExpanded] = useState(false);
-  if (progress.totalSteps === 0) return null;
-  const activeStep = progress.steps.find(s => s.status === 'active');
-  const completedCount = progress.steps.filter(s => s.status === 'done').length;
-  const description = activeStep?.description || progress.steps[progress.steps.length - 1]?.description || 'Working...';
+interface BottomStatusBarProps {
+  steps: StepCard[];
+  isWorking: boolean;
+  currentToolName?: string;
+}
+
+function BottomStatusBar({ steps, isWorking, currentToolName }: BottomStatusBarProps) {
+  // Only show when there are steps
+  if (steps.length === 0) return null;
+
+  const activeStep = steps.find(s => s.status === 'active');
+  const completedCount = steps.filter(s => s.status === 'done').length;
+  const totalCount = steps.length;
+
+  // Title: use active step title, or last step title, or generic
+  const title = activeStep?.title || steps[steps.length - 1]?.title || 'Working...';
+  // Browser screenshot from active or last browsing step
+  const browserThumb = (() => {
+    const browsing = [...steps].reverse().find(s => s.browserScreenshot);
+    return browsing?.browserScreenshot || null;
+  })();
+
+  // Status label right side
+  const statusText = !isWorking ? 'Done' : currentToolName ? getActivityLabel(currentToolName) : 'Thinking';
 
   return (
-    <div className="sticky bottom-0 z-20">
-      <div style={{ background: 'rgba(10,10,14,0.85)', backdropFilter: 'blur(16px)', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        <AnimatePresence>
-          {expanded && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.15 }} className="overflow-hidden">
-              <div className="px-4 py-2 space-y-1" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                {progress.steps.map((step, i) => (
-                  <div key={i} className="flex items-center gap-2 py-0.5">
-                    {step.status === 'done' ? <CheckIcon size={10} /> : step.status === 'active' ? <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#2B79FF' }} /> : <span className="w-2 h-2 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }} />}
-                    <span className="text-[11px]" style={{ color: step.status === 'active' ? 'rgba(255,255,255,0.7)' : step.status === 'done' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.2)' }}>{step.description}</span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <button onClick={() => setExpanded(e => !e)} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left">
-          <span style={{ color: 'rgba(255,255,255,0.25)' }}><ClockIcon /></span>
-          <span className="text-[11px] font-medium flex-1 truncate" style={{ color: 'rgba(255,255,255,0.5)' }}>{description}</span>
-          <span className="text-[11px] font-sans shrink-0" style={{ color: 'rgba(43,121,255,0.7)' }}>{completedCount}/{progress.totalSteps}</span>
-          <span className="shrink-0" style={{ color: 'rgba(255,255,255,0.2)' }}><ChevronIcon open={expanded} /></span>
-        </button>
-        <div className="h-0.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
-          <motion.div className="h-full" style={{ background: 'linear-gradient(90deg, #2B79FF, #4d9aff)' }} initial={{ width: '0%' }} animate={{ width: `${(completedCount / progress.totalSteps) * 100}%` }} transition={{ duration: 0.3, ease: 'easeOut' }} />
-        </div>
+    <div
+      style={{
+        background: 'rgba(10,10,14,0.88)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        borderTop: '1px solid rgba(255,255,255,0.06)',
+      }}
+      className="flex items-center gap-3 px-4 py-2"
+    >
+      {/* Left: browser thumbnail (small) */}
+      <div
+        className="shrink-0 rounded overflow-hidden"
+        style={{
+          width: 32,
+          height: 22,
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.07)',
+        }}
+      >
+        {browserThumb ? (
+          <img
+            src={`data:image/jpeg;base64,${browserThumb}`}
+            alt=""
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center" style={{ color: 'rgba(255,255,255,0.12)' }}>
+            <GlobeIcon />
+          </div>
+        )}
+      </div>
+
+      {/* Center: current step title truncated */}
+      <span className="flex-1 min-w-0 text-[11px] truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>
+        {title}
+      </span>
+
+      {/* Right: N/M · Thinking + pulsing dot */}
+      <div className="shrink-0 flex items-center gap-1.5">
+        <span className="text-[10px] font-sans tabular-nums" style={{ color: 'rgba(255,255,255,0.28)' }}>
+          {completedCount}/{totalCount}
+        </span>
+        <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.28)' }}>·</span>
+        <span className="text-[10px]" style={{ color: isWorking ? 'rgba(255,255,255,0.55)' : 'rgba(34,197,94,0.7)' }}>
+          {statusText}
+        </span>
+        {isWorking && (
+          <span
+            className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0"
+            style={{ background: '#2B79FF' }}
+          />
+        )}
       </div>
     </div>
   );
@@ -750,14 +962,14 @@ function WorkspaceIndicator({ workspaceId, files, onRefresh }: { workspaceId: st
 
   return (
     <div className="relative">
-      <button onClick={() => { setOpen(o => !o); if (!open) onRefresh(); }} className="flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all hover:brightness-125" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }} title={path}>
-        <span style={{ color: 'rgba(255,255,255,0.3)' }}><FolderIcon /></span>
-        <span className="text-[10px] font-sans max-w-[140px] truncate" style={{ color: 'rgba(255,255,255,0.3)' }}>{workspaceId}</span>
-        {files.length > 0 && <span className="text-[9px] font-sans px-1 rounded-full" style={{ background: 'rgba(43,121,255,0.12)', color: 'rgba(43,121,255,0.7)' }}>{files.length}</span>}
+      <button onClick={() => { setOpen(o => !o); if (!open) onRefresh(); }} className="nomad-glass-pill flex items-center gap-1.5 h-8 px-2.5 rounded-lg transition-all hover:brightness-150" style={{ color: open ? 'rgba(43,121,255,0.8)' : 'rgba(255,255,255,0.35)' }} title={path}>
+        <span><FolderIcon /></span>
+        <span className="text-[10px] font-medium">Files</span>
+        {files.length > 0 && <span className="text-[9px] font-sans px-1 rounded-full" style={{ background: 'rgba(43,121,255,0.15)', color: 'rgba(43,121,255,0.7)' }}>{files.length}</span>}
       </button>
       <AnimatePresence>
         {open && (
-          <motion.div initial={{ opacity: 0, y: 4, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 4, scale: 0.97 }} transition={{ duration: 0.12 }} className="absolute bottom-full left-0 mb-1 rounded-xl overflow-hidden z-30" style={{ background: 'rgba(20,20,24,0.95)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(16px)', minWidth: 280, maxWidth: 360, maxHeight: 'calc(100vh - 200px)' }}>
+          <motion.div initial={{ opacity: 0, y: -4, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.97 }} transition={{ duration: 0.12 }} className="absolute top-full left-0 mt-1 rounded-xl overflow-hidden z-40" style={{ background: 'rgba(20,20,24,0.95)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(16px)', minWidth: 280, maxWidth: 360, maxHeight: 'calc(100vh - 120px)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
             <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <span className="text-[10px] font-semibold" style={{ color: 'rgba(255,255,255,0.4)' }}>Workspace files</span>
               <div className="flex items-center gap-1">
@@ -796,7 +1008,13 @@ function WorkspaceIndicator({ workspaceId, files, onRefresh }: { workspaceId: st
 
 function NomadLogo() {
   return (
-    <img src="/icons/agent.png" alt="Nomad" className="w-7 h-7 rounded-lg shrink-0" style={{ opacity: 0.75 }} />
+    <div
+      className="w-7 h-7 rounded-lg shrink-0"
+      style={{
+        background: 'linear-gradient(135deg, #60a5fa 0%, #2563eb 50%, #6366f1 100%)',
+        boxShadow: '0 0 12px rgba(59, 130, 246, 0.5), inset 0 1px 0 rgba(255,255,255,0.2)',
+      }}
+    />
   );
 }
 
@@ -955,9 +1173,40 @@ function AttachmentMenu({ onClose, onUploadClick }: { onClose: () => void; onUpl
   );
 }
 
+// ── Campaign context builder ────────────────────────────────────────────────
+
+function buildCampaignContext(campaign: Campaign | null, cycle: Cycle | null): CampaignContextData | undefined {
+  if (!campaign) return undefined;
+  const ctx: CampaignContextData = {
+    brand: campaign.brand,
+    productDescription: campaign.productDescription || undefined,
+    targetAudience: campaign.targetAudience || undefined,
+    marketingGoal: campaign.marketingGoal || undefined,
+    productFeatures: campaign.productFeatures?.length ? campaign.productFeatures : undefined,
+    productPrice: campaign.productPrice || undefined,
+  };
+  if (cycle) {
+    const brandDnaStage = cycle.stages['brand-dna'];
+    if (brandDnaStage?.agentOutput) ctx.brandDna = brandDnaStage.agentOutput.slice(0, 2000);
+    const personaStage = cycle.stages['persona-dna'];
+    if (personaStage?.agentOutput) ctx.personaDna = personaStage.agentOutput.slice(0, 2000);
+    const anglesStage = cycle.stages['angles'];
+    if (anglesStage?.agentOutput) ctx.angles = anglesStage.agentOutput.slice(0, 1000);
+    if (cycle.researchFindings?.deepDesires?.length) {
+      const desires = cycle.researchFindings.deepDesires
+        .slice(0, 3)
+        .map(d => `• ${d.deepestDesire}`)
+        .join('\n');
+      ctx.researchSummary = `Top customer desires:\n${desires}`;
+    }
+  }
+  return ctx;
+}
+
 // ── Main Component ──────────────────────────────────────────────────────────
 
 export function AgentPanel() {
+  const { campaign, currentCycle } = useCampaign();
   const [blocks, setBlocks] = useState<MessageBlock[]>([]);
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<AgentStatus>('idle');
@@ -965,11 +1214,14 @@ export function AgentPanel() {
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [askUserPrompt, setAskUserPrompt] = useState<{ question: string; options: string[]; resolve: (answer: string) => void } | null>(null);
   const [askUserInput, setAskUserInput] = useState('');
-  const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
+  const taskProgressRef = useRef<TaskProgress | null>(null);
   const [workspaceId, setWorkspaceId] = useState(() => generateWorkspaceId());
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [sessionMemories, setSessionMemories] = useState<Array<{ key: string; content: string }>>([]);
+  const [showMemoryPanel, setShowMemoryPanel] = useState(false);
   const dragCountRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -996,6 +1248,27 @@ export function AgentPanel() {
   }, []);
 
   useEffect(() => { refreshConversationList(); }, [refreshConversationList]);
+
+  // Load memories on mount — user profile + persisted memoryStore entries
+  useEffect(() => {
+    const loaded: Array<{ key: string; content: string }> = [];
+
+    // 1. User profile memories (name, style, preferences, expertise)
+    const profileMems = getUserMemories();
+    loaded.push(...profileMems);
+
+    // 2. Persisted memoryStore entries (max 30, newest first)
+    const stored = getMemories();
+    stored.slice(0, 30).forEach(m => {
+      // Skip seed memories with do-not-surface tag — they are already in the profile
+      if (m.tags.includes('do-not-surface-unprompted')) return;
+      const key = m.tags[0] || m.type;
+      loaded.push({ key, content: m.content });
+    });
+
+    setSessionMemories(loaded);
+    touchUserProfile();
+  }, []);
 
   // Auto-save (debounced) — preserves existing LLM-generated title if one exists
   useEffect(() => {
@@ -1026,7 +1299,7 @@ export function AgentPanel() {
 
   const handleNewChat = useCallback(() => {
     abortRef.current?.abort(); abortRef.current = null;
-    setStatus('idle'); setTaskProgress(null);
+    setStatus('idle'); taskProgressRef.current = null;
     activeBlockIdRef.current = null; activeStepIdRef.current = null;
     setBlocks([]); setConversationId(crypto.randomUUID());
     seenBlockContentRef.current.clear();
@@ -1039,7 +1312,7 @@ export function AgentPanel() {
   const handleSelectConversation = useCallback(async (id: string) => {
     if (id === conversationId) return;
     abortRef.current?.abort(); abortRef.current = null;
-    setStatus('idle'); setTaskProgress(null);
+    setStatus('idle'); taskProgressRef.current = null;
     activeBlockIdRef.current = null; activeStepIdRef.current = null;
     const conv = await loadConversation(id);
     if (!conv) return;
@@ -1113,6 +1386,33 @@ export function AgentPanel() {
 
   const isWorking = status === 'routing' || status === 'thinking' || status === 'streaming';
 
+  // Convert current agent block's StepCards to StepConfig[] for AgentUIWrapper
+  const agentSteps: StepConfig[] = (() => {
+    const activeBlock = blocks.find(b => b.id === activeBlockIdRef.current);
+    const steps = activeBlock?.steps || [];
+    if (steps.length === 0) return [];
+    return steps.map((s): StepConfig => ({
+      id: s.id,
+      title: s.title,
+      status: s.status === 'active' ? 'active' : s.status === 'done' ? 'completed' : 'pending',
+      isThinking: s.isThinking,
+      liveThinkingText: (s.entries.find(e => e.type === 'text' && s.isThinking) as { type: 'text'; content: string } | undefined)?.content,
+      subItems: s.entries
+        .filter(e => e.type === 'action')
+        .map(e => {
+          const pill = (e as { type: 'action'; pill: ActionPill }).pill;
+          return {
+            id: pill.id,
+            type: pill.status === 'done' ? 'completed' as const : pill.status === 'running' ? 'query' as const : 'pending' as const,
+            label: `${pill.toolName}: ${pill.argsPreview}`,
+          };
+        }),
+    }));
+  })();
+
+  // Show the AgentUIWrapper overview panel when there are steps to display
+  const [stepOverviewOpen, setStepOverviewOpen] = useState(false);
+
   const refreshWorkspaceFiles = useCallback(async () => {
     const result = await workspaceListDetailed(workspaceId);
     if (result.success) setWorkspaceFiles(result.files);
@@ -1148,6 +1448,67 @@ export function AgentPanel() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [workspaceId, refreshWorkspaceFiles]);
 
+  // ── Attachment helpers (paste / drop into chat input) ──────────────────
+
+  const fileToAttachment = useCallback((file: File): Promise<ChatAttachment | null> => {
+    return new Promise((resolve) => {
+      if (IMAGE_ACCEPT.includes(file.type)) {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ id: crypto.randomUUID(), dataUrl: reader.result as string, name: file.name, type: 'image' });
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      } else if (TEXT_ACCEPT.includes(file.type) || file.name.endsWith('.md') || file.name.endsWith('.txt') || file.name.endsWith('.json')) {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ id: crypto.randomUUID(), dataUrl: '', name: file.name, type: 'text', textContent: reader.result as string });
+        reader.onerror = () => resolve(null);
+        reader.readAsText(file);
+      } else {
+        resolve(null);
+      }
+    });
+  }, []);
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const fileItems = items.filter(item => item.kind === 'file' && (IMAGE_ACCEPT.includes(item.type) || TEXT_ACCEPT.includes(item.type)));
+    if (fileItems.length === 0) return;
+    e.preventDefault();
+    const newAttachments: ChatAttachment[] = [];
+    for (const item of fileItems) {
+      const file = item.getAsFile();
+      if (!file) continue;
+      const att = await fileToAttachment(file);
+      if (att) newAttachments.push(att);
+    }
+    if (newAttachments.length > 0) setAttachments(prev => [...prev, ...newAttachments]);
+  }, [fileToAttachment]);
+
+  const handleInputDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation(); setIsDragOver(false); dragCountRef.current = 0;
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    const newAttachments: ChatAttachment[] = [];
+    for (const file of files) {
+      const att = await fileToAttachment(file);
+      if (att) newAttachments.push(att);
+    }
+    const unhandledFiles = files.filter(f => !IMAGE_ACCEPT.includes(f.type) && !TEXT_ACCEPT.includes(f.type) && !f.name.endsWith('.md') && !f.name.endsWith('.txt') && !f.name.endsWith('.json'));
+    if (unhandledFiles.length > 0) {
+      await ensureWorkspace(workspaceId);
+      for (const file of unhandledFiles) {
+        const buf = await file.arrayBuffer();
+        const result = await workspaceSaveBinary(workspaceId, file.name, buf);
+        setBlocks(prev => [...prev, { id: crypto.randomUUID(), type: 'upload' as const, content: '', uploadFilename: file.name, uploadSize: result.sizeStr, timestamp: Date.now() }]);
+      }
+      refreshWorkspaceFiles();
+    }
+    if (newAttachments.length > 0) setAttachments(prev => [...prev, ...newAttachments]);
+  }, [fileToAttachment, workspaceId, refreshWorkspaceFiles]);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  }, []);
+
   const ensureAgentBlock = useCallback((): string => {
     if (activeBlockIdRef.current) return activeBlockIdRef.current;
     const blockId = crypto.randomUUID();
@@ -1174,26 +1535,57 @@ export function AgentPanel() {
 
   const handleSubmit = async () => {
     const text = input.trim();
-    if (!text) return;
+    const currentAttachments = [...attachments];
+    if (!text && currentAttachments.length === 0) return;
+
+    // Build attachment context string for the agent
+    let attachmentContext = '';
+    if (currentAttachments.length > 0) {
+      const parts: string[] = [];
+      for (const att of currentAttachments) {
+        if (att.type === 'image') {
+          parts.push(`[Attached image: ${att.name}] (base64 data available)`);
+        } else if (att.type === 'text' && att.textContent) {
+          const preview = att.textContent.length > 2000 ? att.textContent.slice(0, 2000) + '...(truncated)' : att.textContent;
+          parts.push(`[Attached file: ${att.name}]\n\`\`\`\n${preview}\n\`\`\``);
+        }
+      }
+      attachmentContext = '\n\n' + parts.join('\n\n');
+    }
+    const fullMessage = (text || '') + attachmentContext;
+
     if (isWorking) {
-      injectedMessagesRef.current.push(text);
+      injectedMessagesRef.current.push(fullMessage);
       userMsgCountRef.current += 1;
-      setBlocks(prev => [...prev, { id: crypto.randomUUID(), type: 'user' as const, content: text, timestamp: Date.now() }]);
-      setInput(''); if (inputRef.current) inputRef.current.style.height = 'auto';
+      setBlocks(prev => [...prev, { id: crypto.randomUUID(), type: 'user' as const, content: text || '(attached files)', attachments: currentAttachments.length > 0 ? currentAttachments : undefined, timestamp: Date.now() }]);
+      setInput(''); setAttachments([]); if (inputRef.current) inputRef.current.style.height = 'auto';
       return;
     }
     userMsgCountRef.current += 1;
-    setBlocks(prev => [...prev, { id: crypto.randomUUID(), type: 'user' as const, content: text, timestamp: Date.now() }]);
-    setInput(''); if (inputRef.current) inputRef.current.style.height = 'auto';
+    setBlocks(prev => [...prev, { id: crypto.randomUUID(), type: 'user' as const, content: text || '(attached files)', attachments: currentAttachments.length > 0 ? currentAttachments : undefined, timestamp: Date.now() }]);
+    setInput(''); setAttachments([]); if (inputRef.current) inputRef.current.style.height = 'auto';
     setStatus('routing');
     const controller = new AbortController(); abortRef.current = controller;
     activeBlockIdRef.current = null; activeStepIdRef.current = null;
     const conversationHistory = blocks.filter(b => b.type === 'user' || b.type === 'agent').map(b => `${b.type === 'user' ? 'User' : 'Assistant'}: ${b.content}`).join('\n\n');
 
     try {
-      await runAgentLoop(text, conversationHistory, {
+      // Build initial memories: profile + stored + campaign context snapshot
+      const campaignCtx = buildCampaignContext(campaign, currentCycle);
+      const campaignMemories: Array<{ key: string; content: string }> = [];
+      if (campaignCtx) {
+        if (campaignCtx.brand) campaignMemories.push({ key: 'brand', content: campaignCtx.brand });
+        if (campaignCtx.productDescription) campaignMemories.push({ key: 'product', content: campaignCtx.productDescription });
+        if (campaignCtx.targetAudience) campaignMemories.push({ key: 'audience', content: campaignCtx.targetAudience });
+        if (campaignCtx.marketingGoal) campaignMemories.push({ key: 'goal', content: campaignCtx.marketingGoal });
+      }
+      const allInitialMemories = [...sessionMemories, ...campaignMemories];
+
+      await runAgentLoop(fullMessage, conversationHistory, {
         model: getModelForStage('research'), temperature: 0.7, maxSteps: 999, maxDurationMs: 5 * 60 * 60 * 1000,
         signal: controller.signal, workspaceId,
+        campaignContext: campaignCtx,
+        initialMemories: allInitialMemories,
         onAskUser: (question, options) => new Promise<string>((resolve) => { setAskUserPrompt({ question, options, resolve }); }),
         getInjectedMessages: () => { const msgs = [...injectedMessagesRef.current]; injectedMessagesRef.current = []; return msgs; },
         onEvent: (event: AgentEngineEvent) => {
@@ -1214,27 +1606,31 @@ export function AgentPanel() {
               setCurrentToolName(undefined);
               const blockId = ensureAgentBlock();
               committedThinkingLenRef.current = 0;
-              addStepToBlock(blockId, { id: crypto.randomUUID(), title: 'Working...', thinkingText: '', isThinking: true, actions: [], entries: [], status: 'active', activityLabel: 'Thinking' });
+              addStepToBlock(blockId, { id: crypto.randomUUID(), title: '', thinkingText: '', isThinking: true, actions: [], entries: [], status: 'active', activityLabel: 'Thinking' });
               break;
             }
             case 'thinking_chunk': {
               if (event.thinking) {
-                const idx = event.thinking.indexOf('```tool');
-                const clean = idx > 0 ? event.thinking.slice(0, idx).trim() : event.thinking.trim();
-                // Extract only the new portion since last commit point
-                const newPortion = clean.slice(committedThinkingLenRef.current).trim();
-                updateCurrentStep(s => {
-                  const entries = [...s.entries];
-                  const last = entries[entries.length - 1];
-                  if (last && last.type === 'text') {
-                    // Update the current text segment with new portion
-                    entries[entries.length - 1] = { type: 'text', content: newPortion || clean.slice(committedThinkingLenRef.current) };
-                  } else {
-                    // After an action pill, start a new text segment
-                    if (newPortion) entries.push({ type: 'text', content: newPortion });
-                  }
-                  return { ...s, title: deriveStepTitle(clean), thinkingText: clean, entries };
-                });
+                const raw = event.thinking;
+                const idx = raw.indexOf('```tool');
+                const clean = idx > 0 ? raw.slice(0, idx).trim() : raw.trim();
+                if (event.isThinkingToken) {
+                  // Real thinking tokens from json.thinking — stream into collapsible box inside step card
+                  updateCurrentStep(s => {
+                    const entries = [...s.entries];
+                    const last = entries[entries.length - 1];
+                    if (last && last.type === 'text') {
+                      entries[entries.length - 1] = { type: 'text', content: clean };
+                    } else {
+                      if (clean) entries.push({ type: 'text', content: clean });
+                    }
+                    return { ...s, thinkingText: clean, entries };
+                  });
+                } else {
+                  // Response text streaming (no dedicated thinking stream) — derive step title only, no text entry
+                  const newPortion = clean.slice(committedThinkingLenRef.current).trim();
+                  updateCurrentStep(s => ({ ...s, title: deriveStepTitle(newPortion || clean), thinkingText: clean }));
+                }
                 // Update token count on the agent block
                 const bid = activeBlockIdRef.current;
                 if (bid) setBlocks(prev => prev.map(b => b.id === bid ? { ...b, tokenCount: (b.tokenCount || 0) + 1 } : b));
@@ -1276,7 +1672,7 @@ export function AgentPanel() {
                   entries: s.entries.map(e => e.type === 'action' && e.pill.id === tcId ? { type: 'action', pill: { ...e.pill, status: ns, result } } : e),
                 }));
                 // Auto-refresh workspace files after filesystem-modifying tools
-                if (event.type === 'tool_done' && ['workspace_save', 'file_write', 'use_computer', 'sandbox_pull'].includes(tcName)) {
+                if (event.type === 'tool_done' && ['workspace_save', 'workspace_list', 'file_write', 'use_computer', 'sandbox_pull'].includes(tcName)) {
                   refreshWorkspaceFiles();
                 }
               }
@@ -1305,7 +1701,65 @@ export function AgentPanel() {
               setBlocks(prev => { maybeRetitle(prev, conversationId); return prev; });
               break;
             }
-            case 'task_progress': if (event.taskProgress) setTaskProgress({ ...event.taskProgress }); break;
+            case 'task_progress': if (event.taskProgress) taskProgressRef.current = event.taskProgress ?? null; break;
+
+            // ── Subagent lifecycle events ──
+            case 'subagent_spawn': {
+              const sa = event.subagent as SubagentEventData;
+              if (!sa) break;
+              const newAgent: SubagentInfo = {
+                agentId: sa.agentId,
+                role: sa.role,
+                task: sa.task,
+                status: 'spawning',
+                tokens: 0,
+              };
+              updateCurrentStep(s => ({
+                ...s,
+                subagents: [...(s.subagents || []), newAgent],
+              }));
+              break;
+            }
+            case 'subagent_progress': {
+              const sa = event.subagent as SubagentEventData;
+              if (!sa) break;
+              updateCurrentStep(s => ({
+                ...s,
+                subagents: (s.subagents || []).map(a =>
+                  a.agentId === sa.agentId
+                    ? { ...a, status: 'running' as const, tokens: sa.tokens ?? a.tokens }
+                    : a,
+                ),
+              }));
+              break;
+            }
+            case 'subagent_complete': {
+              const sa = event.subagent as SubagentEventData;
+              if (!sa) break;
+              updateCurrentStep(s => ({
+                ...s,
+                subagents: (s.subagents || []).map(a =>
+                  a.agentId === sa.agentId
+                    ? { ...a, status: 'complete' as const, tokens: sa.tokens ?? a.tokens, result: sa.result, confidence: sa.confidence }
+                    : a,
+                ),
+              }));
+              break;
+            }
+            case 'subagent_failed': {
+              const sa = event.subagent as SubagentEventData;
+              if (!sa) break;
+              updateCurrentStep(s => ({
+                ...s,
+                subagents: (s.subagents || []).map(a =>
+                  a.agentId === sa.agentId
+                    ? { ...a, status: 'failed' as const, error: sa.error }
+                    : a,
+                ),
+              }));
+              break;
+            }
+
             case 'error': {
               completeCurrentStep();
               setBlocks(prev => [...prev, { id: crypto.randomUUID(), type: 'agent' as const, content: `Error: ${event.error || 'Unknown error'}`, steps: [], timestamp: Date.now(), completedAt: Date.now() }]);
@@ -1315,7 +1769,7 @@ export function AgentPanel() {
           }
         },
       });
-      setStatus('idle'); setTaskProgress(null); abortRef.current = null;
+      setStatus('idle'); taskProgressRef.current = null; abortRef.current = null;
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') { setStatus('idle'); }
       else {
@@ -1332,7 +1786,7 @@ export function AgentPanel() {
     // Abort the controller — this propagates to all running tools via signal
     abortRef.current?.abort('User stopped the agent');
     abortRef.current = null;
-    setStatus('idle'); setTaskProgress(null);
+    setStatus('idle'); taskProgressRef.current = null;
     setCurrentToolName(undefined);
     // Mark any in-progress steps as done and set error pills
     const blockId = activeBlockIdRef.current;
@@ -1364,8 +1818,6 @@ export function AgentPanel() {
 
   const isEmpty = blocks.length === 0;
   const formatTime = (ts: number) => new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const _conversationTimestamp = blocks.length > 0 ? new Date(blocks[0].timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
-
   return (
     <div className="h-full flex flex-col relative overflow-hidden" style={{ background: 'transparent', minHeight: 0 }}>
       {/* Overlay Conversation Sidebar */}
@@ -1379,7 +1831,78 @@ export function AgentPanel() {
         <button onClick={handleNewChat} className="nomad-glass-pill w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:brightness-150" style={{ color: 'rgba(255,255,255,0.35)' }} title="New chat">
           <NewChatIcon />
         </button>
+        {/* Files button — floating panel with workspace file tree */}
+        <WorkspaceIndicator workspaceId={workspaceId} files={workspaceFiles} onRefresh={refreshWorkspaceFiles} />
+        {/* Memory badge — shows count + popover of active session memories */}
+        {sessionMemories.length > 0 && (
+          <div className="relative">
+            <button
+              onClick={() => setShowMemoryPanel(o => !o)}
+              className="nomad-glass-pill h-8 px-2.5 rounded-lg flex items-center gap-1.5 transition-all hover:brightness-150 text-[10px] font-medium tabular-nums"
+              style={{ color: showMemoryPanel ? 'rgba(168,85,247,0.9)' : 'rgba(255,255,255,0.3)' }}
+              title="Active session memories"
+            >
+              <span style={{ fontSize: 11 }}>◈</span>
+              {sessionMemories.length} memories
+            </button>
+            {showMemoryPanel && (
+              <div
+                className="absolute top-10 left-0 z-40 rounded-xl overflow-hidden"
+                style={{ width: 280, background: 'rgba(15,15,20,0.95)', border: '1px solid rgba(168,85,247,0.15)', backdropFilter: 'blur(20px)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
+              >
+                <div className="px-3 py-2.5 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="text-[11px] font-semibold" style={{ color: 'rgba(168,85,247,0.8)' }}>Session Memory</span>
+                  <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.25)' }}>{sessionMemories.length} entries</span>
+                </div>
+                <div className="overflow-y-auto" style={{ maxHeight: 320 }}>
+                  {sessionMemories.map((m, i) => (
+                    <div key={i} className="px-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <div className="text-[9px] font-mono mb-0.5" style={{ color: 'rgba(168,85,247,0.6)' }}>[{m.key}]</div>
+                      <div className="text-[11px] leading-snug" style={{ color: 'rgba(255,255,255,0.55)' }}>{m.content.slice(0, 120)}{m.content.length > 120 ? '…' : ''}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Step overview toggle (top-right) — shown when agent has steps */}
+      {agentSteps.length > 0 && (
+        <div className="absolute top-3 right-3 z-30">
+          <button
+            onClick={() => setStepOverviewOpen(o => !o)}
+            className="nomad-glass-pill h-8 px-3 rounded-lg flex items-center gap-1.5 transition-all hover:brightness-150 text-[11px] font-medium"
+            style={{ color: stepOverviewOpen ? 'rgba(43,121,255,0.8)' : 'rgba(255,255,255,0.35)' }}
+            title="Toggle step overview"
+          >
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: isWorking ? '#2B79FF' : 'rgba(34,197,94,0.8)' }} />
+            Steps {agentSteps.filter(s => s.status === 'completed').length}/{agentSteps.length}
+          </button>
+        </div>
+      )}
+
+      {/* AgentUIWrapper step overview panel (right-side slide-in) */}
+      <AnimatePresence>
+        {stepOverviewOpen && agentSteps.length > 0 && (
+          <motion.div
+            initial={{ x: '100%', opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: '100%', opacity: 0 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+            className="absolute top-0 right-0 bottom-0 z-[25] w-72 shadow-2xl"
+            style={{ borderLeft: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <AgentUIWrapper
+              taskDescription={blocks.find(b => b.type === 'user')?.content || 'Agent task in progress'}
+              steps={agentSteps}
+              isThinking={isWorking}
+              onStepToggle={() => {}}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col relative min-w-0 min-h-0" onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}>
@@ -1423,23 +1946,51 @@ export function AgentPanel() {
                   case 'user':
                     return (
                       <div key={block.id} className="flex justify-end">
-                        <div className="max-w-[75%] px-4 py-2.5" style={{ borderRadius: '16px 16px 4px 16px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                          <p className="text-[13px] leading-[1.6] whitespace-pre-wrap" style={{ color: 'rgba(255,255,255,0.8)' }}>{block.content}</p>
+                        {/* Manus-style: right-aligned dark rounded bubble, white text */}
+                        <div
+                          className="max-w-[75%] px-4 py-2.5"
+                          style={{
+                            borderRadius: '18px 18px 4px 18px',
+                            background: 'rgba(40,40,50,0.95)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                          }}
+                        >
+                          {block.attachments && block.attachments.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                              {block.attachments.map(att => (
+                                att.type === 'image' ? (
+                                  <img key={att.id} src={att.dataUrl} alt={att.name} className="w-10 h-10 rounded object-cover" style={{ border: '1px solid rgba(255,255,255,0.12)' }} />
+                                ) : (
+                                  <span key={att.id} className="flex items-center gap-1 px-1.5 py-0.5 rounded" style={{ background: 'rgba(43,121,255,0.08)', border: '1px solid rgba(43,121,255,0.15)' }}>
+                                    <FileDocIcon />
+                                    <span className="text-[10px] max-w-[100px] truncate" style={{ color: 'rgba(43,121,255,0.7)' }}>{att.name}</span>
+                                  </span>
+                                )
+                              ))}
+                            </div>
+                          )}
+                          <p className="text-[13px] leading-[1.6] whitespace-pre-wrap" style={{ color: 'rgba(255,255,255,0.92)' }}>{block.content}</p>
                         </div>
                       </div>
                     );
                   case 'agent':
                     return (
                       <div key={block.id} className="flex gap-3">
-                        <NomadLogo />
-                        <div className="flex-1 min-w-0 pt-0.5">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-[12px] font-semibold" style={{ color: 'rgba(255,255,255,0.5)' }}>nomad</span>
-                            <span className="text-[8px] font-medium px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.2)' }}>v0.1</span>
-                            <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.15)' }}>{formatTime(block.timestamp)}</span>
+                        {/* Manus agent identity: small globe icon */}
+                        <div
+                          className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+                          style={{ color: 'rgba(255,255,255,0.35)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+                        >
+                          <GlobeIcon />
+                        </div>
+                        <div className="flex-1 min-w-0 pt-0">
+                          {/* Identity line: "nomad" —  */}
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <span className="text-[11px] font-medium" style={{ color: 'rgba(255,255,255,0.35)' }}>nomad</span>
+                            <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.1)', marginLeft: 4 }}>{formatTime(block.timestamp)}</span>
                             {block.completedAt && block.startedAt && (
-                              <span className="text-[10px] font-sans" style={{ color: 'rgba(255,255,255,0.25)' }}>
-                                {Math.round((block.completedAt - block.startedAt) / 1000)}s{block.tokenCount ? <span style={{ color: 'rgba(43,121,255,0.5)' }}> · {block.tokenCount}tk</span> : ''}
+                              <span className="text-[10px] font-sans" style={{ color: 'rgba(255,255,255,0.18)' }}>
+                                {formatDuration(Math.round((block.completedAt - block.startedAt) / 1000))}{block.tokenCount ? <span style={{ color: 'rgba(43,121,255,0.4)' }}> · {formatTokens(block.tokenCount)}</span> : ''}
                               </span>
                             )}
                             {!block.completedAt && block.startedAt && (
@@ -1453,8 +2004,11 @@ export function AgentPanel() {
                             return <div className="mb-4"><AnimatedAgentText text={block.content} animate={isNew && isRecent} /></div>;
                           })()}
                           {block.steps && block.steps.length > 0 && <div className="mt-1">{block.steps.map(step => <StepCardView key={step.id} step={step} />)}</div>}
-                          {!block.content && (!block.steps || block.steps.length === 0) && (
-                            <div className="flex items-center gap-2 py-1"><ThinkingMorph size={16} /><TextShimmer className="text-[12px] font-medium [--shimmer-base:rgba(43,121,255,0.3)] [--shimmer-highlight:rgba(43,121,255,0.9)]" duration={1.8}>Thinking</TextShimmer></div>
+                          {!block.content && (!block.steps || block.steps.length === 0) && status === 'routing' && (
+                            <div className="flex items-center gap-2 py-1">
+                              <ThinkingMorph size={14} />
+                              <TextShimmer className="text-[12px] font-medium [--shimmer-base:rgba(255,255,255,0.4)] [--shimmer-highlight:rgba(255,255,255,0.9)]" duration={1.8}>Thinking</TextShimmer>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1476,8 +2030,19 @@ export function AgentPanel() {
               <div ref={messagesEndRef} />
             </div>
           )}
-          {taskProgress && taskProgress.totalSteps > 0 && <StickyProgressBar progress={taskProgress} />}
         </div>
+        {/* Manus-style bottom status bar — shown when agent has steps */}
+        {(() => {
+          const activeBlock = blocks.find(b => b.id === activeBlockIdRef.current) || blocks.filter(b => b.type === 'agent' && b.steps && b.steps.length > 0).slice(-1)[0];
+          const allSteps = activeBlock?.steps || [];
+          return allSteps.length > 0 ? (
+            <BottomStatusBar
+              steps={allSteps}
+              isWorking={isWorking}
+              currentToolName={currentToolName}
+            />
+          ) : null;
+        })()}
 
         {/* Scroll button */}
         <AnimatePresence>
@@ -1512,7 +2077,23 @@ export function AgentPanel() {
         {/* Input area */}
         <div className="px-5 pb-4 pt-2 relative z-10">
           <div className="max-w-3xl mx-auto w-full">
-            <div className="nomad-glass-medium" style={{ borderRadius: 20 }}>
+            <div className="nomad-glass-medium" style={{ borderRadius: 20 }} onDrop={handleInputDrop} onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}>
+              {/* Attachment previews */}
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 px-3.5 pt-3 pb-1">
+                  {attachments.map(att => (
+                    <div key={att.id} className="relative group flex items-center gap-1.5 px-2 py-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      {att.type === 'image' ? (
+                        <img src={att.dataUrl} alt={att.name} className="w-10 h-10 rounded object-cover" />
+                      ) : (
+                        <span className="w-10 h-10 rounded flex items-center justify-center" style={{ background: 'rgba(43,121,255,0.08)', color: 'rgba(43,121,255,0.6)' }}><FileDocIcon /></span>
+                      )}
+                      <span className="text-[10px] max-w-[80px] truncate" style={{ color: 'rgba(255,255,255,0.5)' }}>{att.name}</span>
+                      <button onClick={() => removeAttachment(att.id)} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(239,68,68,0.8)', color: '#fff' }}><XIcon /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex items-end gap-2 px-3.5 py-3">
                 <div className="relative">
                   <button onClick={() => setShowAttachMenu(o => !o)} className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showAttachMenu ? 'bg-blue-500/10' : 'hover:bg-white/[0.05]'}`} style={{ color: showAttachMenu ? 'rgba(43,121,255,0.7)' : 'rgba(255,255,255,0.25)' }}><PlusIcon /></button>
@@ -1520,7 +2101,7 @@ export function AgentPanel() {
                     {showAttachMenu && (<><div className="fixed inset-0 z-[25]" onClick={() => setShowAttachMenu(false)} /><AttachmentMenu onClose={() => setShowAttachMenu(false)} onUploadClick={() => { setShowAttachMenu(false); fileInputRef.current?.click(); }} /></>)}
                   </AnimatePresence>
                 </div>
-                <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder={isWorking ? "Add instructions..." : "What would you like me to do?"} rows={1} className="flex-1 bg-transparent text-[13px] leading-relaxed resize-none outline-none placeholder:text-white/15" style={{ color: 'rgba(255,255,255,0.85)', minHeight: 24, maxHeight: 120 }} onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 120) + 'px'; }} />
+                <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste} placeholder={isWorking ? "Add instructions..." : "What would you like me to do?"} rows={1} className="flex-1 bg-transparent text-[13px] leading-relaxed resize-none outline-none placeholder:text-white/15" style={{ color: 'rgba(255,255,255,0.85)', minHeight: 24, maxHeight: 120 }} onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 120) + 'px'; }} />
                 <VoiceInput
                   onTranscript={() => { /* onInterim already set the text live */ }}
                   onInterim={(text) => setInput(text)}
@@ -1529,21 +2110,18 @@ export function AgentPanel() {
                 {isWorking ? (
                   <button onClick={handleStop} className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-red-500/15" style={{ background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.7)' }}><StopIcon /></button>
                 ) : (
-                  <button onClick={handleSubmit} disabled={!input.trim()} className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors disabled:opacity-20" style={{ background: input.trim() ? 'rgba(43,121,255,0.15)' : 'rgba(255,255,255,0.03)', color: input.trim() ? 'rgba(43,121,255,0.9)' : 'rgba(255,255,255,0.15)' }}><ArrowUpIcon /></button>
+                  <button onClick={handleSubmit} disabled={!input.trim() && attachments.length === 0} className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors disabled:opacity-20" style={{ background: (input.trim() || attachments.length > 0) ? 'rgba(43,121,255,0.15)' : 'rgba(255,255,255,0.03)', color: (input.trim() || attachments.length > 0) ? 'rgba(43,121,255,0.9)' : 'rgba(255,255,255,0.15)' }}><ArrowUpIcon /></button>
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-between mt-2 px-1">
-              <WorkspaceIndicator workspaceId={workspaceId} files={workspaceFiles} onRefresh={refreshWorkspaceFiles} />
-              <div className="flex items-center gap-3">
-                {isWorking && (
-                  <span className="text-[9px] flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.25)' }}>
-                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: currentToolName ? 'rgba(34,197,94,0.6)' : 'rgba(43,121,255,0.6)' }} />
-                    {statusLabel(status, currentToolName)}
-                  </span>
-                )}
-                <span className="text-[9px] font-sans" style={{ color: 'rgba(255,255,255,0.1)' }}>{getModelForStage('research')}</span>
-              </div>
+            <div className="flex items-center justify-end mt-2 px-1">
+              {isWorking && (
+                <span className="text-[9px] flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.25)' }}>
+                  <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: currentToolName ? 'rgba(34,197,94,0.6)' : 'rgba(43,121,255,0.6)' }} />
+                  {statusLabel(status, currentToolName)}
+                </span>
+              )}
+              <span className="text-[9px] font-sans ml-3" style={{ color: 'rgba(255,255,255,0.1)' }}>{getModelForStage('research')}</span>
             </div>
           </div>
         </div>

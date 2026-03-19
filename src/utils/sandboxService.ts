@@ -299,9 +299,9 @@ machinePool.register('local-sandbox', 'http://localhost:8080', 'ws://localhost:5
 // The proxy delegates every property access / method call to machinePool.getDefault().
 
 export const sandboxService: MachineClient = new Proxy({} as MachineClient, {
-  get(_target, prop, receiver) {
+  get(_target, prop) {
     const defaultMachine = machinePool.getDefault();
-    const value = (defaultMachine as Record<string | symbol, unknown>)[prop];
+    const value = (defaultMachine as unknown as Record<string | symbol, unknown>)[prop];
     if (typeof value === 'function') {
       return value.bind(defaultMachine);
     }

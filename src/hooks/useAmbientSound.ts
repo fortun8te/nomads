@@ -404,8 +404,8 @@ function startAmbient() {
 function cleanup() {
   nodes.forEach(n => {
     try {
-      if ('stop' in n && typeof (n as OscillatorNode).stop === 'function') {
-        (n as OscillatorNode).stop();
+      if ('stop' in n && typeof (n as unknown as OscillatorNode).stop === 'function') {
+        (n as unknown as OscillatorNode).stop();
       }
       n.disconnect();
     } catch {}

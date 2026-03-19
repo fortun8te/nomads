@@ -1,6 +1,8 @@
 // Wayfayer — TypeScript client for the Wayfayer web research API
 // Replaces the old searxng.ts (DuckDuckGo snippets) with full page scraping
 
+import { INFRASTRUCTURE } from '../config/infrastructure';
+
 export interface WayfayerPage {
   url: string;
   title: string;
@@ -30,7 +32,7 @@ export interface WayfayerResult {
   meta: WayfayerMeta;
 }
 
-const DEFAULT_HOST = 'http://localhost:8889';
+const DEFAULT_HOST = INFRASTRUCTURE.wayfarerUrl;
 
 function getHost(): string {
   if (typeof window !== 'undefined') {

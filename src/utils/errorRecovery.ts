@@ -246,7 +246,7 @@ function findDismissButton(elements: ElementInfo[]): number | null {
 
 export function diagnoseAndRecover(ctx: RecoveryContext): RecoveryStrategy[] {
   const strategies: RecoveryStrategy[] = [];
-  const { action, error, elements = [], attemptCount, targetText, targetIndex } = ctx;
+  const { action, attemptCount } = ctx;
 
   if (attemptCount >= 5) {
     strategies.push({

@@ -14,9 +14,14 @@ const ALL_STAGES: { name: StageName; label: string; group: 'research' | 'make' |
 function formatElapsed(ms: number): string {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+  }
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
 interface CycleTimelineProps {

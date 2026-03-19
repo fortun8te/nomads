@@ -1,3 +1,5 @@
+import { INFRASTRUCTURE } from '../config/infrastructure';
+
 // Model configuration for the research + ad pipeline
 //
 // Model roster (remote Ollama at 100.74.135.83:11435 via Tailscale proxy):
@@ -12,14 +14,14 @@
 // Each role reads from localStorage with fallback to defaults below.
 
 // ─────────────────────────────────────────────────────────────
-// Stage-level model assignments (used by useCycleLoop, wayfayer, etc.)
+// Stage-level model assignments (used by useCycleLoop, wayfarer, etc.)
 // ─────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────
 // Model role policy (IMPORTANT — do not violate):
 //
-//   qwen3.5:0.8b / lfm-2.5:q4_K_M — classification and compression only.
-//   These models are NOT for conversation. They are fast utility models for:
+//   qwen3.5:0.8b — classification and compression only.
+//   This model is NOT for conversation. Fast utility model for:
 //     · intent classification (agentRouter)
 //     · page compression (researchAgents)
 //     · format extraction / title generation
@@ -69,6 +71,37 @@ export function getThinkingModel(): string {
   return MODEL_CONFIG.thinking;
 }
 
+/**
+ * Get thinking token budget for a specific context
+ * Controls how many thinking tokens to allow per LLM call
+ * Higher = more reasoning but slower generation
+ */
+export interface ThinkingBudget {
+  maxThinkingTokens?: number;  // max thinking tokens (e.g. 5000, 10000)
+  enabled: boolean;             // whether to enable thinking for this context
+}
+
+const THINKING_BUDGETS: Record<ThinkContext, ThinkingBudget> = {
+  orchestrator: { enabled: true, maxThinkingTokens: 8000 },    // decides what to research
+  synthesis: { enabled: true, maxThinkingTokens: 10000 },      // synthesizes findings
+  reflection: { enabled: true, maxThinkingTokens: 5000 },      // gap analysis
+  strategy: { enabled: true, maxThinkingTokens: 8000 },        // creative strategy
+  analysis: { enabled: true, maxThinkingTokens: 6000 },        // deep analysis
+  compression: { enabled: false },                             // fast page compression
+  extraction: { enabled: false },                              // fact extraction
+  title: { enabled: false },                                   // title generation
+  vision: { enabled: false },                                  // image analysis
+  fast: { enabled: false },                                    // 0.8b fast models
+  executor: { enabled: false },                                // plan-act execution
+  chat: { enabled: false },                                    // casual conversation
+};
+
+/** Get thinking token budget for a given context */
+export function getThinkingBudget(context?: ThinkContext): ThinkingBudget {
+  if (!context) return { enabled: false };
+  return THINKING_BUDGETS[context] ?? { enabled: false };
+}
+
 /** Planner model — used by Plan-Act agent for decomposing goals into steps */
 export function getPlannerModel(): string {
   if (typeof window !== 'undefined') {
@@ -92,13 +125,13 @@ export function getExecutorModel(): string {
  * and any feature that requires real conversation/reasoning.
  *
  * IMPORTANT: Always returns at minimum qwen3.5:9b.
- * Do NOT swap this for a small model (0.8b/lfm-2.5) — they are NOT for conversation.
+ * Do NOT swap this for a 0.8b model — too small for conversation.
  */
 export function getChatModel(): string {
   if (typeof window !== 'undefined') {
     const stored = localStorage.getItem('chat_model');
-    // Guard: never use sub-4b models for conversation
-    if (stored && !stored.includes('0.8b') && !stored.includes('lfm-2.5')) return stored;
+    // Guard: never use 0.8b for conversation
+    if (stored && !stored.includes('0.8b')) return stored;
   }
   return 'qwen3.5:9b';
 }
@@ -225,6 +258,7 @@ export interface ResearchLimits {
   maxVisualUrls: number;          // Max total URLs to screenshot for visual analysis
   skipReflection: boolean;        // Skip reflection agents (SQ mode — faster)
   singlePassResearch: boolean;    // Exit after first research iteration (SQ mode)
+  useSubagents: boolean;          // Spawn parallel SubagentManager workers (NR/EX/MX only)
 }
 
 const LIMITS_DEFAULTS: ResearchLimits = {
@@ -245,6 +279,7 @@ const LIMITS_DEFAULTS: ResearchLimits = {
   maxVisualUrls: 0,
   skipReflection: false,
   singlePassResearch: false,
+  useSubagents: false,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -289,6 +324,7 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
       maxVisualUrls: 0,
       skipReflection: true,
       singlePassResearch: true,
+      useSubagents: false,
     },
   },
   {
@@ -316,6 +352,7 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
       maxVisualUrls: 0,
       skipReflection: false,
       singlePassResearch: false,
+      useSubagents: false,
     },
   },
   {
@@ -343,6 +380,7 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
       maxVisualUrls: 5,
       skipReflection: false,
       singlePassResearch: false,
+      useSubagents: true,
     },
   },
   {
@@ -370,6 +408,7 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
       maxVisualUrls: 15,
       skipReflection: false,
       singlePassResearch: false,
+      useSubagents: true,
     },
   },
   {
@@ -397,6 +436,7 @@ export const RESEARCH_PRESETS: ResearchPresetDef[] = [
       maxVisualUrls: 30,
       skipReflection: false,
       singlePassResearch: false,
+      useSubagents: true,
     },
   },
 ];
@@ -424,6 +464,7 @@ export function applyResearchPreset(presetId: ResearchDepthPreset): void {
   localStorage.setItem('max_visual_urls', String(l.maxVisualUrls));
   localStorage.setItem('research_skip_reflection', String(l.skipReflection));
   localStorage.setItem('research_single_pass', String(l.singlePassResearch));
+  localStorage.setItem('research_use_subagents', String(l.useSubagents));
 }
 
 /** Get the active research depth preset (or 'custom' if values were tweaked) */
@@ -472,6 +513,7 @@ export function getResearchLimits(): ResearchLimits {
     maxVisualUrls: getInt('max_visual_urls', LIMITS_DEFAULTS.maxVisualUrls),
     skipReflection: getBool('research_skip_reflection', LIMITS_DEFAULTS.skipReflection),
     singlePassResearch: getBool('research_single_pass', LIMITS_DEFAULTS.singlePassResearch),
+    useSubagents: getBool('research_use_subagents', LIMITS_DEFAULTS.useSubagents),
   };
 }
 
@@ -611,7 +653,7 @@ export function getOllamaEndpoint(): string {
     const stored = localStorage.getItem('ollama_endpoint');
     if (stored) return stored;
   }
-  return 'http://100.74.135.83:11440';
+  return INFRASTRUCTURE.ollamaUrl;
 }
 
 /** Set the Ollama endpoint URL */

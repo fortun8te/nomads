@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { motion } from 'framer-motion';
 import type { Cycle, StageName } from '../types';
 import { useTheme } from '../context/ThemeContext';
 import { useCampaign } from '../context/CampaignContext';
@@ -6,10 +7,46 @@ import { ResearchOutput } from './ResearchOutput';
 import { ModelOutputDebug } from './ModelOutputDebug';
 import { MakeTestPanel } from './MakeTestPanel';
 import { TestResultsPanel } from './TestResultsPanel';
+import { ThinkingModal } from './ThinkingModal';
 import { tokenTracker } from '../utils/tokenStats';
 import { TextShimmer } from './TextShimmer';
 import { ResponseStream } from './ResponseStream';
 import { ProgressiveBlur } from './ProgressiveBlur';
+
+/** Smoothly animates a number from its previous value to the current one. */
+function useCountUp(target: number, durationMs = 400): number {
+  const [displayed, setDisplayed] = useState(target);
+  const frameRef = useRef<number | null>(null);
+  const startRef = useRef<number>(0);
+  const fromRef = useRef<number>(target);
+  const toRef = useRef<number>(target);
+
+  useEffect(() => {
+    if (target === toRef.current) return;
+    fromRef.current = displayed;
+    toRef.current = target;
+    startRef.current = 0;
+
+    const animate = (ts: number) => {
+      if (!startRef.current) startRef.current = ts;
+      const elapsed = ts - startRef.current;
+      const progress = Math.min(elapsed / durationMs, 1);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayed(Math.round(fromRef.current + (toRef.current - fromRef.current) * eased));
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(animate);
+      }
+    };
+    if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    frameRef.current = requestAnimationFrame(animate);
+
+    return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, durationMs]);
+
+  return displayed;
+}
 
 const STAGE_LABELS: Record<StageName, string> = {
   'research':    'Research',
@@ -38,9 +75,14 @@ function formatModelName(model: string): string {
 
 function formatTime(s: number) {
   if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+  }
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
 interface StagePanelProps {
@@ -60,8 +102,11 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
   const thinkRef = useRef<HTMLDivElement>(null);
   const [, setTick] = useState(0);
   const [thinkExpanded, setThinkExpanded] = useState(true);
+  const [thinkingModalOpen, setThinkingModalOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const tokenInfo = useSyncExternalStore(tokenTracker.subscribe, tokenTracker.getSnapshot);
+  const animatedLiveTokens = useCountUp(tokenInfo.liveTokens, 350);
+  const animatedSessionTotal = useCountUp(tokenInfo.sessionTotal, 500);
 
   const handleExportPDF = useCallback(async () => {
     if (!campaign || !cycle || exporting) return;
@@ -205,7 +250,7 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
         {isActive && tokenInfo.liveTokens > 0 && (
           <div className={`flex items-center gap-1.5 tabular-nums ${isRunning ? '' : 'ml-auto'}`}>
             <span className="text-[12px] font-semibold" style={{ color: tokenColor }}>
-              {tokenInfo.liveTokens.toLocaleString()}
+              {animatedLiveTokens.toLocaleString()}
             </span>
             <span className={`text-[9px] ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>tok</span>
             {tokenInfo.tokensPerSec > 0 && (
@@ -226,17 +271,51 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
             }`}
             title="Click to expand thinking tokens"
           >
-            <span className="w-3 h-3 flex items-center justify-center flex-shrink-0">
-              {tokenInfo.isThinking ? (
-                <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: '#2B79FF', boxShadow: '0 0 4px #2B79FF' }} />
-              ) : (
+            {/* Thinking animation dot — clickable to open full modal */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setThinkingModalOpen(true);
+              }}
+              className="w-3 h-3 flex items-center justify-center flex-shrink-0 cursor-pointer group relative hover:opacity-80"
+              title="Click to view full thinking"
+            >
+              {tokenInfo.isThinking && (
+                <>
+                  {/* Outer morphing ring */}
+                  <motion.div
+                    className="absolute inset-0 rounded-full"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.3)',
+                      border: '1px solid rgba(255, 255, 255, 0.5)',
+                    }}
+                    animate={{
+                      scale: [1, 1.2, 1],
+                      opacity: [1, 0.6, 1],
+                    }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                  />
+                  {/* Inner white pulsing dot */}
+                  <motion.div
+                    className="w-1.5 h-1.5 rounded-full relative z-10"
+                    style={{ backgroundColor: 'white' }}
+                    animate={{
+                      scale: [1, 0.8, 1],
+                      opacity: [1, 0.7, 1],
+                    }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                  />
+                </>
+              )}
+              {!tokenInfo.isThinking && (
                 <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isDark ? '#3f3f46' : '#d4d4d8' }} />
               )}
-            </span>
+            </button>
+
             <span className="text-[11px] font-semibold flex-1 truncate" style={{
               color: tokenInfo.isThinking ? '#2B79FF' : isDark ? '#71717a' : '#9ca3af'
             }}>
-              {tokenInfo.isThinking ? '🧠 Model Thinking' : '💭 Reasoning'}
+              {tokenInfo.isThinking ? 'Model Thinking' : 'Reasoning'}
             </span>
             <span className="text-[9px] px-1.5 py-0.5 rounded" style={{
               background: tokenInfo.isThinking ? 'rgba(43,121,255,0.15)' : isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
@@ -287,6 +366,9 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
           )}
         </div>
       )}
+
+      {/* Thinking Modal — full-screen drawer for viewing complete thinking */}
+      <ThinkingModal isOpen={thinkingModalOpen} onClose={() => setThinkingModalOpen(false)} />
 
       {/* ── Output area ── */}
       {stageData.agentOutput ? (
@@ -396,7 +478,7 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
           <div className={`ml-auto flex items-center gap-3 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
             {tokenInfo.liveTokens > 0 && (
               <span className="text-[11px]">
-                <span className={`font-semibold ${isDark ? 'text-zinc-200' : 'text-zinc-700'}`}>{tokenInfo.liveTokens.toLocaleString()}</span>
+                <span className={`font-semibold tabular-nums ${isDark ? 'text-zinc-200' : 'text-zinc-700'}`}>{animatedLiveTokens.toLocaleString()}</span>
                 <span className="text-[9px] ml-0.5">tok</span>
                 {tokenInfo.tokensPerSec > 0 && (
                   <span className="ml-1 text-[10px]">{tokenInfo.tokensPerSec} t/s</span>
@@ -406,7 +488,7 @@ export function StagePanel({ cycle, isRunning, isDarkMode: propDarkMode, viewSta
             {tokenInfo.sessionTotal > 0 && (
               <>
                 <span className={`text-[10px] ${isDark ? 'text-zinc-600' : 'text-zinc-200'}`}>|</span>
-                <span className="text-[10px]">{tokenInfo.sessionTotal.toLocaleString()} total</span>
+                <span className="text-[10px] tabular-nums">{animatedSessionTotal.toLocaleString()} total</span>
               </>
             )}
             {tokenInfo.callCount > 0 && (

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { motion } from 'framer-motion';
 import { ShineText } from './ShineText';
 import { TextShimmer } from './TextShimmer';
+import { ResponseStream } from './ResponseStream';
 import { playSound } from '../hooks/useSoundEngine';
 import { visualProgressStore } from '../utils/visualProgressStore';
 
@@ -532,7 +533,7 @@ function ActionPill({
 // Expanded Content — detail view below a pill
 // ─────────────────────────────────────────────────────────────
 
-function ExpandedContent({ section, dark }: { section: Section; dark: boolean }) {
+function ExpandedContent({ section, dark, isStreaming }: { section: Section; dark: boolean; isStreaming?: boolean }) {
   const txtCls = dark ? 'text-zinc-400' : 'text-zinc-600';
   const dimCls = dark ? 'text-zinc-500' : 'text-zinc-400';
   const visualBatches = useSyncExternalStore(visualProgressStore.subscribe, visualProgressStore.getSnapshot);
@@ -540,6 +541,56 @@ function ExpandedContent({ section, dark }: { section: Section; dark: boolean })
 
   const covPct = (section.kind === 'coverage' || section.kind === 'metrics')
     ? parseInt(section.title.match(/(\d+)%/)?.[1] || '0') : null;
+
+  const renderLine = (line: string, i: number, isLast: boolean) => {
+    // For the last line of an actively streaming section, animate it in
+    const shouldAnimate = isStreaming && isLast;
+
+    // Query
+    if (line.startsWith('→ "')) {
+      return (
+        <div key={i} className={`text-[12px] ${txtCls} italic`}>
+          {shouldAnimate
+            ? <ResponseStream textStream={line} mode="typewriter" speed={90} className="inline" />
+            : line}
+        </div>
+      );
+    }
+    // Compress/fetch — very dim
+    if (line.match(/Compress|Fetched/i)) {
+      return (
+        <div key={i} className={`text-[10px] font-mono ${dimCls}`}>
+          {shouldAnimate
+            ? <ResponseStream textStream={line} mode="typewriter" speed={90} className="inline" />
+            : line}
+        </div>
+      );
+    }
+    // JSON tokens — no animation (too fast already)
+    if (line.match(/^\s*[\[{\]},"]/) || line.match(/^\s*"[a-zA-Z_]+"\s*:/)) {
+      return <div key={i} className={`text-[9px] font-mono leading-snug ${dimCls}`}>{line}</div>;
+    }
+    // KV pairs
+    const kvMatch = line.match(/^(Brand|Target Audience|Marketing Goal|Audience congregates|Key language|Market gap|Patterns|Gaps):\s*(.+)/);
+    if (kvMatch) {
+      return (
+        <div key={i} className={`text-[12px] ${txtCls}`}>
+          <span className="font-semibold">{kvMatch[1]}:</span>{' '}
+          {shouldAnimate
+            ? <ResponseStream textStream={kvMatch[2]} mode="typewriter" speed={90} className="inline" />
+            : kvMatch[2]}
+        </div>
+      );
+    }
+    // Default
+    return (
+      <div key={i} className={`text-[12px] leading-relaxed ${txtCls}`}>
+        {shouldAnimate
+          ? <ResponseStream textStream={line} mode="typewriter" speed={85} />
+          : line}
+      </div>
+    );
+  };
 
   return (
     <div className={`ml-8 mr-2 mt-1 mb-2 space-y-1 ${dark ? 'border-l border-zinc-800/50' : 'border-l border-zinc-200'} pl-3`}>
@@ -578,31 +629,7 @@ function ExpandedContent({ section, dark }: { section: Section; dark: boolean })
       )}
 
       {/* Lines */}
-      {section.lines.map((line, i) => {
-        // Query
-        if (line.startsWith('→ "')) {
-          return <div key={i} className={`text-[12px] ${txtCls} italic`}>{line}</div>;
-        }
-        // Compress/fetch — very dim
-        if (line.match(/Compress|Fetched/i)) {
-          return <div key={i} className={`text-[10px] font-mono ${dimCls}`}>{line}</div>;
-        }
-        // JSON tokens
-        if (line.match(/^\s*[\[{\]},"]/) || line.match(/^\s*"[a-zA-Z_]+"\s*:/)) {
-          return <div key={i} className={`text-[9px] font-mono leading-snug ${dimCls}`}>{line}</div>;
-        }
-        // KV pairs
-        const kvMatch = line.match(/^(Brand|Target Audience|Marketing Goal|Audience congregates|Key language|Market gap|Patterns|Gaps):\s*(.+)/);
-        if (kvMatch) {
-          return (
-            <div key={i} className={`text-[12px] ${txtCls}`}>
-              <span className="font-semibold">{kvMatch[1]}:</span> {kvMatch[2]}
-            </div>
-          );
-        }
-        // Default
-        return <div key={i} className={`text-[12px] leading-relaxed ${txtCls}`}>{line}</div>;
-      })}
+      {section.lines.map((line, i) => renderLine(line, i, i === section.lines.length - 1))}
 
       {/* Thinking */}
       {section.kind === 'thinking' && section.lines.length > 0 && (
@@ -859,7 +886,7 @@ export function ResearchOutput({ output, isDarkMode: dark }: ResearchOutputProps
                         }}
                         dark={dark}
                       />
-                      {isExp && <ExpandedContent section={section} dark={dark} />}
+                      {isExp && <ExpandedContent section={section} dark={dark} isStreaming={isItemActive} />}
                     </div>
                   );
                 })}

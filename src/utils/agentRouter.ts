@@ -2,10 +2,8 @@
  * agentRouter — Smart instruction router for the ActionSidebar agent
  *
  * Classifies incoming instructions and routes to the correct handler.
- * Uses keyword matching first; falls back to a fast LFM-2.5 classification call
+ * Uses keyword matching first; falls back to a fast qwen3.5:0.8b classification call
  * for ambiguous inputs.
- *
- * NOTE: lfm-2.5 is NOT for conversation — classification and compression only.
  */
 
 import { ollamaService } from './ollama';
@@ -61,17 +59,15 @@ function classifyByKeyword(instruction: string): AgentRouteType | null {
 }
 
 // ─────────────────────────────────────────────────────────────
-// LLM classifier (lfm-2.5 — fast, classification only)
+// LLM classifier (qwen3.5:0.8b — fast, classification only)
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Fast LFM-2.5 call to classify ambiguous instructions.
+ * Fast qwen3.5:0.8b call to classify ambiguous instructions.
  * Returns one of the 6 route types. Falls back to 'chat' on any error.
- *
- * lfm-2.5 is NOT for conversation — classification and compression only.
  */
 async function classifyByLLM(instruction: string): Promise<AgentRouteType> {
-  const CLASSIFICATION_MODEL = 'lfm-2.5:q4_K_M';
+  const CLASSIFICATION_MODEL = 'qwen3.5:0.8b';
   const endpoint = getOllamaEndpoint();
 
   const systemPrompt = `You are a router. Classify the user's instruction into EXACTLY one of these categories:

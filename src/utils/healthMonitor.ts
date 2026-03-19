@@ -4,6 +4,7 @@
  * Ollama endpoint is read dynamically from getOllamaEndpoint() on each check.
  */
 import { getOllamaEndpoint } from './modelConfig';
+import { INFRASTRUCTURE } from '../config/infrastructure';
 
 export type ServiceStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
 
@@ -26,8 +27,8 @@ const DOWN_THRESHOLD = 4;     // consecutive failures before "down"
 
 /** Static services — ollama is dynamic (resolved at check time) */
 const STATIC_SERVICES: Array<{ name: string; url: string; probe: string }> = [
-  { name: 'wayfayer', url: 'http://localhost:8889', probe: '/health' },
-  { name: 'searxng', url: 'http://localhost:8888', probe: '/healthz' },
+  { name: 'wayfayer', url: INFRASTRUCTURE.wayfarerUrl, probe: '/health' },
+  { name: 'searxng', url: INFRASTRUCTURE.searxngUrl, probe: '/healthz' },
 ];
 
 class HealthMonitor {
