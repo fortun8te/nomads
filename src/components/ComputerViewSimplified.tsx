@@ -169,13 +169,13 @@ export function ComputerViewSimplified() {
             </div>
           </div>
 
-          <div className="flex gap-3 items-stretch" style={{ maxWidth: 1474, width: '100%', maxHeight: '100%' }}>
+          <div className="flex gap-3 items-stretch" style={{ maxWidth: 1480, width: '100%', maxHeight: '100%' }}>
             {/* VNC Screen — accent color changes per machine */}
             <div
               className="flex-1 relative overflow-hidden rounded-xl"
               style={{
                 aspectRatio: '16 / 9',
-                maxWidth: 1188,
+                maxWidth: 1100,
                 background: accent.screenBg,
                 border: `1px solid rgba(255,255,255,0.08)`,
                 boxShadow: [

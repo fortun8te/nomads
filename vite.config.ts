@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { exec } from 'child_process'
+import path from 'path'
 
 /**
  * Auto-start companion servers when Vite dev server starts.
@@ -82,6 +83,11 @@ async function tryStartServer(opts: {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), autoStartServers()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   server: {
     port: parseInt(process.env.PORT || '5173'),
   },

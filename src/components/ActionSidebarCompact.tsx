@@ -1,6 +1,11 @@
 /**
  * ActionSidebarCompact — Manus-style agent instruction panel
  *
+ * Layout (top to bottom):
+ * 1. Computer preview section: thumbnail + "Nomad's Computer" + status
+ * 2. Task progression: collapsible step list with step counter
+ * 3. Input bar: message input + 4 circular action buttons
+ *
  * Features:
  * - Input always enabled (queue model): new messages queue while a run is active
  * - Runs displayed as collapsible blocks with step-level status dots
@@ -9,14 +14,12 @@
  * - Suggested follow-ups (LLM-generated) as clickable pills
  * - Document card inside run block when a doc is created (plan/write routes)
  * - DocumentViewer modal for full-screen doc reading
- * - MEMORY section (collapsible, always present)
  */
 
 import { useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { IconFinderReal } from './RealMacOSIcons';
 import { routeInstruction } from '../utils/agentRouter';
-import { addMemory, deleteMemory, formatMemoryAge, useMemories } from '../utils/memoryStore';
+import { addMemory } from '../utils/memoryStore';
 import { addDocument } from '../utils/documentStore';
 import type { AgentDocument } from '../utils/documentStore';
 import { ollamaService } from '../utils/ollama';
@@ -54,7 +57,7 @@ interface ActionSidebarCompactProps {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Route type → color
+// Route type -> color
 // ─────────────────────────────────────────────────────────────
 
 const ROUTE_COLORS: Record<string, string> = {
@@ -67,17 +70,6 @@ const ROUTE_COLORS: Record<string, string> = {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Memory type badge colors
-// ─────────────────────────────────────────────────────────────
-
-const MEMORY_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-  general:  { bg: 'rgba(255,255,255,0.06)',  text: 'rgba(255,255,255,0.40)' },
-  user:     { bg: 'rgba(56,189,248,0.10)',   text: 'rgba(56,189,248,0.70)' },
-  campaign: { bg: 'rgba(167,139,250,0.10)',  text: 'rgba(167,139,250,0.70)' },
-  research: { bg: 'rgba(52,211,153,0.10)',   text: 'rgba(52,211,153,0.70)' },
-};
-
-// ─────────────────────────────────────────────────────────────
 // Step dot / spinner
 // ─────────────────────────────────────────────────────────────
 
@@ -85,6 +77,10 @@ const CSS_SPIN = `
 @keyframes _nomad_spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
+}
+@keyframes _nomad_pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 `;
 
@@ -174,7 +170,7 @@ function DocCardInline({
     .split('\n')
     .filter(l => l.trim() && !l.startsWith('#'))
     .slice(0, 2)
-    .join(' · ');
+    .join(' -- ');
 
   return (
     <button
@@ -193,7 +189,6 @@ function DocCardInline({
         marginTop: 8,
       }}
     >
-      {/* Icon */}
       <div style={{ flexShrink: 0, marginTop: 1 }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(99,130,255,0.85)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
@@ -202,8 +197,6 @@ function DocCardInline({
           <line x1="8" y1="17" x2="13" y2="17" />
         </svg>
       </div>
-
-      {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
@@ -234,9 +227,7 @@ function DocCardInline({
           </div>
         )}
       </div>
-
-      {/* Ellipsis */}
-      <div style={{ flexShrink: 0, color: 'rgba(255,255,255,0.25)', fontSize: 11, marginTop: -2 }}>···</div>
+      <div style={{ flexShrink: 0, color: 'rgba(255,255,255,0.25)', fontSize: 11, marginTop: -2 }}>...</div>
     </button>
   );
 }
@@ -312,9 +303,9 @@ function RunBlock({
     <div
       style={{
         background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.06)',
+        border: '1px solid rgba(255,255,255,0.05)',
         borderRadius: 10,
-        marginBottom: 8,
+        marginBottom: 6,
         overflow: 'hidden',
       }}
     >
@@ -325,8 +316,8 @@ function RunBlock({
           width: '100%',
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
-          padding: '8px 10px',
+          gap: 8,
+          padding: '8px 12px',
           background: 'none',
           border: 'none',
           cursor: 'pointer',
@@ -351,7 +342,7 @@ function RunBlock({
         <span
           style={{
             flex: 1,
-            fontSize: 10,
+            fontSize: 11,
             color: 'rgba(255,255,255,0.65)',
             fontWeight: 500,
             whiteSpace: 'nowrap',
@@ -359,13 +350,13 @@ function RunBlock({
             textOverflow: 'ellipsis',
           }}
         >
-          {run.userMessage.length > 40 ? run.userMessage.slice(0, 40) + '…' : run.userMessage}
+          {run.userMessage.length > 50 ? run.userMessage.slice(0, 50) + '...' : run.userMessage}
         </span>
-        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-          {doneSteps} / {totalSteps}
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+          {doneSteps}/{totalSteps}
         </span>
         <svg
-          width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+          width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
           strokeLinecap="round" strokeLinejoin="round"
           style={{
             color: 'rgba(255,255,255,0.20)',
@@ -388,7 +379,7 @@ function RunBlock({
             transition={{ duration: 0.15 }}
             style={{ overflow: 'hidden' }}
           >
-            <div style={{ padding: '0 10px 10px' }}>
+            <div style={{ padding: '0 12px 10px' }}>
               {run.steps.map(step => (
                 <StepRow key={step.id} step={step} />
               ))}
@@ -426,7 +417,7 @@ function RunBlock({
               {/* Error footer */}
               {run.status === 'error' && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                  <span style={{ fontSize: 10, color: 'rgba(239,68,68,0.80)' }}>× Task failed</span>
+                  <span style={{ fontSize: 10, color: 'rgba(239,68,68,0.80)' }}>Task failed</span>
                 </div>
               )}
 
@@ -438,9 +429,9 @@ function RunBlock({
                       key={i}
                       onClick={() => onSuggestion(s)}
                       style={{
-                        fontSize: 9,
-                        padding: '3px 8px',
-                        borderRadius: 6,
+                        fontSize: 10,
+                        padding: '4px 10px',
+                        borderRadius: 8,
                         background: 'rgba(255,255,255,0.05)',
                         border: '1px solid rgba(255,255,255,0.07)',
                         color: 'rgba(255,255,255,0.50)',
@@ -477,7 +468,7 @@ function StepRow({ step }: { step: AgentStep }) {
           onClick={() => hasOutput && setShowOutput(s => !s)}
           style={{
             flex: 1,
-            fontSize: 10,
+            fontSize: 11,
             color: step.status === 'running'
               ? 'rgba(255,255,255,0.80)'
               : step.status === 'done'
@@ -519,11 +510,11 @@ function StepRow({ step }: { step: AgentStep }) {
                 borderRadius: 6,
                 background: 'rgba(255,255,255,0.03)',
                 border: '1px solid rgba(255,255,255,0.05)',
-                fontSize: 9,
+                fontSize: 10,
                 color: 'rgba(255,255,255,0.50)',
                 lineHeight: 1.55,
                 fontFamily: "'JetBrains Mono', monospace",
-                maxHeight: 120,
+                maxHeight: 140,
                 overflowY: 'auto',
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
@@ -557,6 +548,52 @@ function StepRow({ step }: { step: AgentStep }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Circular icon button (for input bar)
+// ─────────────────────────────────────────────────────────────
+
+function CircleButton({
+  children,
+  onClick,
+  disabled,
+  title,
+  active,
+  'aria-label': ariaLabel,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+  active?: boolean;
+  'aria-label'?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={ariaLabel}
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: active ? 'rgba(43,121,255,0.18)' : 'rgba(255,255,255,0.06)',
+        border: active ? '1px solid rgba(43,121,255,0.30)' : '1px solid rgba(255,255,255,0.08)',
+        color: active ? 'rgba(43,121,255,0.9)' : disabled ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.35)',
+        cursor: disabled ? 'default' : 'pointer',
+        transition: 'all 0.15s ease',
+        flexShrink: 0,
+        padding: 0,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // ID generator
 // ─────────────────────────────────────────────────────────────
 
@@ -574,16 +611,12 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [isRouting, setIsRouting] = useState(false);
   const [input, setInput] = useState('');
-  const [isMemoryOpen, setIsMemoryOpen] = useState(false);
-  const [expandedMemoryId, setExpandedMemoryId] = useState<string | null>(null);
   const [viewingDoc, setViewingDoc] = useState<AgentDocument | null>(null);
+  const [isTaskExpanded, setIsTaskExpanded] = useState(true);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-
-  const memories = useMemories();
-  const recentMemories = memories.slice(0, 3);
 
   // ── Run mutation helpers ──
 
@@ -736,7 +769,6 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
 
         case 'write':
         case 'plan': {
-          // Step 3: Streaming response
           const streamStepId = uid();
           addStep(runId, {
             id: streamStepId,
@@ -773,7 +805,6 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
 
           updateStep(runId, streamStepId, s => ({ ...s, status: 'done' }));
 
-          // Save as document if long enough
           if (responseText.length > 200) {
             const firstLine = responseText.split('\n').find(l => l.trim()) || userMessage;
             const title = firstLine.replace(/^#+\s*/, '').trim().slice(0, 60) || userMessage.slice(0, 60);
@@ -786,7 +817,6 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
 
         case 'chat':
         default: {
-          // Step 3: Streaming response
           const streamStepId = uid();
           addStep(runId, {
             id: streamStepId,
@@ -852,7 +882,6 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
           createdAt: Date.now(),
         };
         setRuns(r => [...r, newRun]);
-        // Kick off in microtask so state settles
         Promise.resolve().then(() => executeRun(newRunId, next));
         return rest;
       });
@@ -870,7 +899,6 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
     if (isRouting) {
-      // Queue it
       setPendingQueue(prev => [...prev, text]);
       return;
     }
@@ -893,7 +921,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
     setInput(e.target.value);
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 60) + 'px';
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 72) + 'px';
     }
   };
 
@@ -906,12 +934,26 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
 
   const handleRate = useCallback((runId: string, rating: number) => {
     updateRun(runId, r => ({ ...r, rating }));
-    // Persist rating as a memory signal
     const run = runs.find(r => r.id === runId);
     if (run) {
       addMemory('general', `Rating ${rating}/5 for: "${run.userMessage.slice(0, 80)}"`, ['rating', 'feedback']);
     }
   }, [updateRun, runs]);
+
+  // ── Derived state ──
+
+  const activeRun = activeRunId ? runs.find(r => r.id === activeRunId) : null;
+  const latestRun = runs.length > 0 ? runs[runs.length - 1] : null;
+  const currentRun = activeRun || latestRun;
+  const currentDone = currentRun ? currentRun.steps.filter(s => s.status === 'done').length : 0;
+  const currentTotal = currentRun ? currentRun.steps.length : 0;
+
+  // Current status text for computer preview
+  const statusText = computerStep
+    ? computerStep
+    : isRouting && currentRun
+      ? currentRun.steps.find(s => s.status === 'running')?.label || 'Working...'
+      : 'Idle';
 
   // ─────────────────────────────────────────────────────────────
   // Render
@@ -919,11 +961,10 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
 
   return (
     <>
-      {/* Inject spin keyframes once */}
       <style>{CSS_SPIN}</style>
 
       <div
-        className="w-[242px] shrink-0 flex flex-col rounded-xl overflow-hidden"
+        className="w-[340px] shrink-0 flex flex-col rounded-xl overflow-hidden"
         style={{
           background: 'linear-gradient(180deg, rgba(15,15,20,0.85) 0%, rgba(10,12,18,0.9) 100%)',
           border: '1px solid rgba(255,255,255,0.08)',
@@ -931,251 +972,258 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, co
           backdropFilter: 'blur(16px)',
         }}
       >
-        {/* ── Header ── */}
-        <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between gap-2">
-          <span className="text-[10px] font-semibold text-white/[0.55] uppercase tracking-widest shrink-0">Agent Log</span>
-          {computerStep ? (
-            <span className="flex items-center gap-1 min-w-0">
-              <span className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: 'rgba(52,211,153,0.8)', animation: 'pulse 1.2s ease-in-out infinite' }} />
-              <span className="text-[10px] text-emerald-400/70 truncate">{computerStep}</span>
-            </span>
-          ) : isRouting ? (
-            <span className="text-[10px] text-white/[0.30] animate-pulse shrink-0">working...</span>
-          ) : null}
-        </div>
-
-        {/* ── Run list (scrollable) ── */}
-        <div className="flex-1 relative min-h-0 overflow-hidden flex flex-col">
-          {/* Top blur */}
-          <div className="absolute top-0 left-0 right-0 h-4 pointer-events-none z-10"
-            style={{ background: 'linear-gradient(to bottom, rgba(12,12,18,0.95), transparent)' }}
-          />
-
-          <div className="flex-1 overflow-y-auto px-2.5 py-2.5" ref={scrollRef}>
-            {runs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2 text-center py-8">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/[0.12]">
-                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-                <span className="text-[10px] text-white/[0.15]">No activity yet</span>
-              </div>
-            ) : (
-              <AnimatePresence>
-                {runs.map(run => (
-                  <motion.div
-                    key={run.id}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    transition={{ duration: 0.18 }}
-                  >
-                    <RunBlock
-                      run={run}
-                      onRate={handleRate}
-                      onSuggestion={text => handleSendInstruction(text)}
-                      onDocClick={setViewingDoc}
-                    />
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            )}
-          </div>
-
-          {/* Bottom blur */}
-          <div className="absolute bottom-0 left-0 right-0 h-4 pointer-events-none z-10"
-            style={{ background: 'linear-gradient(to top, rgba(12,12,18,0.95), transparent)' }}
-          />
-        </div>
-
-        {/* ── Memory section ── */}
-        <div className="border-t border-white/[0.08]">
+        {/* ── Computer preview + task progression ── */}
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          {/* Computer preview header */}
           <button
-            onClick={() => setIsMemoryOpen(prev => !prev)}
-            className="w-full px-3.5 py-2 flex items-center justify-between transition-colors hover:bg-white/[0.03]"
+            onClick={() => setIsTaskExpanded(e => !e)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 12,
+              padding: '14px 14px 10px',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
           >
-            <span className="text-[10px] font-semibold text-white/[0.30] uppercase tracking-widest">Memory</span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-white/[0.20]">{memories.length}</span>
-              <svg
-                width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                className="text-white/[0.25] transition-transform"
-                style={{ transform: isMemoryOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+            {/* Thumbnail placeholder */}
+            <div
+              style={{
+                width: 120,
+                height: 80,
+                borderRadius: 10,
+                background: 'rgba(0,0,0,0.4)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                overflow: 'hidden',
+              }}
+            >
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.15)', textAlign: 'center', lineHeight: 1.3, padding: 8 }}>
+                Computer Preview
+              </span>
+            </div>
+
+            {/* Right side: title + status */}
+            <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.70)', fontWeight: 600 }}>
+                Nomad's Computer
+              </div>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: isRouting ? 'rgba(52,211,153,0.60)' : 'rgba(255,255,255,0.30)',
+                  marginTop: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
               >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
+                {isRouting && (
+                  <span
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: '50%',
+                      background: 'rgba(52,211,153,0.8)',
+                      animation: '_nomad_pulse 1.2s ease-in-out infinite',
+                      flexShrink: 0,
+                      display: 'inline-block',
+                    }}
+                  />
+                )}
+                <span style={{
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {statusText}
+                </span>
+              </div>
+
+              {/* Step counter + chevron inline */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontVariantNumeric: 'tabular-nums' }}>
+                  {currentTotal > 0 ? `${currentDone}/${currentTotal}` : ''}
+                </span>
+                <svg
+                  width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  style={{
+                    color: 'rgba(255,255,255,0.20)',
+                    transform: isTaskExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.15s ease',
+                  }}
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </div>
             </div>
           </button>
 
+          {/* Task progression (collapsible) */}
           <AnimatePresence>
-            {isMemoryOpen && (
+            {isTaskExpanded && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.18 }}
-                style={{ overflow: 'hidden' }}
+                style={{ overflow: 'hidden', flex: 1, minHeight: 0 }}
               >
-                <div className="px-2.5 pb-2 space-y-1">
-                  {recentMemories.length === 0 ? (
-                    <div className="text-center py-3 text-[9px] text-white/[0.20]">No memories yet</div>
-                  ) : (
-                    recentMemories.map(mem => {
-                      const isExpanded = expandedMemoryId === mem.id;
-                      const colors = MEMORY_TYPE_COLORS[mem.type] || MEMORY_TYPE_COLORS.general;
-                      return (
-                        <div
-                          key={mem.id}
-                          className="rounded-md px-2 py-1.5 cursor-pointer group/mem transition-colors"
-                          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}
-                          onClick={() => setExpandedMemoryId(isExpanded ? null : mem.id)}
-                        >
-                          <div className="flex items-start justify-between gap-1">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span
-                                className="shrink-0 text-[8px] font-semibold rounded px-1 py-0.5 uppercase tracking-wide"
-                                style={{ background: colors.bg, color: colors.text }}
-                              >
-                                {mem.type}
-                              </span>
-                              <span className="text-[9px] text-white/[0.20] shrink-0">
-                                {formatMemoryAge(mem.createdAt)}
-                              </span>
-                            </div>
-                            <button
-                              onClick={e => { e.stopPropagation(); deleteMemory(mem.id); }}
-                              className="shrink-0 opacity-0 group-hover/mem:opacity-100 transition-opacity text-white/[0.30] hover:text-white/[0.60]"
-                              title="Delete memory"
-                            >
-                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                                <line x1="18" y1="6" x2="6" y2="18" />
-                                <line x1="6" y1="6" x2="18" y2="18" />
-                              </svg>
-                            </button>
-                          </div>
-                          <div
-                            className="mt-1 text-[9px] text-white/[0.45] leading-snug"
-                            style={{
-                              overflow: 'hidden',
-                              display: '-webkit-box',
-                              WebkitLineClamp: isExpanded ? 999 : 2,
-                              WebkitBoxOrient: 'vertical',
-                            } as React.CSSProperties}
+                <div className="relative flex flex-col" style={{ minHeight: 0, maxHeight: 'calc(100vh - 300px)' }}>
+                  {/* Top fade */}
+                  <div className="absolute top-0 left-0 right-0 h-3 pointer-events-none z-10"
+                    style={{ background: 'linear-gradient(to bottom, rgba(12,14,20,0.8), transparent)' }}
+                  />
+
+                  <div className="overflow-y-auto px-3 py-2" ref={scrollRef}>
+                    {runs.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/[0.10]">
+                          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                        <span className="text-[10px] text-white/[0.13]">No activity yet</span>
+                      </div>
+                    ) : (
+                      <AnimatePresence>
+                        {runs.map(run => (
+                          <motion.div
+                            key={run.id}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -4 }}
+                            transition={{ duration: 0.18 }}
                           >
-                            {mem.content}
-                          </div>
-                          {mem.tags.length > 0 && isExpanded && (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              {mem.tags.map(tag => (
-                                <span key={tag} className="text-[8px] px-1 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.25)' }}>
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
+                            <RunBlock
+                              run={run}
+                              onRate={handleRate}
+                              onSuggestion={text => handleSendInstruction(text)}
+                              onDocClick={setViewingDoc}
+                            />
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    )}
+                  </div>
+
+                  {/* Bottom fade */}
+                  <div className="absolute bottom-0 left-0 right-0 h-3 pointer-events-none z-10"
+                    style={{ background: 'linear-gradient(to top, rgba(12,14,20,0.8), transparent)' }}
+                  />
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* ── Instruction input ── */}
-        <div className="px-3 py-3 border-t border-white/[0.08] flex flex-col gap-1.5">
-          <div className="text-[10px] text-white/[0.30] select-none">
-            Give the AI an instruction
-          </div>
-          <div className="flex items-end gap-1.5">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder="e.g. Search for collagen supplement reviews..."
-              className="flex-1 px-2.5 py-2 rounded-lg text-[11px] bg-white/[0.04] text-white/[0.80] placeholder-white/[0.20] border border-white/[0.08] focus:border-white/[0.15] focus:outline-none focus:bg-white/[0.06] resize-none transition-all"
-              style={{
-                minHeight: '32px',
-                maxHeight: '60px',
-                backdropFilter: 'blur(8px)',
-              }}
-              data-role="instruction-input"
-              aria-label="Instruction input — type a command for the AI agent"
-            />
-            <div className="flex flex-col items-end gap-1">
-              {/* Queue badge */}
-              {isRouting && pendingQueue.length > 0 && (
-                <span
-                  style={{
-                    fontSize: 8,
-                    color: 'rgba(251,191,36,0.70)',
-                    background: 'rgba(251,191,36,0.08)',
-                    border: '1px solid rgba(251,191,36,0.15)',
-                    borderRadius: 4,
-                    padding: '1px 5px',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {pendingQueue.length} queued
-                </span>
-              )}
-              <button
-                onClick={() => handleSendInstruction()}
-                disabled={!input.trim()}
-                data-role="send-button"
-                aria-label="Send instruction to AI agent"
-                title={isRouting ? 'Queue message' : 'Send instruction'}
-                className="shrink-0 flex items-center justify-center rounded-lg transition-all"
+        {/* ── Input bar ── */}
+        <div
+          style={{
+            padding: '12px 14px 14px',
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+          }}
+        >
+          {/* Textarea */}
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Send a message to Nomad"
+            data-role="instruction-input"
+            aria-label="Send a message to the Nomad agent"
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              borderRadius: 10,
+              fontSize: 12,
+              background: 'rgba(255,255,255,0.04)',
+              color: 'rgba(255,255,255,0.80)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              outline: 'none',
+              resize: 'none',
+              minHeight: 40,
+              maxHeight: 72,
+              lineHeight: 1.5,
+              fontFamily: 'inherit',
+              backdropFilter: 'blur(8px)',
+              transition: 'border-color 0.15s ease',
+            }}
+            onFocus={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)'; }}
+            onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
+          />
+
+          {/* Queue badge */}
+          {isRouting && pendingQueue.length > 0 && (
+            <div style={{ marginTop: 6, marginBottom: -2 }}>
+              <span
                 style={{
-                  width: 32,
-                  height: 32,
-                  background: input.trim()
-                    ? isRouting
-                      ? 'rgba(251,191,36,0.12)'
-                      : 'rgba(43,121,255,0.18)'
-                    : 'rgba(255,255,255,0.04)',
-                  border: input.trim()
-                    ? isRouting
-                      ? '1px solid rgba(251,191,36,0.25)'
-                      : '1px solid rgba(43,121,255,0.30)'
-                    : '1px solid rgba(255,255,255,0.07)',
-                  color: input.trim()
-                    ? isRouting
-                      ? 'rgba(251,191,36,0.80)'
-                      : 'rgba(43,121,255,0.9)'
-                    : 'rgba(255,255,255,0.20)',
-                  cursor: input.trim() ? 'pointer' : 'default',
-                  backdropFilter: 'blur(8px)',
+                  fontSize: 9,
+                  color: 'rgba(251,191,36,0.70)',
+                  background: 'rgba(251,191,36,0.08)',
+                  border: '1px solid rgba(251,191,36,0.15)',
+                  borderRadius: 4,
+                  padding: '2px 6px',
                 }}
               >
-                {isRouting ? (
-                  /* Queue icon when routing */
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="8" y1="6" x2="21" y2="6" />
-                    <line x1="8" y1="12" x2="21" y2="12" />
-                    <line x1="8" y1="18" x2="21" y2="18" />
-                    <line x1="3" y1="6" x2="3.01" y2="6" />
-                    <line x1="3" y1="12" x2="3.01" y2="12" />
-                    <line x1="3" y1="18" x2="3.01" y2="18" />
-                  </svg>
-                ) : (
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                    <polyline points="13 6 19 12 13 18" />
-                  </svg>
-                )}
-              </button>
+                {pendingQueue.length} queued
+              </span>
             </div>
-          </div>
-          <div className="text-[10px] text-white/[0.20]">
-            {isRouting
-              ? 'Agent is working — message will be queued'
-              : input.trim()
-                ? 'Enter to send · Shift+Enter for newline'
-                : 'Shift+Enter for newline'}
+          )}
+
+          {/* Button row */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+            {/* Left buttons */}
+            <div style={{ display: 'flex', gap: 6 }}>
+              {/* + (attach/new) */}
+              <CircleButton title="Attach or start new task" aria-label="Attach file or start new task">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </CircleButton>
+
+              {/* Search icon */}
+              <CircleButton title="Search" aria-label="Search">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </CircleButton>
+            </div>
+
+            {/* Right buttons */}
+            <div style={{ display: 'flex', gap: 6 }}>
+              {/* Mic (placeholder, disabled) */}
+              <CircleButton title="Voice input (coming soon)" aria-label="Voice input" disabled>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                  <path d="M19 10v2a7 7 0 01-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              </CircleButton>
+
+              {/* Send */}
+              <CircleButton
+                onClick={() => handleSendInstruction()}
+                active={!!input.trim()}
+                title={isRouting ? 'Queue message' : 'Send message'}
+                aria-label="Send message"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="19" x2="12" y2="5" />
+                  <polyline points="5 12 12 5 19 12" />
+                </svg>
+              </CircleButton>
+            </div>
           </div>
         </div>
       </div>
