@@ -4,12 +4,9 @@
  * Aggregates their feedback into a unified assessment with consensus and outliers
  */
 
-import {
-  allCouncilPersonas,
-  CouncilPersona,
-  CouncilEvaluation,
-} from "./councilPersonas";
-import { ollamaService } from "./ollamaService";
+import { allCouncilPersonas } from "./councilPersonas";
+import type { CouncilPersona, CouncilEvaluation } from "./councilPersonas";
+import { ollamaService } from "./ollama";
 
 export interface CreativeForEvaluation {
   headline: string;

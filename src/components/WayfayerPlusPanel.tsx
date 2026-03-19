@@ -12,20 +12,23 @@
  *  - Collapsible chat drawer (24px collapsed, 180px expanded)
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ollamaService } from '../utils/ollama';
 import { sandboxService } from '../utils/sandboxService';
 import {
   runPlanAct,
   notifyUserInteraction, clearUserInteraction, getUserInteractionState,
   type AgentPlan, type StreamEvent, type ConversationContext,
 } from '../utils/planActAgent';
-import { getPlannerModel, getExecutorModel, getThinkingModel } from '../utils/modelConfig';
+import { getPlannerModel, getExecutorModel } from '../utils/modelConfig';
 import { VNCViewer } from './VNCViewer';
 import { MeshGradient } from '@paper-design/shaders-react';
 import { BGPattern } from './BGPattern';
+
+export interface WayfayerPlusPanelHandle {
+  runTask: (goal: string) => void;
+}
 
 // ── Types ──
 
@@ -94,11 +97,11 @@ function ActionIcon({ icon }: { icon: ActionPill['icon'] }) {
 // MAIN COMPONENT
 // ════════════════════════════════════════════════
 
-export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientColors }: { standalone?: boolean; onAddMachine?: () => void; gradientColors?: string[] } = {}) {
+export const WayfayerPlusPanel = forwardRef<WayfayerPlusPanelHandle, { standalone?: boolean; onAddMachine?: () => void; gradientColors?: string[]; onStepChange?: (step: string | null) => void }>(function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientColors, onStepChange }, ref) {
   // ── Core state ──
   const [phase, setPhase] = useState<Phase>('idle');
   const [pageUrl, setPageUrl] = useState('');
-  const [pageTitle, setPageTitle] = useState('');
+  const [_pageTitle, setPageTitle] = useState('');
   const [controlMode, setControlMode] = useState<ControlMode>('ai');
   const [userPaused, setUserPaused] = useState(false);
   const [exploring, setExploring] = useState(false);
@@ -106,7 +109,7 @@ export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientCo
   const [showPlan, setShowPlan] = useState(true);
 
   // ── Chat & messages ──
-  const [busy, setBusy] = useState(false);
+  const [_busy, setBusy] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [recentActions, setRecentActions] = useState<ActionPill[]>([]);
   const [currentPlan, setCurrentPlan] = useState<AgentPlan | null>(null);
@@ -130,10 +133,10 @@ export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientCo
   const [aiCursor, setAiCursor] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
   const [ripples, setRipples] = useState<{ x: number; y: number; id: number }[]>([]);
   const rippleIdRef = useRef(0);
-  const [exploreStep, setExploreStep] = useState(0);
+  const [_exploreStep, setExploreStep] = useState(0);
 
   // ── Sandbox ──
-  const [sandboxReady, setSandboxReady] = useState(false);
+  const [_sandboxReady, setSandboxReady] = useState(false);
 
   useEffect(injectCSS, []);
 
@@ -164,7 +167,7 @@ export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientCo
   }, []);
 
   // ── Cancel ──
-  function cancel() {
+  function _cancel() {
     exploreAbortRef.current?.abort();
     exploringRef.current = false;
     setBusy(false);
@@ -173,9 +176,10 @@ export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientCo
     setStreamingText('');
     if (phase !== 'idle') setPhase('live');
   }
+  void _cancel;
 
   // ── Navigate ──
-  async function navigate(targetUrl: string) {
+  async function _navigate(targetUrl: string) {
     let u = targetUrl.trim();
     if (!u) return;
     if (!/^https?:\/\//.test(u)) u = 'https://' + u;
@@ -198,6 +202,7 @@ export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientCo
       setPhase('error');
     }
   }
+  void _navigate;
 
   // ── User interaction detection ──
   const handleUserInteraction = useCallback(() => {
@@ -247,8 +252,10 @@ export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientCo
         setShowPlan(true);
       },
       onStepStart: (step) => {
-        setStreamingText(`Step ${step.step}: ${step.description}`);
+        const label = `Step ${step.step}: ${step.description}`;
+        setStreamingText(label);
         addAction(step.description.slice(0, 25), 'step');
+        onStepChange?.(label);
       },
       onAction: (action, _result) => {
         setExploreStep(s => s + 1);
@@ -327,8 +334,13 @@ export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientCo
     setExploring(false);
     setStreamingText('');
     setCurrentPlan(null);
-  }, [conversation, addAction, addMessage]);
+    onStepChange?.(null);
+  }, [conversation, addAction, addMessage, onStepChange]);
 
+  // ── Expose runTask via ref so ActionSidebar can trigger computer tasks ──
+  useImperativeHandle(ref, () => ({
+    runTask: (goal: string) => { runAgent(goal); },
+  }));
 
   // ── Toggle control mode ──
   const toggleControl = useCallback(() => {
@@ -667,7 +679,6 @@ export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientCo
                 <MeshGradient
                   colors={gradientColors ?? ['#000000', '#030308', '#060e1a', '#091828', '#1a4fcc']}
                   speed={0.06}
-                  seed={Math.floor(Math.random() * 1000)}
                   style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
                 />
                 <BGPattern fill="rgba(255,255,255,0.025)" size={28} mask="fade-edges" />
@@ -851,4 +862,4 @@ export function WayfayerPlusPanel({ standalone = false, onAddMachine, gradientCo
     </div>
     </>
   );
-}
+});

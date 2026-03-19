@@ -485,7 +485,7 @@ function LeftPanel({
               onClick={handleRedo}
               className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium transition-all ${
                 isDark
-                  ? 'bg-white/[0.05] text-white/[0.55] border border-white/[0.10] hover:bg-white/[0.08] hover:text-white/[0.75]'
+                  ? 'bg-white/[0.05] text-white/[0.55] border border-white/[0.08] hover:bg-white/[0.08] hover:text-white/[0.75]'
                   : 'bg-zinc-100 text-zinc-500 border border-zinc-200 hover:bg-zinc-200 hover:text-zinc-700'
               }`}
             >

@@ -14,7 +14,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   useFSStore,
   getItems as fsGetItems,
-  addItem,
   removeItem,
   renameItem,
   createFolder,
@@ -84,20 +83,11 @@ function FileIcon({ extension, size = 14 }: { extension?: string; size?: number 
 function IcoSession() {
   return <svg {...ico} stroke="#60a5fa"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>;
 }
-function IcoMemory() {
-  return <svg {...ico} stroke="#a78bfa"><path d="M12 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4z" /><path d="M8 14H5a2 2 0 00-2 2v4h18v-4a2 2 0 00-2-2h-3" /></svg>;
-}
-function IcoExport() {
-  return <svg {...ico} stroke="#34d399"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>;
-}
 function IcoScreenshots() {
   return <svg {...ico} stroke="#94a3b8"><rect x="2" y="4" width="20" height="14" rx="2" /><circle cx="8" cy="11" r="2" /><path d="M21 18l-6-7-4 5-3-3-5 5" /></svg>;
 }
 function IcoResearch() {
   return <svg {...ico} stroke="#94a3b8"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>;
-}
-function IcoBrief() {
-  return <svg {...ico} stroke="#94a3b8"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" /></svg>;
 }
 function IcoChevron({ dir = 'right' }: { dir?: 'right' | 'left' }) {
   return (
@@ -215,7 +205,7 @@ function GridItem({
   item: FSNode;
   selected: boolean;
   renaming: boolean;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
   onRenameCommit: (name: string) => void;
   onRenameCancel: () => void;
@@ -260,7 +250,7 @@ function ListRow({
   selected: boolean;
   isFirst: boolean;
   renaming: boolean;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
   onRenameCommit: (name: string) => void;
   onRenameCancel: () => void;
@@ -312,7 +302,7 @@ function FilePreview({ node }: { node: FSNode }) {
 
   return (
     <div style={{
-      borderTop: '1px solid rgba(255,255,255,0.06)',
+      borderTop: '1px solid rgba(255,255,255,0.08)',
       background: 'rgba(14,14,18,0.98)',
       padding: '12px 16px',
       display: 'flex',
@@ -343,7 +333,7 @@ function FilePreview({ node }: { node: FSNode }) {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
-export function FinderWindow({ onClose }: { onClose: () => void }) {
+export function FinderWindow({ onClose, zIndex, onFocus }: { onClose: () => void; zIndex?: number; onFocus?: () => void }) {
   // Reactive store — re-renders when filesystem changes
   useFSStore();
 
@@ -587,6 +577,7 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.92 }}
       transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+      onMouseDownCapture={onFocus}
       style={{
         position: 'absolute',
         ...(pos !== null
@@ -599,12 +590,13 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 200,
+        zIndex: zIndex ?? 200,
         pointerEvents: 'auto',
         background: 'rgba(18,18,22,0.97)',
         backdropFilter: 'blur(40px) saturate(160%)',
         WebkitBackdropFilter: 'blur(40px) saturate(160%)',
         boxShadow: '0 40px 100px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.08)',
+        border: '1px solid rgba(255,255,255,0.08)',
         fontFamily: 'system-ui,-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif',
         userSelect: 'none',
       }}
@@ -621,8 +613,8 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
       <div
         onMouseDown={onTitleBarMouseDown}
         style={{
-          height: 38, display: 'flex', alignItems: 'center', paddingLeft: 12, paddingRight: 12,
-          background: 'rgba(22,22,28,0.98)', borderBottom: '1px solid rgba(255,255,255,0.06)',
+          height: 36, display: 'flex', alignItems: 'center', paddingLeft: 14, paddingRight: 14,
+          background: 'rgba(22,22,28,0.98)', borderBottom: '1px solid rgba(255,255,255,0.08)',
           flexShrink: 0, cursor: 'default', position: 'relative',
         }}
       >
@@ -636,7 +628,7 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
       {/* Toolbar */}
       <div style={{
         height: 40, display: 'flex', alignItems: 'center', padding: '0 10px', gap: 6,
-        background: 'rgba(20,20,26,0.98)', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0,
+        background: 'rgba(20,20,26,0.98)', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0,
       }}>
         {/* Back / Forward */}
         {[{ fn: goBack, can: canBack, ico: <IcoChevron dir="left" /> }, { fn: goForward, can: canForward, ico: <IcoChevron dir="right" /> }].map((btn, i) => (
@@ -722,7 +714,7 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
       {/* Body */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Sidebar */}
-        <div style={{ width: sidebarWidth, background: 'rgba(16,16,20,0.98)', borderRight: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, overflowY: 'auto', paddingTop: 8 }}>
+        <div style={{ width: sidebarWidth, background: 'rgba(16,16,20,0.98)', borderRight: '1px solid rgba(255,255,255,0.08)', flexShrink: 0, overflowY: 'auto', paddingTop: 8 }}>
           {SIDEBAR.map(section => (
             <div key={section.title} style={{ marginBottom: 12 }}>
               <div style={{ padding: '4px 12px 2px', fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase', letterSpacing: 0.8 }}>
@@ -735,10 +727,11 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
                   style={{
                     display: 'flex', alignItems: 'center', gap: 7,
                     width: `calc(100% - 8px)`, margin: '0 4px', padding: '5px 8px',
-                    border: 'none', borderRadius: 6, cursor: 'pointer', boxSizing: 'border-box',
+                    border: 'none', borderRadius: 8, cursor: 'pointer', boxSizing: 'border-box',
                     background: activeSidebarId === item.id ? 'rgba(43,121,255,0.2)' : 'transparent',
                     color: activeSidebarId === item.id ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.55)',
                     fontSize: 12.5, textAlign: 'left',
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   <span style={{ display: 'flex', alignItems: 'center', color: activeSidebarId === item.id ? '#5B9BF8' : 'rgba(255,255,255,0.3)' }}>
@@ -763,7 +756,7 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
           {viewMode === 'list' && (
             <div style={{
               display: 'flex', alignItems: 'center', padding: '0 12px', height: 26,
-              borderBottom: '1px solid rgba(255,255,255,0.05)',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
               background: 'rgba(18,18,24,0.95)',
             }}>
               {[['Name', 1, 'left'], ['Modified', '90px', 'right'], ['Size', '60px', 'right']].map(([label, w, align]) => (
@@ -799,7 +792,7 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
                       item={item}
                       selected={selectedId === item.id}
                       renaming={renamingId === item.id}
-                      onSelect={e => { (e as unknown as React.MouseEvent).stopPropagation?.(); setSelectedId(item.id); }}
+                      onSelect={e => { e.stopPropagation(); setSelectedId(item.id); }}
                       onOpen={() => openItem(item)}
                       onRenameCommit={name => commitRename(item.id, name)}
                       onRenameCancel={cancelRename}
@@ -817,7 +810,7 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
                     selected={selectedId === item.id}
                     isFirst={i === 0}
                     renaming={renamingId === item.id}
-                    onSelect={e => { (e as unknown as React.MouseEvent).stopPropagation?.(); setSelectedId(item.id); }}
+                    onSelect={e => { e.stopPropagation(); setSelectedId(item.id); }}
                     onOpen={() => openItem(item)}
                     onRenameCommit={name => commitRename(item.id, name)}
                     onRenameCancel={cancelRename}
@@ -838,7 +831,7 @@ export function FinderWindow({ onClose }: { onClose: () => void }) {
       {/* Status bar */}
       <div style={{
         height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(16,16,20,0.98)', borderTop: '1px solid rgba(255,255,255,0.05)',
+        background: 'rgba(16,16,20,0.98)', borderTop: '1px solid rgba(255,255,255,0.08)',
         fontSize: 11, color: 'rgba(255,255,255,0.28)', flexShrink: 0,
       }}>
         {items.length} item{items.length !== 1 ? 's' : ''}

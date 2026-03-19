@@ -10,6 +10,8 @@ let RFB: any = null;
 const loadRFB = async () => {
   if (RFB) return RFB;
   try {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error no type declarations for @novnc/novnc
     const mod = await import('@novnc/novnc/lib/rfb.js');
     RFB = mod.default || mod;
     return RFB;

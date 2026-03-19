@@ -17,7 +17,7 @@ interface EtherealBGProps {
 export function EtherealBG({
   color = 'rgba(43, 121, 255, 0.04)',
   scale = 30,
-  speed = 20,
+  speed: _speed = 20,
   className = '',
 }: EtherealBGProps) {
   const filterId = useId().replace(/:/g, '_');

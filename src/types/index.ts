@@ -649,4 +649,7 @@ export interface CampaignContextType {
   stopCycle: () => void;
   completeStage: (stageName: StageName, output: string) => Promise<void>;
   setCampaign: (campaign: Campaign) => void;
+  clearCampaign: () => void;
+  resetResearch: () => Promise<void>;
+  loadCampaignById: (id: string) => Promise<void>;
 }

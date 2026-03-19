@@ -1,9 +1,11 @@
 import { orchestrator } from '../utils/researchAgents';
+import type { OrchestratorState } from '../utils/researchAgents';
 import { useResearchAgent } from './useResearchAgent';
 import { runCouncil, extractFindingsFromVerdict } from '../utils/council';
+import type { CouncilVerdict } from '../utils/council';
 import { getResearchModelConfig, getResearchLimits, getActiveResearchPreset, getCouncilScaling } from '../utils/modelConfig';
 import { createResearchAudit, buildResearchAuditTrail, recordResearchModel } from '../utils/researchAudit';
-import type { Campaign, ResearchFindings } from '../types';
+import type { Campaign, ResearchFindings, VisualFindings } from '../types';
 
 interface OrchestratedResearchResult {
   processedOutput: string;
@@ -154,7 +156,7 @@ export function useOrchestratedResearch() {
         // Merge visual findings if captured
         const visualFindings = orchestratorState._visualFindings;
         if (visualFindings) {
-          researchFindings.visualFindings = visualFindings;
+          researchFindings.visualFindings = visualFindings as VisualFindings;
         }
 
         // Summary for output

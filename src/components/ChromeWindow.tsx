@@ -35,6 +35,10 @@ interface ChromeWindowProps {
   /** Width/height are controlled by the window manager via className/style */
   className?: string;
   style?: React.CSSProperties;
+  /** z-index override from the window manager */
+  zIndex?: number;
+  /** Called on any mousedown in this window (bring to front) */
+  onFocus?: () => void;
 }
 
 // ── Constants ──────────────────────────────────────────
@@ -254,6 +258,8 @@ export function ChromeWindow({
   initialTabs,
   className = '',
   style,
+  zIndex,
+  onFocus,
 }: ChromeWindowProps) {
   const [tabs, setTabs] = useState<ChromeTab[]>(() => {
     if (initialTabs && initialTabs.length > 0) {
@@ -265,6 +271,7 @@ export function ChromeWindow({
   const [urlInputValue, setUrlInputValue] = useState('');
   const [isEditingUrl, setIsEditingUrl] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isDraggingWindow, setIsDraggingWindow] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   // ── Window drag ──
@@ -294,6 +301,7 @@ export function ChromeWindow({
         setPos({ x: rect.left - parentRect.left, y: rect.top - parentRect.top });
       }
     }
+    setIsDraggingWindow(true);
     const onMove = (ev: MouseEvent) => {
       if (!isDraggingRef.current) return;
       const pr = windowRef.current?.parentElement?.getBoundingClientRect();
@@ -302,6 +310,7 @@ export function ChromeWindow({
     };
     const onUp = () => {
       isDraggingRef.current = false;
+      setIsDraggingWindow(false);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
@@ -456,6 +465,7 @@ export function ChromeWindow({
       exit={{ opacity: 0, scale: 0.92 }}
       transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
       className={className}
+      onMouseDownCapture={onFocus}
       style={{
         position: 'absolute',
         ...(pos !== null
@@ -468,13 +478,17 @@ export function ChromeWindow({
         overflow: 'hidden',
         background: 'rgba(22, 22, 28, 0.98)',
         border: '1px solid rgba(255,255,255,0.08)',
-        boxShadow: '0 40px 100px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.06)',
-        backdropFilter: 'blur(20px)',
-        zIndex: 210,
+        boxShadow: '0 40px 100px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.08)',
+        backdropFilter: 'blur(40px) saturate(160%)',
+        zIndex: zIndex ?? 210,
         pointerEvents: 'auto',
         ...style,
       }}
     >
+      {/* Drag overlay — prevents iframe from stealing mousemove during window drag */}
+      {isDraggingWindow && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 9999, cursor: 'grabbing' }} />
+      )}
       {/* ══════════════════════════════════════════ */}
       {/*  1. TAB BAR (36px)                         */}
       {/* ══════════════════════════════════════════ */}
@@ -483,7 +497,7 @@ export function ChromeWindow({
         style={{
           height: 36, display: 'flex', alignItems: 'flex-end',
           background: 'rgba(18, 18, 24, 0.95)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
           paddingLeft: 72,
           paddingRight: 8,
           position: 'relative',
@@ -537,7 +551,7 @@ export function ChromeWindow({
         height: 44, display: 'flex', alignItems: 'center', gap: 8,
         padding: '0 12px',
         background: 'rgba(20, 20, 26, 0.97)',
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
       }}>
         {/* Back */}
         <NavButton onClick={goBack} disabled={!activeTab?.canGoBack} title="Back">
@@ -685,8 +699,8 @@ function NavButton({
         transition: 'color 0.15s, background 0.15s',
         flexShrink: 0,
       }}
-      onMouseEnter={e => { if (!disabled) e.currentTarget.style.color = 'rgba(255,255,255,0.75)'; }}
-      onMouseLeave={e => { e.currentTarget.style.color = disabled ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.45)'; }}
+      onMouseEnter={e => { if (!disabled) { e.currentTarget.style.color = 'rgba(255,255,255,0.75)'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; } }}
+      onMouseLeave={e => { e.currentTarget.style.color = disabled ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.45)'; e.currentTarget.style.background = 'none'; }}
     >
       {children}
     </button>

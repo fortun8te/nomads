@@ -76,9 +76,9 @@ export function AppShell() {
   const [pulsingView, setPulsingView] = useState<AppView | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showBrandHub, setShowBrandHub] = useState(false);
-  const [showGreeting] = useState(false); // greeting overlay removed
+  const [_showGreeting] = useState(false); // greeting overlay removed
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [healthState, setHealthState] = useState<Record<string, ServiceStatus>>({});
+  const [_healthState, setHealthState] = useState<Record<string, ServiceStatus>>({});
   const { systemStatus, currentCycle, campaign, clearCampaign } = useCampaign();
   const { isDarkMode } = useTheme();
   const { play } = useSoundEngine();

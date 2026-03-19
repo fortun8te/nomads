@@ -3,6 +3,7 @@ import type { Campaign, Cycle, CampaignContextType, StageName, CycleMode, UserQu
 import { useCycleLoop } from '../hooks/useCycleLoop';
 import { useStorage } from '../hooks/useStorage';
 import { storage } from '../utils/storage';
+import { addMemory } from '../utils/memoryStore';
 
 const CampaignContext = createContext<CampaignContextType | undefined>(undefined);
 
@@ -75,6 +76,40 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setCurrentCycle(cycleLoopCycle);
   }, [cycleLoopCycle]);
+
+  // When a cycle completes, save key research findings as memories
+  const savedCycleIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cycleLoopCycle || cycleLoopCycle.status !== 'complete') return;
+    if (savedCycleIdRef.current === cycleLoopCycle.id) return;
+    savedCycleIdRef.current = cycleLoopCycle.id;
+
+    const findings = cycleLoopCycle.researchFindings;
+    const brand = campaign?.brand || 'brand';
+
+    if (findings) {
+      const desireSummary = findings.deepDesires?.length
+        ? findings.deepDesires.slice(0, 3).map(d => `${d.targetSegment}: "${d.deepestDesire}"`).join('; ')
+        : null;
+      if (desireSummary) {
+        addMemory('research', `[${brand}] Deep desires — ${desireSummary}`, [brand, 'desires', 'research']);
+      }
+
+      if (findings.rootCauseMechanism?.ahaInsight) {
+        addMemory('research', `[${brand}] AHA insight — ${findings.rootCauseMechanism.ahaInsight}`, [brand, 'mechanism', 'insight']);
+      }
+
+      const objections = findings.objections?.slice(0, 3).map(o => o.objection).join('; ');
+      if (objections) {
+        addMemory('research', `[${brand}] Key objections — ${objections}`, [brand, 'objections']);
+      }
+    }
+
+    const verdict = cycleLoopCycle.testVerdict;
+    if (verdict?.winner) {
+      addMemory('campaign', `[${brand}] Winning concept: "${verdict.winner}". Next cycle: ${verdict.nextCycleImprovement || 'N/A'}`, [brand, 'test', 'winner']);
+    }
+  }, [cycleLoopCycle, campaign?.brand]);
 
   const createCampaign = useCallback(
     async (

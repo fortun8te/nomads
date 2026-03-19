@@ -6,6 +6,7 @@
  * Adapts to light and dark backgrounds via the `variant` prop.
  */
 
+import type { ReactNode, CSSProperties } from 'react';
 
 interface ShineTextProps {
   children: ReactNode;

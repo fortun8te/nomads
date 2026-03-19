@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { TextShimmer } from './TextShimmer';
 import { ProgressiveBlur } from './ProgressiveBlur';
 import { runAgentLoop } from '../utils/agentEngine';
+import type { TaskProgress, AgentEngineEvent, ToolCall } from '../utils/agentEngine';
 import { getModelForStage } from '../utils/modelConfig';
 import { generateWorkspaceId, getWorkspacePath, workspaceSaveBinary, workspaceListDetailed, ensureWorkspace, workspacePreview, type WorkspaceFile } from '../utils/workspace';
 import {
@@ -243,7 +244,7 @@ function SidebarToggleIcon({ open }: { open: boolean }) {
   );
 }
 
-function MessageIcon() {
+function _MessageIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
@@ -251,7 +252,7 @@ function MessageIcon() {
   );
 }
 
-function TrashIcon() {
+function _TrashIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
@@ -1301,7 +1302,7 @@ export function AgentPanel() {
 
   const isEmpty = blocks.length === 0;
   const formatTime = (ts: number) => new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const conversationTimestamp = blocks.length > 0 ? new Date(blocks[0].timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+  const _conversationTimestamp = blocks.length > 0 ? new Date(blocks[0].timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
 
   return (
     <div className="h-full flex flex-col relative overflow-hidden" style={{ background: 'transparent', minHeight: 0 }}>

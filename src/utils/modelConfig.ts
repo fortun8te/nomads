@@ -611,7 +611,7 @@ export function getOllamaEndpoint(): string {
     const stored = localStorage.getItem('ollama_endpoint');
     if (stored) return stored;
   }
-  return 'http://localhost:8889/ollama';
+  return 'http://localhost:11440';
 }
 
 /** Set the Ollama endpoint URL */

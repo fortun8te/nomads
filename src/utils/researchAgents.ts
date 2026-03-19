@@ -27,7 +27,7 @@ export async function toolWebSearch(query: string, maxResults = 10, signal?: Abo
       recordResearchSource({
         url: src.url,
         query,
-        source: 'tool:web_search',
+        source: 'web',
         contentLength: src.snippet?.length || 0,
         extractedSnippet: src.snippet,
       });
@@ -48,7 +48,7 @@ export async function toolAnalyzePage(url: string): Promise<ToolResult> {
     recordResearchSource({
       url,
       query: 'analyze_page',
-      source: 'tool:analyze_page',
+      source: 'visual',
       contentLength: text.length,
     });
     return { success: !result.error, output: text || 'No content.', sources: [url] };

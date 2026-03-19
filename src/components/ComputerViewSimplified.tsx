@@ -8,9 +8,9 @@
  * - Liquid glass styling + gradient background
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { WayfayerPlusPanel } from './WayfayerPlusPanel';
+import { WayfayerPlusPanel, type WayfayerPlusPanelHandle } from './WayfayerPlusPanel';
 import { ActionSidebarCompact } from './ActionSidebarCompact';
 import { ComputerDesktop } from './ComputerDesktop';
 import { EtherealBG } from './EtherealBG';
@@ -25,11 +25,11 @@ const MACHINE_ACCENTS = [
     gradientColors: ['#000000', '#030308', '#060e1a', '#091828', '#1a4fcc'],
   },
   {
-    hex: '#FF3B30',
-    glow: 'rgba(255,59,48,0.16)',
-    dim:  'rgba(255,59,48,0.07)',
-    screenBg: 'linear-gradient(145deg, rgba(28,8,8,0.97) 0%, rgba(32,6,6,0.97) 50%, rgba(24,8,8,0.97) 100%)',
-    gradientColors: ['#000000', '#080303', '#1a0606', '#280909', '#cc1a1a'],
+    hex: '#D0D0D0',
+    glow: 'rgba(210,210,210,0.10)',
+    dim:  'rgba(210,210,210,0.04)',
+    screenBg: 'linear-gradient(145deg, rgba(11,11,13,0.97) 0%, rgba(10,10,12,0.97) 50%, rgba(11,11,13,0.97) 100%)',
+    gradientColors: ['#000000', '#060608', '#0c0c10', '#101014', '#1c1c22'],
   },
   {
     hex: '#888888',
@@ -52,6 +52,8 @@ export function ComputerViewSimplified() {
     { id: 'machine-1', label: 'Computer 1', accentIdx: 0 },
   ]);
   const [activeMachineId, setActiveMachineId] = useState('machine-1');
+  const [computerStep, setComputerStep] = useState<string | null>(null);
+  const wayfayerRef = useRef<WayfayerPlusPanelHandle>(null);
 
   const addMachine = useCallback(() => {
     if (machines.length >= MAX_MACHINES) return;
@@ -92,7 +94,7 @@ export function ComputerViewSimplified() {
               style={{
                 background: 'linear-gradient(135deg, rgba(15,15,20,0.70) 0%, rgba(20,20,30,0.60) 100%)',
                 backdropFilter: 'blur(12px)',
-                border: '1px solid rgba(255,255,255,0.09)',
+                border: '1px solid rgba(255,255,255,0.08)',
                 boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
               }}
             >
@@ -116,10 +118,11 @@ export function ComputerViewSimplified() {
                     }} />
                     <button
                       onClick={() => setActiveMachineId(machine.id)}
-                      className="text-[10px] font-medium rounded-md transition-all px-1.5 py-0.5"
+                      className="text-[10px] font-medium rounded-lg transition-all px-1.5 py-0.5"
                       style={{
                         background: isActive ? 'rgba(255,255,255,0.10)' : 'transparent',
                         color: isActive ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.38)',
+                        transition: 'all 0.15s ease',
                       }}
                       title={`Switch to ${machine.label}`}
                       aria-label={`Switch to ${machine.label}${isActive ? ' (currently active)' : ''}`}
@@ -152,10 +155,10 @@ export function ComputerViewSimplified() {
                 <button
                   onClick={addMachine}
                   title="Add computer"
-                  className="p-1 rounded-md transition-colors"
-                  style={{ color: 'rgba(255,255,255,0.28)' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.55)')}
-                  onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.28)')}
+                  className="p-1 rounded-lg"
+                  style={{ color: 'rgba(255,255,255,0.28)', transition: 'all 0.15s ease' }}
+                  onMouseEnter={e => { (e.currentTarget.style.color = 'rgba(255,255,255,0.55)'); (e.currentTarget.style.background = 'rgba(255,255,255,0.06)'); }}
+                  onMouseLeave={e => { (e.currentTarget.style.color = 'rgba(255,255,255,0.28)'); (e.currentTarget.style.background = 'transparent'); }}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                     <line x1="12" y1="5" x2="12" y2="19" />
@@ -174,7 +177,7 @@ export function ComputerViewSimplified() {
                 aspectRatio: '16 / 9',
                 maxWidth: 1188,
                 background: accent.screenBg,
-                border: `1px solid rgba(255,255,255,0.07)`,
+                border: `1px solid rgba(255,255,255,0.08)`,
                 boxShadow: [
                   '0 0 0 1px rgba(255,255,255,0.03)',
                   '0 8px 40px rgba(0,0,0,0.55)',
@@ -186,14 +189,24 @@ export function ComputerViewSimplified() {
             >
               {activeMachine && (
                 <>
-                  <WayfayerPlusPanel standalone onAddMachine={addMachine} gradientColors={accent.gradientColors} />
+                  <WayfayerPlusPanel
+                    ref={wayfayerRef}
+                    standalone
+                    onAddMachine={addMachine}
+                    gradientColors={accent.gradientColors}
+                    onStepChange={setComputerStep}
+                  />
                   <ComputerDesktop />
                 </>
               )}
             </div>
 
             {/* Right sidebar */}
-            <ActionSidebarCompact machineId={activeMachine?.id || 'machine-1'} />
+            <ActionSidebarCompact
+              machineId={activeMachine?.id || 'machine-1'}
+              onComputerTask={(goal) => wayfayerRef.current?.runTask(goal)}
+              computerStep={computerStep}
+            />
           </div>
         </div>
       </div>

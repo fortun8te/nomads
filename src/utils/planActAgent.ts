@@ -16,11 +16,14 @@
 
 import { ollamaService } from './ollama';
 import { getThinkMode } from './modelConfig';
-import { sandboxService, MachineClient, machinePool } from './sandboxService';
-import type { ViewResult, ElementInfo } from './sandboxService';
+import { MachineClient, machinePool } from './sandboxService';
+import type { ViewResult } from './sandboxService';
 import { shouldVerify, verifyAction } from './visualVerifier';
+import type { VerificationResult } from './visualVerifier';
 import { diagnoseAndRecover } from './errorRecovery';
+import type { RecoveryContext, RecoveryStrategy } from './errorRecovery';
 import { typeText, pressKey as kbPressKey, pressCombo, fillField, parseKeyboardAction } from './keyboardService';
+import type { KeyCombo } from './keyboardService';
 import { extractAccessibilityTree, formatTreeForPlanner } from './domExtractor';
 import { checkPageReadiness, waitForReady } from './pageReadiness';
 import { ensurePageClear } from './popupDismisser';
@@ -164,37 +167,6 @@ async function waitForUserToFinish(signal?: AbortSignal): Promise<void> {
     }
     await new Promise(r => setTimeout(r, 500));
   }
-}
-
-// ── Element Scoring ──
-
-/**
- * Score elements by relevance to the goal text.
- * Returns elements sorted by score (highest first).
- */
-function scoreElements(elements: ElementInfo[], goalText: string): Array<ElementInfo & { score: number }> {
-  const goalWords = goalText.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-
-  return elements.map(el => {
-    let score = 0;
-    const text = [el.text, el.ariaLabel, el.placeholder, el.role].filter(Boolean).join(' ').toLowerCase();
-
-    // Exact match bonus
-    for (const word of goalWords) {
-      if (text.includes(word)) score += 3;
-    }
-
-    // Interactive element bonus
-    if (['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(el.tag.toUpperCase())) score += 1;
-
-    // Role bonus
-    if (el.role === 'button' || el.role === 'link') score += 1;
-
-    // Penalize if no text
-    if (!el.text && !el.ariaLabel) score -= 1;
-
-    return { ...el, score };
-  }).sort((a, b) => b.score - a.score);
 }
 
 // ── Planner Agent ──

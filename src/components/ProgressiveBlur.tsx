@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 /**
  * ProgressiveBlur — dark-theme edge blur overlay for scrollable containers.

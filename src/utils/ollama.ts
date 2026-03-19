@@ -14,7 +14,7 @@ import { getOllamaEndpoint } from './modelConfig';
 // Constants
 // ─────────────────────────────────────────────────────────────
 
-const DIRECT_OLLAMA = 'http://100.74.135.83:11434';
+const DIRECT_OLLAMA = 'http://localhost:11440';
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 

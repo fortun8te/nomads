@@ -1,307 +1,236 @@
-/**
- * ResponseStream — animated text streaming component
- *
- * Two modes:
- *   - "typewriter": characters appear one by one (fast, raw feel)
- *   - "fade": words/segments fade in with a subtle translateY animation
- *
- * Replaces the old TypewriterText with a richer, more configurable system.
- */
+import { cn } from "@/lib/utils"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type React from 'react';
-
-// ── Types ────────────────────────────────────────────────────
-
-export type Mode = 'typewriter' | 'fade';
+export type Mode = "typewriter" | "fade"
 
 export type UseTextStreamOptions = {
-  textStream: string | AsyncIterable<string>;
-  speed?: number;          // 1 = slowest, 100 = fastest
-  mode?: Mode;
-  onComplete?: () => void;
-  fadeDuration?: number;   // ms for each segment fade-in (fade mode)
-  segmentDelay?: number;   // ms between segments appearing (fade mode)
-  characterChunkSize?: number; // chars per tick (typewriter mode)
-};
+  textStream: string | AsyncIterable<string>
+  speed?: number
+  mode?: Mode
+  onComplete?: () => void
+  fadeDuration?: number
+  segmentDelay?: number
+  characterChunkSize?: number
+  onError?: (error: unknown) => void
+}
 
 export type UseTextStreamResult = {
-  displayedText: string;
-  isComplete: boolean;
-  segments: { text: string; index: number }[];
-  getFadeDuration: () => number;
-  reset: () => void;
-  startStreaming: () => void;
-  pause: () => void;
-  resume: () => void;
-};
-
-// ── Speed mapping helpers ────────────────────────────────────
-
-function speedToTypewriterMs(speed: number): number {
-  // speed 1 => ~80ms per chunk, speed 100 => ~2ms per chunk
-  const clamped = Math.max(1, Math.min(100, speed));
-  return Math.round(80 - (clamped - 1) * (78 / 99));
+  displayedText: string
+  isComplete: boolean
+  segments: { text: string; index: number }[]
+  getFadeDuration: () => number
+  getSegmentDelay: () => number
+  reset: () => void
+  startStreaming: () => void
+  pause: () => void
+  resume: () => void
 }
 
-function speedToFadeDuration(speed: number, fallback?: number): number {
-  if (fallback !== undefined) return fallback;
-  const clamped = Math.max(1, Math.min(100, speed));
-  return Math.round(600 - (clamped - 1) * (500 / 99));
-}
-
-function speedToSegmentDelay(speed: number, fallback?: number): number {
-  if (fallback !== undefined) return fallback;
-  const clamped = Math.max(1, Math.min(100, speed));
-  return Math.round(60 - (clamped - 1) * (55 / 99));
-}
-
-// ── useTextStream hook ───────────────────────────────────────
-
-export function useTextStream(options: UseTextStreamOptions): UseTextStreamResult {
-  const {
-    textStream,
-    speed = 50,
-    mode = 'typewriter',
-    onComplete,
-    fadeDuration,
-    segmentDelay,
-    characterChunkSize = 1,
-  } = options;
-
-  const [fullText, setFullText] = useState('');
-  const [displayedText, setDisplayedText] = useState('');
-  const [isComplete, setIsComplete] = useState(false);
-  const [segments, setSegments] = useState<{ text: string; index: number }[]>([]);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isStarted, setIsStarted] = useState(false);
-
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const posRef = useRef(0);
-  const segIdxRef = useRef(0);
-  const onCompleteRef = useRef(onComplete);
-  onCompleteRef.current = onComplete;
-
-  // Resolve text from string or async iterable
-  useEffect(() => {
-    if (typeof textStream === 'string') {
-      setFullText(textStream);
-      setIsStarted(true);
-      return;
-    }
-
-    // async iterable
-    let cancelled = false;
-    let accumulated = '';
-    (async () => {
-      for await (const chunk of textStream) {
-        if (cancelled) break;
-        accumulated += chunk;
-        setFullText(accumulated);
-      }
-      if (!cancelled) {
-        setIsStarted(true);
-      }
-    })();
-    setIsStarted(true);
-
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textStream]);
-
-  // Auto-start streaming when text is available
-  useEffect(() => {
-    if (!isStarted || !fullText || isPaused) return;
-
-    if (mode === 'typewriter') {
-      const intervalMs = speedToTypewriterMs(speed);
-      const chunkSize = characterChunkSize;
-
-      const tick = () => {
-        posRef.current = Math.min(posRef.current + chunkSize, fullText.length);
-        setDisplayedText(fullText.slice(0, posRef.current));
-
-        if (posRef.current >= fullText.length) {
-          if (typeof textStream === 'string') {
-            setIsComplete(true);
-            onCompleteRef.current?.();
-          } else {
-            // For async, keep polling until the text stops growing
-            timerRef.current = setTimeout(tick, intervalMs * 2);
-          }
-          return;
-        }
-        timerRef.current = setTimeout(tick, intervalMs);
-      };
-
-      tick();
-
-      return () => {
-        if (timerRef.current) clearTimeout(timerRef.current);
-      };
-    }
-
-    // Fade mode: split into word segments
-    if (mode === 'fade') {
-      const words = splitIntoSegments(fullText);
-      const delay = speedToSegmentDelay(speed, segmentDelay);
-
-      const addNext = () => {
-        if (segIdxRef.current >= words.length) {
-          if (typeof textStream === 'string') {
-            setIsComplete(true);
-            onCompleteRef.current?.();
-          }
-          return;
-        }
-        segIdxRef.current += 1;
-        setSegments(words.slice(0, segIdxRef.current));
-        setDisplayedText(words.slice(0, segIdxRef.current).map(s => s.text).join(''));
-        timerRef.current = setTimeout(addNext, delay);
-      };
-
-      addNext();
-
-      return () => {
-        if (timerRef.current) clearTimeout(timerRef.current);
-      };
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fullText, isStarted, isPaused, mode, speed, characterChunkSize, segmentDelay]);
-
-  const reset = useCallback(() => {
-    posRef.current = 0;
-    segIdxRef.current = 0;
-    setDisplayedText('');
-    setSegments([]);
-    setIsComplete(false);
-    setIsStarted(false);
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }, []);
-
-  const startStreaming = useCallback(() => {
-    setIsStarted(true);
-  }, []);
-
-  const pause = useCallback(() => {
-    setIsPaused(true);
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }, []);
-
-  const resume = useCallback(() => {
-    setIsPaused(false);
-  }, []);
-
-  const getFadeDuration = useCallback(
-    () => speedToFadeDuration(speed, fadeDuration),
-    [speed, fadeDuration],
-  );
-
-  return {
-    displayedText,
-    isComplete,
-    segments,
-    getFadeDuration,
-    reset,
-    startStreaming,
-    pause,
-    resume,
-  };
-}
-
-// ── Segment splitting ────────────────────────────────────────
-
-function splitIntoSegments(text: string): { text: string; index: number }[] {
-  const result: { text: string; index: number }[] = [];
-  // Split on word boundaries, keeping whitespace attached
-  const regex = /(\S+\s*|\s+)/g;
-  let match: RegExpExecArray | null;
-  let idx = 0;
-  while ((match = regex.exec(text)) !== null) {
-    result.push({ text: match[0], index: idx++ });
-  }
-  return result;
-}
-
-// ── ResponseStream component ─────────────────────────────────
-
-export type ResponseStreamProps = {
-  textStream: string | AsyncIterable<string>;
-  mode?: Mode;
-  speed?: number;
-  className?: string;
-  onComplete?: () => void;
-  as?: keyof React.JSX.IntrinsicElements;
-  fadeDuration?: number;
-  segmentDelay?: number;
-  characterChunkSize?: number;
-};
-
-export function ResponseStream({
+function useTextStream({
   textStream,
-  mode = 'typewriter',
-  speed = 50,
-  className,
+  speed = 20,
+  mode = "typewriter",
   onComplete,
   fadeDuration,
   segmentDelay,
   characterChunkSize,
-}: ResponseStreamProps) {
-  const {
-    displayedText,
-    isComplete,
-    segments,
-    getFadeDuration,
-  } = useTextStream({
-    textStream,
-    mode,
-    speed,
-    onComplete,
-    fadeDuration,
-    segmentDelay,
-    characterChunkSize,
-  });
+  onError,
+}: UseTextStreamOptions): UseTextStreamResult {
+  const [displayedText, setDisplayedText] = useState("")
+  const [isComplete, setIsComplete] = useState(false)
+  const [segments, setSegments] = useState<{ text: string; index: number }[]>([])
+  const speedRef = useRef(speed)
+  const modeRef = useRef(mode)
+  const currentIndexRef = useRef(0)
+  const animationRef = useRef<number | null>(null)
+  const fadeDurationRef = useRef(fadeDuration)
+  const segmentDelayRef = useRef(segmentDelay)
+  const characterChunkSizeRef = useRef(characterChunkSize)
+  const streamRef = useRef<AbortController | null>(null)
+  const completedRef = useRef(false)
+  const onCompleteRef = useRef(onComplete)
 
-  if (mode === 'typewriter') {
-    return (
-      <div className={className || ''}>
-        {displayedText}
-        {!isComplete && (
-          <span
-            className="inline-block w-[2px] h-[1em] ml-[1px] align-text-bottom animate-pulse"
-            style={{ background: 'rgba(43,121,255,0.6)' }}
-          />
-        )}
-      </div>
-    );
+  useEffect(() => {
+    speedRef.current = speed
+    modeRef.current = mode
+    fadeDurationRef.current = fadeDuration
+    segmentDelayRef.current = segmentDelay
+    characterChunkSizeRef.current = characterChunkSize
+  }, [speed, mode, fadeDuration, segmentDelay, characterChunkSize])
+
+  useEffect(() => { onCompleteRef.current = onComplete }, [onComplete])
+
+  const getChunkSize = useCallback(() => {
+    if (typeof characterChunkSizeRef.current === "number") return Math.max(1, characterChunkSizeRef.current)
+    const n = Math.min(100, Math.max(1, speedRef.current))
+    if (modeRef.current === "typewriter") {
+      if (n < 25) return 1
+      return Math.max(1, Math.round((n - 25) / 10))
+    }
+    return 1
+  }, [])
+
+  const getProcessingDelay = useCallback(() => {
+    if (typeof segmentDelayRef.current === "number") return Math.max(0, segmentDelayRef.current)
+    const n = Math.min(100, Math.max(1, speedRef.current))
+    return Math.max(1, Math.round(100 / Math.sqrt(n)))
+  }, [])
+
+  const getFadeDuration = useCallback(() => {
+    if (typeof fadeDurationRef.current === "number") return Math.max(10, fadeDurationRef.current)
+    const n = Math.min(100, Math.max(1, speedRef.current))
+    return Math.round(1000 / Math.sqrt(n))
+  }, [])
+
+  const getSegmentDelay = useCallback(() => {
+    if (typeof segmentDelayRef.current === "number") return Math.max(0, segmentDelayRef.current)
+    const n = Math.min(100, Math.max(1, speedRef.current))
+    return Math.max(1, Math.round(100 / Math.sqrt(n)))
+  }, [])
+
+  const updateSegments = useCallback((text: string) => {
+    if (modeRef.current !== "fade") return
+    try {
+      const seg = new Intl.Segmenter(navigator.language, { granularity: "word" })
+      setSegments(Array.from(seg.segment(text)).map((s, i) => ({ text: s.segment, index: i })))
+    } catch (error) {
+      setSegments(text.split(/(\s+)/).filter(Boolean).map((w, i) => ({ text: w, index: i })))
+      onError?.(error)
+    }
+  }, [onError])
+
+  const markComplete = useCallback(() => {
+    if (!completedRef.current) {
+      completedRef.current = true
+      setIsComplete(true)
+      onCompleteRef.current?.()
+    }
+  }, [])
+
+  const reset = useCallback(() => {
+    currentIndexRef.current = 0
+    setDisplayedText("")
+    setSegments([])
+    setIsComplete(false)
+    completedRef.current = false
+    if (animationRef.current) { cancelAnimationFrame(animationRef.current); animationRef.current = null }
+  }, [])
+
+  const processStringTypewriter = useCallback((text: string) => {
+    let lastFrameTime = 0
+    const streamContent = (timestamp: number) => {
+      const delay = getProcessingDelay()
+      if (delay > 0 && timestamp - lastFrameTime < delay) { animationRef.current = requestAnimationFrame(streamContent); return }
+      lastFrameTime = timestamp
+      if (currentIndexRef.current >= text.length) { markComplete(); return }
+      const end = Math.min(currentIndexRef.current + getChunkSize(), text.length)
+      const next = text.slice(0, end)
+      setDisplayedText(next)
+      if (modeRef.current === "fade") updateSegments(next)
+      currentIndexRef.current = end
+      if (end < text.length) animationRef.current = requestAnimationFrame(streamContent)
+      else markComplete()
+    }
+    animationRef.current = requestAnimationFrame(streamContent)
+  }, [getProcessingDelay, getChunkSize, updateSegments, markComplete])
+
+  const processAsyncIterable = useCallback(async (stream: AsyncIterable<string>) => {
+    const controller = new AbortController()
+    streamRef.current = controller
+    let displayed = ""
+    try {
+      for await (const chunk of stream) {
+        if (controller.signal.aborted) return
+        displayed += chunk
+        setDisplayedText(displayed)
+        updateSegments(displayed)
+      }
+      markComplete()
+    } catch (error) {
+      markComplete()
+      onError?.(error)
+    }
+  }, [updateSegments, markComplete, onError])
+
+  const startStreaming = useCallback(() => {
+    reset()
+    if (typeof textStream === "string") processStringTypewriter(textStream)
+    else if (textStream) processAsyncIterable(textStream)
+  }, [textStream, reset, processStringTypewriter, processAsyncIterable])
+
+  const pause = useCallback(() => {
+    if (animationRef.current) { cancelAnimationFrame(animationRef.current); animationRef.current = null }
+  }, [])
+
+  const resume = useCallback(() => {
+    if (typeof textStream === "string" && !isComplete) processStringTypewriter(textStream)
+  }, [textStream, isComplete, processStringTypewriter])
+
+  useEffect(() => {
+    startStreaming()
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current)
+      if (streamRef.current) streamRef.current.abort()
+    }
+  }, [textStream, startStreaming])
+
+  return { displayedText, isComplete, segments, getFadeDuration, getSegmentDelay, reset, startStreaming, pause, resume }
+}
+
+export type ResponseStreamProps = {
+  textStream: string | AsyncIterable<string>
+  mode?: Mode
+  speed?: number
+  className?: string
+  onComplete?: () => void
+  as?: keyof React.JSX.IntrinsicElements
+  fadeDuration?: number
+  segmentDelay?: number
+  characterChunkSize?: number
+}
+
+function ResponseStream({
+  textStream, mode = "typewriter", speed = 20, className = "",
+  onComplete, as = "div", fadeDuration, segmentDelay, characterChunkSize,
+}: ResponseStreamProps) {
+  const animationEndRef = useRef<(() => void) | null>(null)
+  const { displayedText, isComplete, segments, getFadeDuration, getSegmentDelay } = useTextStream({
+    textStream, speed, mode, onComplete, fadeDuration, segmentDelay, characterChunkSize,
+  })
+
+  useEffect(() => { animationEndRef.current = onComplete ?? null }, [onComplete])
+
+  const handleLastAnimEnd = useCallback(() => {
+    if (animationEndRef.current && isComplete) animationEndRef.current()
+  }, [isComplete])
+
+  const fadeStyle = `
+    @keyframes nomad-fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .nomad-fade-seg { display: inline-block; opacity: 0; animation: nomad-fadeIn ${getFadeDuration()}ms ease-out forwards; }
+    .nomad-fade-seg-space { white-space: pre; }
+  `
+
+  const renderContent = () => {
+    if (mode === "fade") return (
+      <>
+        <style>{fadeStyle}</style>
+        <div className="relative">
+          {segments.map((seg, idx) => (
+            <span
+              key={`${seg.text}-${idx}`}
+              className={cn("nomad-fade-seg", /^\s+$/.test(seg.text) && "nomad-fade-seg-space")}
+              style={{ animationDelay: `${idx * getSegmentDelay()}ms` }}
+              onAnimationEnd={idx === segments.length - 1 ? handleLastAnimEnd : undefined}
+            >{seg.text}</span>
+          ))}
+        </div>
+      </>
+    )
+    return <>{displayedText}</>
   }
 
-  // Fade mode
-  const dur = getFadeDuration();
-
-  return (
-    <div className={className || ''}>
-      {segments.map((seg) => {
-        const isWhitespace = /^\s+$/.test(seg.text);
-        return (
-          <span
-            key={seg.index}
-            className={`nomad-fade-segment${isWhitespace ? ' nomad-fade-segment-space' : ''}`}
-            style={{
-              animation: `nomad-fadeIn ${dur}ms ease-out both`,
-              display: 'inline',
-            }}
-          >
-            {seg.text}
-          </span>
-        );
-      })}
-      {!isComplete && (
-        <span
-          className="inline-block w-[2px] h-[1em] ml-[1px] align-text-bottom animate-pulse"
-          style={{ background: 'rgba(43,121,255,0.4)' }}
-        />
-      )}
-    </div>
-  );
+  const Container = as as keyof React.JSX.IntrinsicElements
+  return <Container className={className}>{renderContent()}</Container>
 }
+
+export { useTextStream, ResponseStream }

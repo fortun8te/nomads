@@ -6,9 +6,8 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import type { WindowState, DefaultSize } from '../utils/windowManager'
 import {
-  WindowState,
-  DefaultSize,
   getWindows,
   addListener,
   openWindow as _openWindow,

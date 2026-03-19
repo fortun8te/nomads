@@ -10,9 +10,10 @@
  * - Framer Motion open/close animations
  */
 
-import React, { useRef, useCallback, ReactNode } from 'react'
+import React, { useRef, useCallback } from 'react'
+import type { ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { WindowState } from '../utils/windowManager'
+import type { WindowState } from '../utils/windowManager'
 import {
   useWindowManager,
 } from '../hooks/useWindowManager'

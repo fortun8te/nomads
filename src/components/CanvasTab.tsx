@@ -190,7 +190,7 @@ export function CanvasTab({ initialContent = '', initialTitle = 'Untitled', onCl
             onClick={onClose}
             title="Close canvas"
             className="flex items-center justify-center w-5 h-5 rounded transition-colors"
-            style={{ color: 'rgba(255,255,255,0.25)', hover: undefined }}
+            style={{ color: 'rgba(255,255,255,0.25)' }}
             onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.55)')}
             onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.25)')}
           >

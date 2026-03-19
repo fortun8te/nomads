@@ -118,12 +118,12 @@ function TrafficLights({ onClose }: { onClose: () => void }) {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
-export function TerminalWindow({ onClose }: { onClose: () => void }) {
+export function TerminalWindow({ onClose, zIndex, onFocus }: { onClose: () => void; zIndex?: number; onFocus?: () => void }) {
   const [lines, setLines] = useState<TerminalLine[]>(WELCOME);
   const [input, setInput] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
-  const [historyIdx, setHistoryIdx] = useState(-1);
+  const [_historyIdx, setHistoryIdx] = useState(-1);
 
   const windowRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -166,9 +166,10 @@ export function TerminalWindow({ onClose }: { onClose: () => void }) {
     return id;
   }, []);
 
-  const updateLine = useCallback((id: string, text: string) => {
+  const _updateLine = useCallback((id: string, text: string) => {
     setLines(prev => prev.map(l => l.id === id ? { ...l, text } : l));
   }, []);
+  void _updateLine;
 
   // ── Drag ─────────────────────────────────────────────────────────────────
 
@@ -392,6 +393,7 @@ export function TerminalWindow({ onClose }: { onClose: () => void }) {
       exit={{ opacity: 0, scale: 0.92 }}
       transition={{ duration: 0.18, ease: [0.25, 0.46, 0.45, 0.94] }}
       onClick={() => inputRef.current?.focus()}
+      onMouseDownCapture={onFocus}
       style={{
         position: 'absolute',
         ...(pos !== null
@@ -404,10 +406,11 @@ export function TerminalWindow({ onClose }: { onClose: () => void }) {
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 220,
+        zIndex: zIndex ?? 220,
         pointerEvents: 'auto',
         background: '#0a0a0c',
-        boxShadow: '0 40px 100px rgba(0,0,0,0.92), 0 0 0 1px rgba(255,255,255,0.06)',
+        boxShadow: '0 40px 100px rgba(0,0,0,0.92), 0 0 0 1px rgba(255,255,255,0.08)',
+        border: '1px solid rgba(255,255,255,0.08)',
         fontFamily: 'ui-monospace,"SF Mono","Fira Mono","Cascadia Code","JetBrains Mono",monospace',
         userSelect: 'none',
       }}
@@ -419,10 +422,10 @@ export function TerminalWindow({ onClose }: { onClose: () => void }) {
           height: 36,
           display: 'flex',
           alignItems: 'center',
-          paddingLeft: 12,
-          paddingRight: 12,
+          paddingLeft: 14,
+          paddingRight: 14,
           background: '#111114',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
           flexShrink: 0,
           cursor: 'default',
           position: 'relative',
@@ -496,7 +499,7 @@ export function TerminalWindow({ onClose }: { onClose: () => void }) {
       {/* Input row */}
       <div style={{
         height: 38,
-        borderTop: '1px solid rgba(255,255,255,0.06)',
+        borderTop: '1px solid rgba(255,255,255,0.08)',
         background: '#0d0d10',
         display: 'flex',
         alignItems: 'center',
