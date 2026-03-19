@@ -101,6 +101,16 @@ interface MessageBlock {
 
 type AgentStatus = 'idle' | 'routing' | 'thinking' | 'streaming' | 'error';
 
+/** Human-readable status text for the current activity */
+function statusLabel(status: AgentStatus, toolName?: string): string {
+  if (status === 'idle') return '';
+  if (status === 'routing') return 'Routing';
+  if (status === 'error') return 'Error';
+  if (toolName) return getActivityLabel(toolName);
+  if (status === 'thinking') return 'Thinking';
+  return 'Working';
+}
+
 // ── Icons ──────────────────────────────────────────────────────────────────
 
 function ArrowUpIcon() {
@@ -340,8 +350,8 @@ function LiveTimer({ startedAt, tokenCount }: { startedAt: number; tokenCount?: 
   }, [startedAt]);
 
   return (
-    <span className="text-[10px] font-sans" style={{ color: 'rgba(255,255,255,0.12)' }}>
-      {elapsed}s{tokenCount ? ` · ↓${tokenCount}t` : ''}
+    <span className="text-[10px] font-sans" style={{ color: 'rgba(255,255,255,0.3)' }}>
+      {elapsed}s{tokenCount != null && tokenCount > 0 ? <span style={{ color: 'rgba(43,121,255,0.6)' }}> · {tokenCount}tk</span> : ''}
     </span>
   );
 }
@@ -381,18 +391,19 @@ function ThinkingMorph({ size = 18 }: { size?: number }) {
 // ── Animated agent response — uses ResponseStream for new messages, static for old ──
 
 function AnimatedAgentText({ text, animate }: { text: string; animate: boolean }) {
-  const shouldAnimate = animate && text.length <= 800;
-  if (!shouldAnimate) {
+  if (!animate) {
     return <div className="space-y-1">{renderMarkdown(text)}</div>;
   }
-  // Use typewriter mode for markdown content (fade doesn't play well with rendered React nodes)
+  // For long text, use typewriter with fast speed; for short, use fade
+  const isLong = text.length > 600;
   return (
     <ResponseStream
       textStream={text}
-      mode="fade"
-      speed={60}
+      mode={isLong ? "typewriter" : "fade"}
+      speed={isLong ? 95 : 60}
       fadeDuration={400}
       segmentDelay={15}
+      characterChunkSize={isLong ? 8 : undefined}
       className="whitespace-pre-wrap text-[13px] leading-[1.7]"
     />
   );
@@ -518,6 +529,11 @@ function ActionPillView({ action }: { action: ActionPill }) {
 
 function BlurredThinkingBox({ content }: { content: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Auto-scroll to bottom as content streams in
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [content]);
   return (
     <div className="relative overflow-hidden" style={{ maxHeight: 150 }}>
       <div ref={scrollRef} className="max-h-[150px] overflow-y-auto">
@@ -527,6 +543,7 @@ function BlurredThinkingBox({ content }: { content: string }) {
           speed={90}
           characterChunkSize={3}
           className="text-[11px] leading-relaxed whitespace-pre-wrap"
+          as="div"
         />
       </div>
       <ProgressiveBlur
@@ -544,7 +561,11 @@ function BlurredThinkingBox({ content }: { content: string }) {
 function StepCardView({ step }: { step: StepCard }) {
   const [expanded, setExpanded] = useState(step.status === 'active');
   const [expandedTexts, setExpandedTexts] = useState<Set<number>>(new Set());
-  useEffect(() => { if (step.status === 'active') setExpanded(true); }, [step.status]);
+  // Expand when active, collapse when done
+  useEffect(() => {
+    if (step.status === 'active') setExpanded(true);
+    else if (step.status === 'done') setExpanded(false);
+  }, [step.status]);
 
   // Use entries if available, else fall back to legacy thinkingText + actions
   const entries: StepEntry[] = step.entries && step.entries.length > 0
@@ -938,6 +959,7 @@ export function AgentPanel() {
   const [blocks, setBlocks] = useState<MessageBlock[]>([]);
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<AgentStatus>('idle');
+  const [currentToolName, setCurrentToolName] = useState<string | undefined>();
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [askUserPrompt, setAskUserPrompt] = useState<{ question: string; options: string[]; resolve: (answer: string) => void } | null>(null);
   const [askUserInput, setAskUserInput] = useState('');
@@ -973,13 +995,22 @@ export function AgentPanel() {
 
   useEffect(() => { refreshConversationList(); }, [refreshConversationList]);
 
-  // Auto-save (debounced)
+  // Auto-save (debounced) — preserves existing LLM-generated title if one exists
   useEffect(() => {
     if (blocks.length === 0) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      const firstUser = blocks.find(b => b.type === 'user');
-      const title = firstUser ? (firstUser.content.length > 50 ? firstUser.content.slice(0, 47) + '...' : firstUser.content) : 'New conversation';
+      // Check if conversation already has an LLM-generated title
+      const existing = await loadConversation(conversationId);
+      let title: string;
+      if (existing && existing.title && existing.title !== 'New conversation' && !existing.title.endsWith('...')) {
+        // Keep the existing LLM-generated title
+        title = existing.title;
+      } else {
+        // Fallback: derive from first user message
+        const firstUser = blocks.find(b => b.type === 'user');
+        title = firstUser ? (firstUser.content.length > 50 ? firstUser.content.slice(0, 47) + '...' : firstUser.content) : 'New conversation';
+      }
       const conv: Conversation = {
         id: conversationId, title, messages: blocks as StoredMessageBlock[],
         createdAt: blocks[0]?.timestamp || Date.now(), updatedAt: Date.now(),
@@ -1178,6 +1209,7 @@ export function AgentPanel() {
 
             case 'thinking_start': {
               setStatus('thinking');
+              setCurrentToolName(undefined);
               const blockId = ensureAgentBlock();
               committedThinkingLenRef.current = 0;
               addStepToBlock(blockId, { id: crypto.randomUUID(), title: 'Working...', thinkingText: '', isThinking: true, actions: [], entries: [], status: 'active', activityLabel: 'Thinking' });
@@ -1211,6 +1243,7 @@ export function AgentPanel() {
             case 'tool_start': {
               if (event.toolCall) {
                 setStatus('streaming');
+                setCurrentToolName(event.toolCall.name);
                 const tc: ToolCall = event.toolCall;
                 const isBrowser = tc.name === 'browse' || tc.name === 'analyze_page' || tc.name === 'use_computer';
                 const url = isBrowser ? String(tc.args.url || tc.args.start_url || '') : undefined;
@@ -1229,6 +1262,7 @@ export function AgentPanel() {
               break;
             }
             case 'tool_done': case 'tool_error': {
+              setCurrentToolName(undefined);
               if (event.toolCall) {
                 const tcId = event.toolCall.id;
                 const tcName = event.toolCall.name;
@@ -1474,7 +1508,12 @@ export function AgentPanel() {
             <div className="flex items-center justify-between mt-2 px-1">
               <WorkspaceIndicator workspaceId={workspaceId} files={workspaceFiles} onRefresh={refreshWorkspaceFiles} />
               <div className="flex items-center gap-3">
-                {isWorking && <span className="text-[9px]" style={{ color: 'rgba(255,255,255,0.12)' }}>Type to add instructions while working</span>}
+                {isWorking && (
+                  <span className="text-[9px] flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.25)' }}>
+                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: currentToolName ? 'rgba(34,197,94,0.6)' : 'rgba(43,121,255,0.6)' }} />
+                    {statusLabel(status, currentToolName)}
+                  </span>
+                )}
                 <span className="text-[9px] font-sans" style={{ color: 'rgba(255,255,255,0.1)' }}>{getModelForStage('research')}</span>
               </div>
             </div>

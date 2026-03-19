@@ -201,7 +201,7 @@ export async function listConversationSummaries(): Promise<ConversationSummary[]
 // ── Auto-title generation ─────────────────────────────────────────────────
 
 /** Message counts at which we (re)generate the title */
-const RETITLE_SCHEDULE = [1, 5, 15, 30];
+const RETITLE_SCHEDULE = [1, 2, 5, 15, 30];
 
 /** Check if a retitle is due for this message count */
 export function shouldRetitle(messageCount: number): boolean {
@@ -215,15 +215,15 @@ export function shouldRetitle(messageCount: number): boolean {
 export async function generateConversationTitle(
   messages: StoredMessageBlock[]
 ): Promise<string | null> {
-  // Grab the last 2 user messages for context
-  const userMsgs = messages
-    .filter(m => m.type === 'user')
-    .slice(-2)
-    .map(m => `User: ${m.content.slice(0, 120)}`);
+  // Grab user + agent messages for context (last few)
+  const relevant = messages
+    .filter(m => m.type === 'user' || m.type === 'agent')
+    .slice(-4)
+    .map(m => `${m.type === 'user' ? 'User' : 'Agent'}: ${m.content.slice(0, 100)}`);
 
-  if (userMsgs.length === 0) return null;
+  if (relevant.length === 0) return null;
 
-  const prompt = `Title this chat in 2-5 words:\n${userMsgs.join('\n')}\nTitle:`;
+  const prompt = `Title this conversation in 2-5 words. Output ONLY the title, nothing else.\n\n${relevant.join('\n')}\n\nTitle:`;
 
   try {
     const raw = await ollamaService.generateStream(prompt, '', {
