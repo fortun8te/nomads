@@ -14,7 +14,7 @@
  */
 
 // Eagerly load all .md files under /prompts/ at build time
-const promptModules = import.meta.glob('/prompts/**/*.md', { as: 'raw', eager: true });
+const promptModules = import.meta.glob('/prompts/**/*.md', { query: '?raw', import: 'default', eager: true });
 
 /**
  * Load a prompt file by relative path (from /prompts/).

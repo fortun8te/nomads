@@ -20,6 +20,14 @@ dist-ssr
 # Freepik browser profile (login cookies)
 .freepik-profile/
 
+# Workspace / session / memory dirs
+_workspace/
+_session/
+_memory/
+
+# Zip artifacts
+*.zip
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
