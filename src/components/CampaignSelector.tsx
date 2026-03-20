@@ -273,7 +273,8 @@ export function CampaignSelector() {
       console.error('Failed to check existing campaigns:', err);
     }
 
-    const growth = (preset as any).growth || { goal: '', budget: '', timeline: [], kpis: {} };
+    const presetWithGrowth = preset as unknown as { growth?: { goal: string; budget: string; timeline: string[] } };
+    const growth = presetWithGrowth.growth ?? { goal: '', budget: '', timeline: [] as string[] };
     const goalStr = `${growth.goal} | Budget: ${growth.budget} | Timeline: ${Array.isArray(growth.timeline) ? growth.timeline[0] : ''}`;
 
     const pipelineMode = localStorage.getItem('pipeline_mode');

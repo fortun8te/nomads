@@ -30,5 +30,9 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/utils/memory.test.ts",
+    "src/utils/memoryExample.ts"
+  ]
 }

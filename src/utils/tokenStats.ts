@@ -71,6 +71,7 @@ const state: TokenInfo = {
 
 const THINK_MAX = 800;
 const RESPONSE_MAX = 600;
+const FULL_THINK_MAX = 200_000; // 200K char cap — prevents unbounded growth on long thinking calls
 
 /** Time of first response token — for live t/s computation */
 let firstResponseTokenTime: number | null = null;
@@ -194,7 +195,9 @@ export const tokenTracker = {
     state.thinkingTokenCount++;
     if (text) {
       // Accumulate full thinking text
-      state.fullThinkingText += text;
+      if (state.fullThinkingText.length < FULL_THINK_MAX) {
+        state.fullThinkingText += text;
+      }
       // Keep rolling window for display
       state.liveThinkSnippet = (state.liveThinkSnippet + text).slice(-THINK_MAX);
     }

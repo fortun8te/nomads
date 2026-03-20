@@ -263,11 +263,38 @@ export interface ResearchFindings {
   emotionalLandscape?: EmotionalLandscape;
   competitivePositioning?: CompetitorPosition[];
   // Council of Marketing Brains output
-  councilVerdict?: any;  // CouncilVerdict from council.ts (avoid circular import)
+  councilVerdict?: CouncilVerdict;
   // Research audit trail — complete provenance
   auditTrail?: ResearchAuditTrail;
   // Research report — generated mini research paper
   researchReport?: ResearchReport;
+  // Thinking token content (captured during /think phases)
+  thinkingTokens?: string;
+  // Aggregate page metrics (populated by orchestrator)
+  pagesScanned?: number;
+  urlsProcessed?: number;
+  keyFactsExtracted?: number;
+}
+
+// Council Verdict — defined here to avoid circular import (council.ts imports from ../types)
+export interface CouncilVerdict {
+  strategicDirection: string;
+  primaryAdType: string;
+  secondaryAdType: string;
+  headlineStrategy: { hookType: string; why: string; examples: string[] };
+  keyInsights: string[];
+  gapsToFill: string[];
+  confidenceScore: number;
+  dissent: string[];
+  offerStructure: string;
+  visualConcept: string;
+  audienceLanguage: string[];
+  avoidList: string[];
+  creativeAngles?: string[];
+  brainOutputs: unknown[];
+  councilHeadOutputs: { headId: string; output: string }[];
+  iteration: number;
+  mergedBrains?: { brainA: string; brainB: string; similarity: number }[];
 }
 
 // ══════════════════════════════════════════════════════
@@ -514,6 +541,41 @@ export interface MakeOutput {
 }
 
 // ══════════════════════════════════════════════════════
+// ██  Metrics Types -- typed orchestration state
+// ══════════════════════════════════════════════════════
+
+export interface OrchestrationMetrics {
+  iteration: number;
+  maxIterations: number;
+  coveragePercent: number;
+  coverageDimensions: string[];
+  coverageDimensionCounts: Record<string, number>;
+  coveredDimensions?: number;
+  totalDimensions?: number;
+  totalSources?: number;
+  totalQueries?: number;
+  lastDecision?: string;
+  reflectionFeedback?: string;
+}
+
+export interface WatchdogMetrics {
+  tokensUsed: number;
+  tokenBudget: number;
+  iterationsRemaining: number;
+  stagnationRounds: number;
+  queryRepeatCount: Record<string, number>;
+  shouldKill: boolean;
+  killReason?: string;
+}
+
+export interface StageMetrics {
+  currentStage: string;
+  elapsedMs: number;
+  currentModel: string;
+  thinkingTokens: number;
+}
+
+// ══════════════════════════════════════════════════════
 // ██  Stage + Cycle Core Types
 // ══════════════════════════════════════════════════════
 
@@ -527,7 +589,7 @@ export interface StageData {
   thinkingTokenCount?: number;           // Qwen 3.5 thinking tokens (for this stage)
   thinkingText?: string;                 // Full accumulated thinking for this stage
   processingTime?: number;
-  artifacts: any[];
+  artifacts: unknown[];
   startedAt: number | null;
   completedAt: number | null;
   readyForNext: boolean;
@@ -578,6 +640,11 @@ export interface Cycle {
   creativeStrategy?: CreativeStrategy;
   // Test stage verdict
   testVerdict?: TestVerdict;
+  // Live metrics / orchestration state (updated during run)
+  orchestrationData?: OrchestrationMetrics;
+  watchdogState?: WatchdogMetrics;
+  stageMetrics?: StageMetrics;
+  error?: string;
 }
 
 export type ResearchMode = 'interactive' | 'autonomous';

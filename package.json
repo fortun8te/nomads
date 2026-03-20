@@ -7,7 +7,8 @@
     "dev": "trap 'kill $(jobs -p) 2>/dev/null' EXIT; /opt/homebrew/bin/python3.11 -m uvicorn freepik_server:app --host 0.0.0.0 --port 8890 & vite",
     "dev:vite": "vite",
     "dev:freepik": "/opt/homebrew/bin/python3.11 -m uvicorn freepik_server:app --host 0.0.0.0 --port 8890",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b --force && vite build",
+    "build:clean": "rm -f node_modules/.tmp/tsconfig.app.tsbuildinfo node_modules/.tmp/tsconfig.node.tsbuildinfo && tsc -b --force && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },

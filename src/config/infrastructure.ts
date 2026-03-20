@@ -7,6 +7,8 @@ export const INFRASTRUCTURE = {
   ollamaUrl: import.meta.env.VITE_OLLAMA_URL || 'http://100.74.135.83:11440',
   wayfarerUrl: import.meta.env.VITE_WAYFARER_URL || 'http://localhost:8889',
   searxngUrl: import.meta.env.VITE_SEARXNG_URL || 'http://localhost:8888',
+  telegramBotToken: import.meta.env.VITE_TELEGRAM_BOT_TOKEN || '',
+  telegramChatId: import.meta.env.VITE_TELEGRAM_CHAT_ID || '',
 };
 
 /**

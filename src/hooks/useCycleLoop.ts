@@ -223,10 +223,12 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
 
         if (stageName === 'research') {
           // Orchestrated research: Desire-Driven Analysis + Web Search Researchers
+          const RESEARCH_OUTPUT_CAP = 2_000_000; // 2MB rolling cap — avoids O(n²) concat on MX preset
           const researchResult = await executeOrchestratedResearch(
             campaign,
             (msg) => {
-              stage.agentOutput += msg + '\n';
+              const next = stage.agentOutput + msg + '\n';
+              stage.agentOutput = next.length > RESEARCH_OUTPUT_CAP ? next.slice(-RESEARCH_OUTPUT_CAP) : next;
               throttledSetCycle(cycle);
             },
             true, // Enable web search orchestration
@@ -246,12 +248,14 @@ export function useCycleLoop(askUser?: (question: UserQuestion) => Promise<strin
           if (!signal.aborted) {
             try {
               const report = await generateResearchReport(
-                cycle.researchFindings || {} as any,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                cycle.researchFindings || ({} as any),
                 cycle.researchFindings?.auditTrail,
                 researchResult.rawOutput?.slice(0, 12000) || '',
                 signal,
                 (msg) => {
-                  stage.agentOutput += msg;
+                  const next = stage.agentOutput + msg;
+                  stage.agentOutput = next.length > RESEARCH_OUTPUT_CAP ? next.slice(-RESEARCH_OUTPUT_CAP) : next;
                   throttledSetCycle(cycle);
                 }
               );

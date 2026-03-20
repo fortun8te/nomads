@@ -194,12 +194,10 @@ async function executePhase(
     onStatusEvent?.(`Phase ${phase.id} "${phase.name}": step ${i + 1}/${phase.steps.length} — ${rawStep.do}`);
 
     let stepOutput = '';
-    let succeeded = false;
 
     // First attempt
     try {
       stepOutput = await dispatchStep(phase.id, i + 1, rawStep, taskId, onStep, signal);
-      succeeded = true;
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') throw err;
       console.warn(`[orchestrator-complex][${taskId}] Phase ${phase.id} step ${i + 1} failed (attempt 1): ${String(err)}`);
@@ -215,7 +213,6 @@ async function executePhase(
           onStep,
           signal
         );
-        succeeded = true;
       } catch (retryErr) {
         if (retryErr instanceof DOMException && retryErr.name === 'AbortError') throw retryErr;
         stepOutput = `[SKIPPED] Phase ${phase.id} step ${i + 1} (${rawStep.agent}): ${rawStep.do} — failed. Error: ${String(retryErr)}`;
@@ -230,10 +227,6 @@ async function executePhase(
         console.warn(`[orchestrator-complex][${taskId}] Phase ${phase.id} step ${i + 1} skipped`);
         onStatusEvent?.(`Step skipped — continuing`);
       }
-    }
-
-    if (succeeded) {
-      console.warn('[orchestratorComplex] step succeeded:', step.id);
     }
 
     phaseOutputs.push(stepOutput);

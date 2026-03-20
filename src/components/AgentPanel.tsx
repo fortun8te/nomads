@@ -1212,6 +1212,8 @@ export function AgentPanel() {
   const [status, setStatus] = useState<AgentStatus>('idle');
   const [currentToolName, setCurrentToolName] = useState<string | undefined>();
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  /** True when user has manually scrolled up -- freezes auto-scroll until they return to bottom */
+  const userScrolledUpRef = useRef(false);
   const [askUserPrompt, setAskUserPrompt] = useState<{ question: string; options: string[]; resolve: (answer: string) => void } | null>(null);
   const [askUserInput, setAskUserInput] = useState('');
   const taskProgressRef = useRef<TaskProgress | null>(null);
@@ -1354,21 +1356,35 @@ export function AgentPanel() {
   }, [refreshConversationList]);
 
   const scrollToBottom = useCallback(() => {
+    // Clear the frozen-scroll flag so auto-scroll resumes
+    userScrolledUpRef.current = false;
+    setShowScrollBtn(false);
     requestAnimationFrame(() => {
       const c = scrollContainerRef.current;
       if (c) c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' });
     });
   }, []);
 
-  // Scroll when blocks change
-  useEffect(() => { scrollToBottom(); }, [blocks, scrollToBottom]);
+  // Track previous block count to detect when a new block is appended vs content update.
+  const blockCountRef = useRef(0);
+  // Scroll when a new message block appears (not just a content update on existing ones).
+  // Skips if user has manually scrolled up to read history.
+  useEffect(() => {
+    const prevCount = blockCountRef.current;
+    blockCountRef.current = blocks.length;
+    if (blocks.length > prevCount && !userScrolledUpRef.current) {
+      scrollToBottom();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks.length]);
 
   // Auto-scroll when DOM content grows (streaming tokens, new steps)
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
     const observer = new MutationObserver(() => {
-      // Only auto-scroll if user is near the bottom
+      // Respect user scroll: if they've scrolled up to read history, do not auto-scroll
+      if (userScrolledUpRef.current) return;
       const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
       if (nearBottom) {
         container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
@@ -1381,7 +1397,11 @@ export function AgentPanel() {
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 120);
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const scrolledUp = distFromBottom > 120;
+    // Freeze / unfreeze auto-scroll based on user position
+    userScrolledUpRef.current = scrolledUp;
+    setShowScrollBtn(scrolledUp);
   }, []);
 
   const isWorking = status === 'routing' || status === 'thinking' || status === 'streaming';
@@ -1558,12 +1578,12 @@ export function AgentPanel() {
       injectedMessagesRef.current.push(fullMessage);
       userMsgCountRef.current += 1;
       setBlocks(prev => [...prev, { id: crypto.randomUUID(), type: 'user' as const, content: text || '(attached files)', attachments: currentAttachments.length > 0 ? currentAttachments : undefined, timestamp: Date.now() }]);
-      setInput(''); setAttachments([]); if (inputRef.current) inputRef.current.style.height = 'auto';
+      setInput(''); setAttachments([]); if (inputRef.current) { inputRef.current.style.height = 'auto'; inputRef.current.focus(); }
       return;
     }
     userMsgCountRef.current += 1;
     setBlocks(prev => [...prev, { id: crypto.randomUUID(), type: 'user' as const, content: text || '(attached files)', attachments: currentAttachments.length > 0 ? currentAttachments : undefined, timestamp: Date.now() }]);
-    setInput(''); setAttachments([]); if (inputRef.current) inputRef.current.style.height = 'auto';
+    setInput(''); setAttachments([]); if (inputRef.current) { inputRef.current.style.height = 'auto'; inputRef.current.focus(); }
     setStatus('routing');
     const controller = new AbortController(); abortRef.current = controller;
     activeBlockIdRef.current = null; activeStepIdRef.current = null;
@@ -1825,7 +1845,7 @@ export function AgentPanel() {
 
       {/* Floating action buttons (top-left) — z-30 keeps them above content but below sidebar overlay */}
       <div className="absolute top-3 left-3 z-30 flex items-center gap-1.5">
-        <button onClick={() => setSidebarOpen(o => !o)} className="nomad-glass-pill w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:brightness-150" style={{ color: 'rgba(255,255,255,0.35)' }} title="Chat history">
+        <button onClick={() => setSidebarOpen(o => !o)} className="nomad-glass-pill w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:brightness-150" style={{ color: sidebarOpen ? 'rgba(43,121,255,0.8)' : 'rgba(255,255,255,0.35)' }} title="Chat history">
           <SidebarToggleIcon open={sidebarOpen} />
         </button>
         <button onClick={handleNewChat} className="nomad-glass-pill w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:brightness-150" style={{ color: 'rgba(255,255,255,0.35)' }} title="New chat">
@@ -2004,7 +2024,7 @@ export function AgentPanel() {
                             return <div className="mb-4"><AnimatedAgentText text={block.content} animate={isNew && isRecent} /></div>;
                           })()}
                           {block.steps && block.steps.length > 0 && <div className="mt-1">{block.steps.map(step => <StepCardView key={step.id} step={step} />)}</div>}
-                          {!block.content && (!block.steps || block.steps.length === 0) && status === 'routing' && (
+                          {!block.content && (!block.steps || block.steps.length === 0) && (status === 'routing' || status === 'thinking') && (
                             <div className="flex items-center gap-2 py-1">
                               <ThinkingMorph size={14} />
                               <TextShimmer className="text-[12px] font-medium [--shimmer-base:rgba(255,255,255,0.4)] [--shimmer-highlight:rgba(255,255,255,0.9)]" duration={1.8}>Thinking</TextShimmer>

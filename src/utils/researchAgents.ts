@@ -131,6 +131,8 @@ export interface OrchestratorState {
   userProvidedContext?: Record<string, string>; // Answers to questions orchestrator asked
   reflectionSuggestedTopics?: string[]; // Gaps found by reflection agent
   _visualFindings?: unknown; // Visual scout results, set during orchestration
+  _visualBatchesUsed?: number; // Track visual batch consumption across iterations
+  _visualUrlsUsed?: number; // Track visual URL consumption across iterations
 }
 
 export interface ResearchPauseEvent {
@@ -756,9 +758,9 @@ export const orchestrator = {
           .filter(Boolean);
 
         // Enforce visual batch limits from preset
-        const visualBudgetUsed = (state as any)._visualBatchesUsed || 0;
+        const visualBudgetUsed = state._visualBatchesUsed || 0;
         const visualBudgetRemaining = limits.maxVisualBatches - visualBudgetUsed;
-        const maxVisualUrlsRemaining = limits.maxVisualUrls - ((state as any)._visualUrlsUsed || 0);
+        const maxVisualUrlsRemaining = limits.maxVisualUrls - (state._visualUrlsUsed || 0);
 
         if (visualScoutUrls.length > 0 && !state._visualFindings && visualBudgetRemaining > 0 && maxVisualUrlsRemaining > 0) {
           const cappedCount = Math.min(visualScoutUrls.length, maxVisualUrlsRemaining, 5);
@@ -809,8 +811,8 @@ export const orchestrator = {
               }
             );
             state._visualFindings = visualFindings;
-            (state as any)._visualBatchesUsed = visualBudgetUsed + 1;
-            (state as any)._visualUrlsUsed = ((state as any)._visualUrlsUsed || 0) + cappedUrls.length;
+            state._visualBatchesUsed = visualBudgetUsed + 1;
+            state._visualUrlsUsed = (state._visualUrlsUsed || 0) + cappedUrls.length;
             onProgressUpdate?.(`[Visual Scout] Visual analysis complete — ${visualFindings.totalAnalyzed} sites analyzed\n`);
           } catch (err) {
             onProgressUpdate?.(`[Visual Scout] Visual analysis failed: ${err}\n`);
@@ -1028,7 +1030,7 @@ AD_SCOUT: [ad library URLs if ad creative analysis missing]` : ''}`;
 
           // Check if coverage checker requested visual scouting (VISUAL_SCOUT or AD_SCOUT)
           // Enforce visual budget from preset limits
-          const reflVisualBudgetUsed = (state as any)._visualBatchesUsed || 0;
+          const reflVisualBudgetUsed = state._visualBatchesUsed || 0;
           const reflVisualBudgetRemaining = getResearchLimits().maxVisualBatches - reflVisualBudgetUsed;
           const scoutDirective = response.includes('VISUAL_SCOUT:') || response.includes('AD_SCOUT:');
           if (scoutDirective && !state._visualFindings && reflVisualBudgetRemaining > 0) {
@@ -1045,7 +1047,7 @@ AD_SCOUT: [ad library URLs if ad creative analysis missing]` : ''}`;
               }
             }
             const dedupedUrls = [...new Set(allScoutUrls)];
-            const reflMaxUrls = getResearchLimits().maxVisualUrls - ((state as any)._visualUrlsUsed || 0);
+            const reflMaxUrls = getResearchLimits().maxVisualUrls - (state._visualUrlsUsed || 0);
             const reflCappedCount = Math.min(dedupedUrls.length, reflMaxUrls, 5);
             if (dedupedUrls.length > 0 && reflCappedCount > 0) {
               const hasAdScout = response.includes('AD_SCOUT:');
@@ -1071,8 +1073,8 @@ AD_SCOUT: [ad library URLs if ad creative analysis missing]` : ''}`;
                   }
                 );
                 state._visualFindings = visualFindings;
-                (state as any)._visualBatchesUsed = ((state as any)._visualBatchesUsed || 0) + 1;
-                (state as any)._visualUrlsUsed = ((state as any)._visualUrlsUsed || 0) + reflCappedCount;
+                state._visualBatchesUsed = (state._visualBatchesUsed || 0) + 1;
+                state._visualUrlsUsed = (state._visualUrlsUsed || 0) + reflCappedCount;
                 onChunk?.(`[${label}] Visual analysis complete — ${visualFindings.totalAnalyzed} sites analyzed\n`);
               } catch (err) {
                 onChunk?.(`[${label}] Visual analysis failed: ${err}\n`);
