@@ -1,12 +1,12 @@
 /**
- * Workspace — per-chat folder management for the Glance Agent.
+ * Workspace — per-chat folder management for the Neuro Agent.
  *
- * Each chat session gets its own folder under ~/Documents/Glance/{chat-id}/
+ * Each chat session gets its own folder under ~/Documents/Neuro/{chat-id}/
  * where files can be saved, read, and listed. The agent uses these as its
  * working directory for a given conversation.
  */
 
-const BASE_DIR = '~/Documents/Glance';
+const BASE_DIR = '~/Documents/Neuro';
 
 export interface WorkspaceFile {
   name: string;

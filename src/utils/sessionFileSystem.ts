@@ -3,7 +3,7 @@
  *
  * Three-level hierarchy:
  *   /nomad                          (root)
- *   /nomad/sessions/{sessionId}     (agent/glance session)
+ *   /nomad/sessions/{sessionId}     (agent/neuro session)
  *   /nomad/sessions/{sessionId}/computers/{computerId}  (computer session)
  *   /nomad/shared                   (cross-session shared files)
  *

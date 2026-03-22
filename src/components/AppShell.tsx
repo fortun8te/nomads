@@ -55,7 +55,7 @@ const NAV_ITEMS: Array<{
   { key: 'research',  label: 'Research',  shortcut: 'R', icon: <NavIcon src="/icons/research.png" alt="Research" />, group: 'core' },
   { key: 'make',      label: 'Make',      shortcut: 'M', icon: <NavIcon src="/icons/make.png" alt="Make" />, group: 'core' },
   { key: 'test',      label: 'Test',      shortcut: 'T', icon: <NavIcon src="/icons/test.png" alt="Test" />, group: 'core' },
-  { key: 'agent',     label: 'Glance',    shortcut: 'A', icon: <NavIcon src="/icons/agent.png" alt="Glance" />, group: 'tools' },
+  { key: 'agent',     label: 'Neuro',     shortcut: 'A', icon: <NavIcon src="/icons/agent.png" alt="Neuro" />, group: 'tools' },
   { key: 'computer',  label: 'Computer',  shortcut: 'C', icon: <NavIcon src="/icons/computer.png" alt="Computer" />, group: 'tools' },
 ];
 

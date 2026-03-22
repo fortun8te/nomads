@@ -710,7 +710,7 @@ export const WayfayerPlusPanel = forwardRef<WayfayerPlusPanelHandle, { standalon
                       <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" />
                       <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
                     </svg>
-                    <p className="text-[11px] font-medium" style={{ color: 'rgba(255,255,255,0.35)' }}>Glance Agent</p>
+                    <p className="text-[11px] font-medium" style={{ color: 'rgba(255,255,255,0.35)' }}>Neuro Agent</p>
                     <p className="text-[9px] mt-1" style={{ color: 'rgba(255,255,255,0.15)' }}>Give an instruction to get started</p>
                   </>
                 )}

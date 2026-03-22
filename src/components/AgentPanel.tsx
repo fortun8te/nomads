@@ -1923,7 +1923,7 @@ export function AgentPanel() {
         <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto relative" style={{ minHeight: 0 }}>
           {isEmpty ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 min-h-full">
-              <img src="/icons/agent.png" alt="Glance" style={{ width: 44, height: 44, opacity: 0.5 }} className="rounded-xl" />
+              <img src="/icons/agent.png" alt="Neuro" style={{ width: 44, height: 44, opacity: 0.5 }} className="rounded-xl" />
               <div className="text-center space-y-1.5">
                 <p className="text-[15px] font-medium" style={{ color: 'rgba(255,255,255,0.6)' }}>What can I help you with?</p>
                 <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.25)' }}>Search, code, browse, analyze -- autonomous multi-step agent</p>
@@ -1974,9 +1974,9 @@ export function AgentPanel() {
                           <GlobeIcon />
                         </div>
                         <div className="flex-1 min-w-0 pt-0">
-                          {/* Identity line: "glance" —  */}
+                          {/* Identity line: "neuro" —  */}
                           <div className="flex items-center gap-1.5 mb-2">
-                            <span className="text-[11px] font-medium" style={{ color: 'rgba(255,255,255,0.35)' }}>glance</span>
+                            <span className="text-[11px] font-medium" style={{ color: 'rgba(255,255,255,0.35)' }}>neuro</span>
                             <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.1)', marginLeft: 4 }}>{formatTime(block.timestamp)}</span>
                             {block.completedAt && block.startedAt && (
                               <span className="text-[10px] font-sans" style={{ color: 'rgba(255,255,255,0.18)' }}>

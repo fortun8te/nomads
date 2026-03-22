@@ -73,7 +73,7 @@ interface RawPlan {
 // Prompt loading
 // ─────────────────────────────────────────────────────────────
 
-const IDENTITY_FALLBACK = `You are Glance, an autonomous AI agent for creative marketing intelligence.
+const IDENTITY_FALLBACK = `You are Neuro, an autonomous AI agent for creative marketing intelligence.
 Be direct, concise. No filler. No "Sure!" or "Of course!".`;
 
 const MEDIUM_ORCH_FALLBACK = `{identity_block}

@@ -84,7 +84,7 @@ function getSeededMemories(): Memory[] {
     {
       id: 'seed-1',
       type: 'general',
-      content: 'Glance is an autonomous marketing creative intelligence agent. It runs research, generates ad concepts, tests them, and learns from each cycle.',
+      content: 'Neuro is an autonomous marketing creative intelligence agent. It runs research, generates ad concepts, tests them, and learns from each cycle.',
       tags: ['system', 'overview'],
       createdAt: now,
       lastAccessedAt: now,
@@ -343,10 +343,10 @@ export function getMemoriesByDate(afterISO: string): Memory[] {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Filesystem persistence — ~/Documents/Glance/memories/
+// Filesystem persistence — ~/Documents/Neuro/memories/
 // ─────────────────────────────────────────────────────────────
 
-const MEMORIES_FS_DIR = '$HOME/Documents/Glance/memories';
+const MEMORIES_FS_DIR = '$HOME/Documents/Neuro/memories';
 
 /**
  * Ensure the memories directory exists on the filesystem.
@@ -363,7 +363,7 @@ async function ensureMemoriesDir(): Promise<void> {
 }
 
 /**
- * Persist a single memory to ~/Documents/Glance/memories/<id>.json
+ * Persist a single memory to ~/Documents/Neuro/memories/<id>.json
  * The agent can read these files directly via file tools.
  */
 export async function persistMemoryToFS(memory: Memory): Promise<void> {
@@ -397,7 +397,7 @@ export async function persistMemoryToFS(memory: Memory): Promise<void> {
 }
 
 /**
- * Delete a memory file from ~/Documents/Glance/memories/<id>.json
+ * Delete a memory file from ~/Documents/Neuro/memories/<id>.json
  */
 export async function deleteMemoryFromFS(id: string): Promise<void> {
   try {

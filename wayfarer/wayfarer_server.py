@@ -773,7 +773,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Wayfarer] Browser pre-warm failed (will retry on first request): {e}")
     asyncio.create_task(cleanup_idle_sessions())
-    # Start Glance API task workers + cleanup
+    # Start Neuro API task workers + cleanup
     for _ in range(_MAX_CONCURRENT_TASKS):
         asyncio.create_task(_task_worker())
     asyncio.create_task(_cleanup_old_tasks())
@@ -2459,7 +2459,7 @@ async def screencast_resume(session_id: str):
 
 
 # ══════════════════════════════════════════════════════════════
-# ── Glance Computer Agent REST API ──
+# ── Neuro Computer Agent REST API ──
 # External AI bots can submit tasks for the browser agent to
 # execute, poll for results, stream progress, and cancel.
 # ══════════════════════════════════════════════════════════════
@@ -2481,14 +2481,14 @@ def _check_rate_limit(client_ip: str) -> bool:
 
 
 # ── API key auth (optional, off by default) ──
-_GLANCE_API_KEY = os.getenv("GLANCE_API_KEY", "")
+_NEURO_API_KEY = os.getenv("NEURO_API_KEY", "")
 
 
 async def _verify_api_key(request: Request):
-    if not _GLANCE_API_KEY:
+    if not _NEURO_API_KEY:
         return
     key = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if key != _GLANCE_API_KEY:
+    if key != _NEURO_API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
@@ -3030,7 +3030,7 @@ async def _task_worker():
                             "result": result,
                         })
                 except Exception as e:
-                    print(f"[Glance API] Webhook failed for {task_id}: {e}")
+                    print(f"[Neuro API] Webhook failed for {task_id}: {e}")
 
         except asyncio.TimeoutError:
             task["status"] = "error"
@@ -3268,7 +3268,7 @@ async def api_health():
         "uptime_seconds": round(_time.time() - _start_time, 1),
         "max_concurrent_tasks": _MAX_CONCURRENT_TASKS,
         "rate_limit_per_minute": MAX_REQUESTS_PER_MINUTE,
-        "auth_required": bool(_GLANCE_API_KEY),
+        "auth_required": bool(_NEURO_API_KEY),
     }
 
 
@@ -3308,3 +3308,15 @@ async def tool_schema():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8889)
+
+# ── SearXNG proxy (avoids CORS) ──────────────────────────────────────────────
+@app.get("/api/search")
+async def search_proxy(q: str = "", format: str = "json"):
+    """Proxy SearXNG search to avoid browser CORS issues."""
+    searxng = os.getenv("SEARXNG_URL", "http://localhost:8888")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{searxng}/search", params={"q": q, "format": format})
+            return resp.json()
+    except Exception as e:
+        return {"results": [], "error": str(e)}

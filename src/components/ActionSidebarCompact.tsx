@@ -89,9 +89,9 @@ function combinedSignal(userSignal: AbortSignal, timeoutMs: number) {
   return { signal: ctrl.signal, cleanup: () => { clearTimeout(timer); userSignal.removeEventListener('abort', onAbort); } };
 }
 
-// ── Glance system prompt -- single LLM call decides tool + generates response ──
+// ── Neuro system prompt -- single LLM call decides tool + generates response ──
 
-const GLANCE_SYSTEM = `You are Glance, a helpful AI assistant with access to tools.
+const NEURO_SYSTEM = `You are Neuro, a helpful AI assistant with access to tools.
 
 When responding, ALWAYS start your response with a tool tag on the first line, then your message:
 
@@ -127,8 +127,8 @@ ASK TOOL RULES:
 
 Always pick the LIGHTEST tool that can do the job. Don't use computer for a simple lookup. Don't use research for a quick fact.
 
-Be conversational and brief. No formal language. 1-3 sentences max. No preamble. Direct answers only.
-Always say "I'm Glance" if asked who you are.`;
+Keep responses short and direct. Match the user tone naturally. Never use roleplay actions. Never force slang. Just be helpful. Use Celsius and metric. Never make up data.
+Always say "I'm Neuro" if asked who you are.`;
 
 function parseToolDecision(response: string): { tool: string; param: string; message: string; question?: string; options?: string[] } {
   const match = response.match(/^\[TOOL:(\w+)(?:\|(.+?))?\]\n?([\s\S]*)/);
@@ -847,7 +847,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
   const askUserResolveRef = useRef<((r: import('../utils/computerAgent/orchestrator').AskUserResponse) => void) | null>(null);
   const [clarifyStepId, setClarifyStepId] = useState<string | null>(null);
   const prevAskUserRef = useRef<AskUserRequest | null>(null);
-  const glanceAskResolveRef = useRef<((answer: string) => void) | null>(null);
+  const neuroAskResolveRef = useRef<((answer: string) => void) | null>(null);
   const [showNewActivity, setShowNewActivity] = useState(false);
   const [sessionSavedFlash, setSessionSavedFlash] = useState(false);
   const [computerId, setComputerId] = useState(() => generateSessionId());
@@ -1144,7 +1144,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
             { model: 'qwen3.5:2b', temperature: 0.1, num_predict: 30, signal: cs, think: false,
               onChunk: (c) => { classResult += c; } },
           );
-          const line = classResult.trim().split('\n')[0].trim().toLowerCase();
+          console.log("[Classifier]", classResult.trim()); const line = classResult.trim().split('\n')[0].trim().toLowerCase();
           if (line.startsWith('webfetch:')) { toolClass = 'webfetch'; toolParam = line.slice(9).trim(); }
           else if (line.startsWith('research:')) { toolClass = 'research'; toolParam = line.slice(9).trim(); }
           else if (line.startsWith('computer:')) { toolClass = 'computer'; toolParam = line.slice(9).trim(); }
@@ -1170,8 +1170,8 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
         const { signal: gs, cleanup: gc } = combinedSignal(abort.signal, 20_000);
         try {
           await ollamaService.generateStream(
-            history.map(m => `${m.role === 'user' ? 'User' : 'Glance'}: ${m.content}`).join('\n') + `\nUser: ${userMessage}${toolContext}\nGlance:`,
-            'You are Glance, a helpful AI assistant. Be conversational and brief. 1-3 sentences max. No formal language. If you don\'t know something factual, say so — never make up data like weather or prices.',
+            history.map(m => `${m.role === 'user' ? 'User' : 'Neuro'}: ${m.content}`).join('\n') + `\nUser: ${userMessage}${toolContext}\nNeuro:`,
+            'You are Neuro, a helpful AI assistant. Be conversational and brief. 1-3 sentences max. No formal language. If you don\'t know something factual, say so — never make up data like weather or prices.',
             {
               model: 'qwen3.5:4b', temperature: 0.5, num_predict: 200, signal: gs, think: false,
               onChunk: (chunk) => { fullResponse += chunk; },
@@ -1210,7 +1210,10 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
             let sourceNames: string[] = [];
             // SearXNG first (fast, reliable, returns snippets with data)
             try {
-              const searxRes = await fetch(`${INFRASTRUCTURE.searxngUrl}/search?q=${encodeURIComponent(query)}&format=json`, { signal: abort.signal }).then(r => r.json());
+              // Proxy through Wayfarer to avoid CORS
+              const searxUrl = `${INFRASTRUCTURE.wayfarerUrl}/api/search?q=${encodeURIComponent(query)}&format=json`;
+              console.log('[webfetch] Fetching via proxy:', searxUrl);
+              const searxRes = await fetch(searxUrl, { signal: abort.signal }).then(r => { console.log('[webfetch] Response status:', r.status); return r.json(); });
               const topResults = (searxRes.results || []).slice(0, 8);
               resultCount = topResults.length;
               context = topResults.map((r: { title?: string; content?: string; url?: string }) =>
@@ -1221,7 +1224,8 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
                 try { return new URL(r.url || '').hostname.replace('www.', ''); } catch { return ''; }
               }).filter(Boolean).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i).slice(0, 4);
               updateStep(runId, queryStepId, s => ({ ...s, status: 'done', output: `Found ${resultCount} results` }));
-            } catch {
+            } catch (err) {
+              console.error('[webfetch] SearXNG failed:', err);
               // Fallback: try Wayfarer research
               try {
                 const wayfarerRes = await fetch(`${INFRASTRUCTURE.wayfarerUrl}/research`, {
@@ -1350,7 +1354,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
 
             // Wait for user answer
             const answer = await new Promise<string>((resolve) => {
-              glanceAskResolveRef.current = resolve;
+              neuroAskResolveRef.current = resolve;
             });
 
             // Mark the ask as answered in run metadata
@@ -1367,7 +1371,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
             try {
               await ollamaService.generateStream(
                 [...history.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`), `User: ${clarifiedMessage}`].join('\n') + '\nAssistant:',
-                GLANCE_SYSTEM,
+                NEURO_SYSTEM,
                 {
                   model: 'qwen3.5:4b', temperature: 0.5, num_predict: 300, signal: cs, think: false,
                   onChunk: (chunk) => { clarifiedResponse += chunk; },
@@ -1440,7 +1444,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
         vfs.saveActivity(computerId, computerId, `Session ended with ${runs.length} task(s)`, JSON.stringify(runs.map(r => ({ id: r.id, userMessage: r.userMessage, status: r.status, createdAt: r.createdAt, finalAnswer: r.finalAnswer, errorDetail: r.errorDetail, steps: r.steps.map(s => ({ id: s.id, label: s.label, status: s.status, output: s.output })) }))));
       } catch { /* silent */ }
     }
-    setRuns([]); setPendingQueue([]); setActiveRunId(null); isRoutingRef.current = false; setIsRouting(false); setIterCount(null); setShowNewActivity(false); setRunStartedAt(null); setRunLongRunning(false); userScrolledRef.current = false; setAskUserRequest(null); askUserResolveRef.current = null; glanceAskResolveRef.current = null; setClarifyStepId(null); setViewingDoc(null);
+    setRuns([]); setPendingQueue([]); setActiveRunId(null); isRoutingRef.current = false; setIsRouting(false); setIterCount(null); setShowNewActivity(false); setRunStartedAt(null); setRunLongRunning(false); userScrolledRef.current = false; setAskUserRequest(null); askUserResolveRef.current = null; neuroAskResolveRef.current = null; setClarifyStepId(null); setViewingDoc(null);
     setComputerId(generateSessionId());
     setSessionSavedFlash(true);
     setTimeout(() => setSessionSavedFlash(false), 1500);
@@ -1501,7 +1505,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
       });
     }
 
-    // Ask user inline (Glance ask tool)
+    // Ask user inline (Neuro ask tool)
     const askEntry = (run as AgentRun & { _askEntry?: { id: string; question: string; options: string[]; answered?: string } })._askEntry;
     if (askEntry) {
       chatEntries.push({ type: 'ask', id: askEntry.id, question: askEntry.question, options: askEntry.options, answered: askEntry.answered, ts: run.createdAt + 3.5 });
@@ -1536,7 +1540,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
           }}>
             <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
               {isRouting && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'rgba(52,211,153,0.8)', animation: '_nomad_pulse 1.2s ease-in-out infinite', flexShrink: 0, display: 'inline-block' }} />}
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', fontWeight: 600 }}>Glance</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', fontWeight: 600 }}>Neuro</span>
               {showThinkingDots && <ThinkingDots />}
               {currentTotal > 0 && isRouting && (
                 <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.22)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{currentDone}/{currentTotal}</span>
@@ -1571,7 +1575,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
                         <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                       </svg>
                     </div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>Ask Glance anything</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>Ask Neuro anything</div>
                   </div>
                 </div>
               ) : (
@@ -1608,9 +1612,9 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
                           answered={entry.answered}
                           onAnswer={(answer) => {
                             // Resolve the pending promise
-                            if (glanceAskResolveRef.current) {
-                              glanceAskResolveRef.current(answer);
-                              glanceAskResolveRef.current = null;
+                            if (neuroAskResolveRef.current) {
+                              neuroAskResolveRef.current(answer);
+                              neuroAskResolveRef.current = null;
                             }
                           }}
                         />
@@ -1658,8 +1662,8 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
             <textarea ref={inputRef} value={input}
               onChange={e => { setInput(e.target.value); if (inputRef.current) { inputRef.current.style.height = 'auto'; inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 72) + 'px'; } }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendInstruction(); } }}
-              placeholder={isRouting ? 'Queue next task...' : 'Ask Glance anything...'}
-              data-role="instruction-input" aria-label="Send a message to the Glance agent"
+              placeholder={isRouting ? 'Queue next task...' : 'Ask Neuro anything...'}
+              data-role="instruction-input" aria-label="Send a message to the Neuro agent"
               style={{
                 width: '100%', padding: '10px 40px 10px 12px', borderRadius: 10, fontSize: 12,
                 background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.80)',

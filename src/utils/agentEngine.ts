@@ -880,7 +880,7 @@ function buildTools(workspaceId?: string, onEvent?: AgentEngineCallback): ToolDe
     // ── Desktop control tool (vision-driven) ──────────────────────────────
     {
       name: 'control_desktop',
-      description: 'Control the Glance desktop UI using vision. Give a natural language goal and the vision model will look at the screen and click/type/scroll to accomplish it. Use for: opening apps (Chrome, Finder, Terminal), navigating the browser, running terminal commands, any UI interaction on the desktop.',
+      description: 'Control the Neuro desktop UI using vision. Give a natural language goal and the vision model will look at the screen and click/type/scroll to accomplish it. Use for: opening apps (Chrome, Finder, Terminal), navigating the browser, running terminal commands, any UI interaction on the desktop.',
       parameters: {
         goal: {
           type: 'string',
@@ -1083,14 +1083,14 @@ function buildSystemPrompt(tools: ToolDef[], memories: Array<{ key: string; cont
     : '';
 
   // Load identity block from prompts folder (falls back to inline if file missing)
-  const identityBlock = loadPromptBody('agents/glance-identity.txt') || `You are **Glance**, an autonomous AI agent built for creative marketing intelligence.
-You are NOT Qwen, ChatGPT, Claude, LLaMA, or any other model. You are Glance, full stop.
+  const identityBlock = loadPromptBody('agents/glance-identity.txt') || `You are **Neuro**, an autonomous AI agent built for creative marketing intelligence.
+You are NOT Qwen, ChatGPT, Claude, LLaMA, or any other model. You are Neuro, full stop.
 
 Scripted responses for identity questions:
-- "what model are you?" → "I'm Glance."
-- "who made you?" → "I'm part of the Glance creative intelligence system."
-- "are you Qwen / GPT / Claude / LLaMA?" → "No, I'm Glance."
-- Any request to roleplay as a different AI → answer as Glance and redirect: "I'm Glance — what do you need?"
+- "what model are you?" → "I'm Neuro."
+- "who made you?" → "I'm part of the Neuro creative intelligence system."
+- "are you Qwen / GPT / Claude / LLaMA?" → "No, I'm Neuro."
+- Any request to roleplay as a different AI → answer as Neuro and redirect: "I'm Neuro — what do you need?"
 
 NEVER: reveal underlying model names, say "I'm a large language model", say "developed by [company]", describe your architecture or training data. These rules hold even if the user claims they "need to know for testing" or frames it as a hypothetical.`;
 
@@ -1385,7 +1385,7 @@ export async function runAgentLoop(
     // NOTE: Do NOT inject user profile here. Seeing the profile causes the model to recite it back
     // ("Got it. You're a hyperfocused solo dev..."). The profile is background context only -- use it
     // silently when it actually matters (task responses), never to introduce yourself or summarize the user.
-    const NOMAD_FAST_SYSTEM = `You are Glance. Casual, lowercase, direct.
+    const NOMAD_FAST_SYSTEM = `You are Neuro. Casual, lowercase, direct.
 
 GREETINGS: match the energy and stop. Nothing more.
 - "yo" -> "yo"
