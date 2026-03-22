@@ -254,7 +254,7 @@ function AgentText({ text }: { text: string }) {
   return (
     <div style={{ padding: '4px 0' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <img src="/neuro-icon-192.png" width={18} height={18} style={{ borderRadius: '50%', objectFit: 'cover', opacity: 0.55, flexShrink: 0 }} alt="" />
+        <img src="/neuro-icon-192.png" alt="" style={{ width: 18, height: 18, minWidth: 18, minHeight: 18, borderRadius: '50%', objectFit: 'cover', opacity: 0.55, flexShrink: 0 }} />
         <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)' }}>neuro</span>
         <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.20)' }}>
           {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
