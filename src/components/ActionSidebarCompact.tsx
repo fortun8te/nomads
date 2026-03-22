@@ -249,11 +249,9 @@ function UserBubble({ text }: { text: string }) {
 
 function AgentText({ text }: { text: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'flex-start', padding: '4px 0' }}>
+    <div style={{ padding: '4px 0' }}>
       <div style={{
-        maxWidth: '90%', padding: '6px 10px', borderRadius: '12px 12px 12px 2px',
-        background: 'rgba(255,255,255,0.04)',
-        fontSize: 12, color: 'rgba(255,255,255,0.70)', lineHeight: 1.5,
+        fontSize: 12, color: 'rgba(255,255,255,0.70)', lineHeight: 1.55,
         wordBreak: 'break-word', whiteSpace: 'pre-wrap',
       }}>{text}</div>
     </div>
@@ -274,19 +272,7 @@ function ContinueNotice() {
   );
 }
 
-function SearchIndicator({ label }: { label: string }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 6,
-      padding: '6px 10px', margin: '4px 0',
-      background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.15)',
-      borderRadius: 8,
-    }}>
-      <div style={{ width: 8, height: 8, borderRadius: '50%', border: '1.5px solid rgba(56,189,248,0.15)', borderTopColor: 'rgba(56,189,248,0.7)', animation: '_nomad_spin 0.8s linear infinite', flexShrink: 0 }} />
-      <span style={{ fontSize: 10, color: 'rgba(56,189,248,0.75)', fontWeight: 500 }}>{label}</span>
-    </div>
-  );
-}
+// SearchIndicator removed -- replaced by ToolIndicator in Manus-style rendering
 
 function AskUserInline({ question, options, answered, onAnswer }: {
   question: string;
@@ -374,26 +360,70 @@ function AskUserInline({ question, options, answered, onAnswer }: {
   );
 }
 
-function TaskStepBadge({ status }: { status: 'pending' | 'running' | 'done' | 'error' | 'failed' }) {
+function ManusStatusIcon({ status, size = 14 }: { status: 'pending' | 'running' | 'done' | 'error' | 'failed'; size?: number }) {
+  const iconSize = Math.round(size * 0.6);
   if (status === 'done') return (
-    <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'rgba(34,197,94,0.20)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="rgba(34,197,94,0.90)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="2 6 5 9 10 3" /></svg>
+    <span style={{ fontSize: size, color: 'rgba(34,197,94,0.90)', lineHeight: 1, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: size, height: size }}>
+      <svg width={iconSize} height={iconSize} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="2 6 5 9 10 3" /></svg>
     </span>
   );
   if (status === 'running') return (
-    <span style={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid rgba(251,146,60,0.25)', borderTopColor: 'rgba(251,146,60,0.80)', animation: '_nomad_spin 0.8s linear infinite', display: 'inline-flex', flexShrink: 0 }} />
+    <span style={{ width: size, height: size, borderRadius: '50%', border: '2px solid rgba(251,146,60,0.20)', borderTopColor: 'rgba(251,146,60,0.85)', animation: '_nomad_spin 0.8s linear infinite', display: 'inline-flex', flexShrink: 0 }} />
   );
   if (status === 'error' || status === 'failed') return (
-    <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'rgba(239,68,68,0.20)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="rgba(239,68,68,0.90)" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="3" x2="9" y2="9" /><line x1="9" y1="3" x2="3" y2="9" /></svg>
+    <span style={{ fontSize: size, color: 'rgba(239,68,68,0.90)', lineHeight: 1, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: size, height: size }}>
+      <svg width={iconSize} height={iconSize} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="3" x2="9" y2="9" /><line x1="9" y1="3" x2="3" y2="9" /></svg>
     </span>
   );
   // pending
-  return <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'inline-flex', flexShrink: 0 }} />;
+  return (
+    <span style={{ width: size, height: size, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <span style={{ width: size - 4, height: size - 4, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.18)' }} />
+    </span>
+  );
 }
 
-/** Inline computer card -- Manus-style thumbnail with task progress */
-function ComputerCard({ screenshot, status, steps, currentStep, onExpand }: {
+/** Manus-style sub-step pill badge */
+function SubStepPill({ label, status }: { label: string; status: 'pending' | 'running' | 'done' | 'error' | 'failed' }) {
+  const bg = status === 'running' ? 'rgba(34,197,94,0.08)'
+    : status === 'error' || status === 'failed' ? 'rgba(239,68,68,0.08)'
+    : 'rgba(255,255,255,0.06)';
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      background: bg, borderRadius: 20, padding: '4px 12px 4px 8px',
+      fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 4,
+    }}>
+      <ManusStatusIcon status={status} size={14} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+/** Manus-style tool indicator with spinning icon */
+function ToolIndicator({ label }: { label: string }) {
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      padding: '3px 0', marginBottom: 2,
+    }}>
+      <span style={{ display: 'inline-block', animation: '_nomad_spin 1.5s linear infinite', fontSize: 12, lineHeight: 1, color: 'rgba(255,255,255,0.35)' }}>&#x27F2;</span>
+      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.40)', fontStyle: 'italic' }}>{label}</span>
+    </div>
+  );
+}
+
+/** Agent commentary text between pills */
+function AgentCommentary({ text }: { text: string }) {
+  return (
+    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.5, padding: '2px 0', marginBottom: 2 }}>
+      {text}
+    </div>
+  );
+}
+
+/** Inline computer card -- Manus-style with pills */
+function ComputerCard({ screenshot, status, steps, onExpand }: {
   screenshot?: string;
   status: string;
   steps: Array<{ label: string; status: 'pending' | 'running' | 'done' | 'error' | 'failed' }>;
@@ -401,175 +431,158 @@ function ComputerCard({ screenshot, status, steps, currentStep, onExpand }: {
   onExpand?: () => void;
 }) {
   return (
-    <div onClick={onExpand} style={{
-      background: 'rgba(255,255,255,0.04)', borderRadius: 12,
-      border: '1px solid rgba(255,255,255,0.06)', padding: 12,
-      cursor: onExpand ? 'pointer' : 'default', marginTop: 8,
-      transition: 'border-color 0.15s ease',
-    }}
-      onMouseEnter={e => { if (onExpand) e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
-    >
-      <div style={{ display: 'flex', gap: 12 }}>
-        {screenshot && (
-          <div style={{ width: 100, height: 62, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: '#111' }}>
-            <img src={`data:image/jpeg;base64,${screenshot}`} alt="Computer view" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-        )}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>Computer</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-            {status}
-          </div>
-        </div>
-        {onExpand && <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14, flexShrink: 0, alignSelf: 'center' }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 3 21 3 21 9" /><line x1="14" y1="10" x2="21" y2="3" />
-          </svg>
-        </div>}
-      </div>
-      {steps.length > 0 && (
-        <div style={{ marginTop: 10, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 10px' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
-            <span>Task progress</span>
-            <span>{currentStep}/{steps.length}</span>
-          </div>
-          {steps.map((s, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0' }}>
-              <TaskStepBadge status={s.status} />
-              <span style={{
-                fontSize: 11,
-                color: s.status === 'done' ? 'rgba(255,255,255,0.3)'
-                  : s.status === 'running' ? 'rgba(255,255,255,0.7)'
-                  : 'rgba(255,255,255,0.35)',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              }}>{s.label}</span>
-            </div>
-          ))}
+    <div style={{ padding: '4px 0' }}>
+      {screenshot && (
+        <div onClick={onExpand} style={{
+          width: 120, height: 75, borderRadius: 8, overflow: 'hidden', background: '#111',
+          cursor: onExpand ? 'pointer' : 'default', marginBottom: 6,
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}>
+          <img src={`data:image/jpeg;base64,${screenshot}`} alt="Computer view" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
       )}
+      {status === 'Using Browser' && <ToolIndicator label="Using Browser" />}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {steps.map((s, i) => (
+          <SubStepPill key={i} label={s.label} status={s.status} />
+        ))}
+      </div>
     </div>
   );
 }
 
-/** Collapsible task block -- Manus-style with sub-steps */
-function CollapsibleTaskBlock({ run, onDocClick, onExpandComputer }: { run: AgentRun; onDocClick: (doc: AgentDocument) => void; onExpandComputer?: () => void }) {
+/** Manus-style task block -- collapsible header with pill sub-steps, commentary, and tool indicators */
+function ManusTaskBlock({ run, onDocClick, onExpandComputer }: { run: AgentRun; onDocClick: (doc: AgentDocument) => void; onExpandComputer?: () => void }) {
   const [expanded, setExpanded] = useState(run.status === 'running');
   const visibleSteps = run.steps.filter(s => !s.hidden);
-  const doneCount = visibleSteps.filter(s => s.status === 'done').length;
   const runningStep = visibleSteps.find(s => s.status === 'running');
   const latestScreenshot = [...run.steps].reverse().find(s => s.latestScreenshot)?.latestScreenshot;
   const isComputerTask = run.steps.some(s => s.id.startsWith('agent_step_'));
-  const label = runningStep?.label || (run.status === 'done' ? 'Task completed' : run.status === 'error' ? 'Task failed' : 'Working...');
+
+  // Derive the header label
+  const headerLabel = run.status === 'done'
+    ? (visibleSteps.length > 0 ? visibleSteps[visibleSteps.length - 1].label : 'Task completed')
+    : run.status === 'error' ? 'Task failed'
+    : runningStep?.label || 'Working...';
+
+  const headerStatus: 'done' | 'running' | 'error' = run.status === 'done' ? 'done' : run.status === 'error' ? 'error' : 'running';
 
   useEffect(() => { if (run.status === 'running') setExpanded(true); }, [run.status]);
 
+  // Determine tool indicator for running state
+  const toolLabel = runningStep?.label === 'Searching...' ? 'Searching the web'
+    : runningStep?.label === 'Using Computer' || runningStep?.label?.toLowerCase().includes('brows') ? 'Using Browser'
+    : runningStep?.label?.startsWith('Generating search') ? 'Deep research'
+    : runningStep?.label?.startsWith('Fetching') ? 'Fetching pages'
+    : runningStep?.label?.startsWith('Summariz') ? 'Summarizing findings'
+    : runningStep?.label?.startsWith('Synthesiz') ? 'Synthesizing findings'
+    : null;
+
   return (
     <div style={{ margin: '4px 0' }}>
-      {/* Collapsible header */}
+      {/* Collapsible header row */}
       <button onClick={() => setExpanded(e => !e)} style={{
-        display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-        background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: '4px 0',
+        display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+        background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: '5px 0',
       }}>
-        <TaskStepBadge status={run.status === 'done' ? 'done' : run.status === 'error' ? 'error' : 'running'} />
+        <ManusStatusIcon status={headerStatus} size={16} />
         <span style={{
-          flex: 1, fontSize: 11, color: 'rgba(255,255,255,0.55)',
+          flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.65)', fontWeight: 500,
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        }}>{label}</span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.22)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-          {doneCount}/{visibleSteps.length}
-        </span>
+        }}>{headerLabel}</span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{
-          color: 'rgba(255,255,255,0.20)', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+          color: 'rgba(255,255,255,0.22)', transform: expanded ? 'rotate(0deg)' : 'rotate(180deg)',
           transition: 'transform 0.15s ease', flexShrink: 0,
-        }}><polyline points="6 9 12 15 18 9" /></svg>
+        }}><polyline points="6 15 12 9 18 15" /></svg>
       </button>
 
-      {/* Expanded sub-steps */}
+      {/* Expanded: pills + commentary + tool indicators */}
       <AnimatePresence>
         {expanded && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.15 }} style={{ overflow: 'hidden' }}>
-            <div style={{ paddingLeft: 20, paddingBottom: 4 }}>
-              {visibleSteps.map((step) => (
-                <div key={step.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '3px 0' }}>
-                  <div style={{ marginTop: 2 }}><TaskStepBadge status={step.status} /></div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{
-                      fontSize: 11,
-                      color: step.status === 'done' ? 'rgba(255,255,255,0.35)'
-                        : step.status === 'running' ? 'rgba(255,255,255,0.70)'
-                        : step.status === 'error' ? 'rgba(239,68,68,0.70)'
-                        : 'rgba(255,255,255,0.28)',
-                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block',
-                    }}>{step.label}</span>
+            <div style={{ paddingLeft: 24, paddingBottom: 6 }}>
+              {/* Tool indicator */}
+              {run.status === 'running' && toolLabel && (
+                <ToolIndicator label={toolLabel} />
+              )}
+
+              {/* Sub-step pills + commentary */}
+              {visibleSteps.map((step) => {
+                const isAgent = step.id.startsWith('agent_step_');
+                return (
+                  <div key={step.id} style={{ marginBottom: 2 }}>
+                    <SubStepPill label={step.label} status={step.status} />
+
+                    {/* Commentary: reasoning or output snippet */}
                     {step.status === 'running' && step.reasoning && (
-                      <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', fontStyle: 'italic', display: 'block', marginTop: 1 }}>
-                        {step.reasoning.slice(0, 60)}{step.reasoning.length > 60 ? '...' : ''}
-                      </span>
+                      <AgentCommentary text={step.reasoning.slice(0, 80) + (step.reasoning.length > 80 ? '...' : '')} />
                     )}
-                    {step.output && step.status === 'done' && (
-                      <span style={{
-                        fontSize: 10, color: 'rgba(255,255,255,0.25)', display: 'block', marginTop: 1,
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                      }}>{step.output.slice(0, 80)}</span>
+                    {step.status === 'running' && step.output && (
+                      <AgentCommentary text={step.output.slice(0, 80) + (step.output.length > 80 ? '...' : '')} />
+                    )}
+                    {step.status === 'done' && step.output && !isAgent && (
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', padding: '1px 0 2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {step.output.slice(0, 80)}
+                      </div>
+                    )}
+
+                    {/* Action log for agent steps (inline) */}
+                    {isAgent && step.actionLog && step.actionLog.length > 0 && (
+                      <div style={{ paddingLeft: 8, marginTop: 2, marginBottom: 4 }}>
+                        {step.actionLog.slice(-5).map((entry, i) => (
+                          <div key={`${entry.ts}_${i}`} style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <span style={{ color: 'rgba(255,255,255,0.18)', marginRight: 4 }}>-&gt;</span>{entry.desc}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Screenshot thumbnail for agent steps */}
+                    {isAgent && step.latestScreenshot && (
+                      <div style={{ marginTop: 4, marginBottom: 4 }}>
+                        <img src={`data:image/jpeg;base64,${step.latestScreenshot}`} alt="Agent view" style={{
+                          width: 100, height: 62, objectFit: 'cover', borderRadius: 6,
+                          border: '1px solid rgba(255,255,255,0.10)', display: 'block', cursor: 'pointer',
+                        }} onClick={onExpandComputer} />
+                      </div>
                     )}
                   </div>
+                );
+              })}
+
+              {/* Computer card (compact, screenshot only) */}
+              {isComputerTask && latestScreenshot && !visibleSteps.some(s => s.latestScreenshot) && (
+                <div style={{ marginTop: 4 }}>
+                  <img src={`data:image/jpeg;base64,${latestScreenshot}`} alt="Computer view" onClick={onExpandComputer} style={{
+                    width: 100, height: 62, objectFit: 'cover', borderRadius: 6,
+                    border: '1px solid rgba(255,255,255,0.10)', display: 'block', cursor: onExpandComputer ? 'pointer' : 'default',
+                  }} />
                 </div>
-              ))}
+              )}
+
+              {/* Document card */}
+              {run.document && (
+                <button onClick={() => onDocClick(run.document!)} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', textAlign: 'left',
+                  padding: '8px 10px', borderRadius: 8, background: 'rgba(30,40,80,0.4)',
+                  border: '1px solid rgba(60,80,180,0.25)', cursor: 'pointer', marginTop: 6,
+                }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(99,130,255,0.85)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(99,130,255,0.90)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{run.document.title}</div>
+                  </div>
+                </button>
+              )}
+
+              {/* Error footer */}
+              {run.status === 'error' && run.errorDetail && (
+                <div style={{ marginTop: 6, fontSize: 12, color: 'rgba(239,68,68,0.75)', lineHeight: 1.45 }}>
+                  Something went wrong: {run.errorDetail}
+                </div>
+              )}
             </div>
-
-            {/* Inline computer card when computer is being used */}
-            {isComputerTask && (
-              <ComputerCard
-                screenshot={latestScreenshot}
-                status={run.status === 'running' ? (runningStep?.label.toLowerCase().includes('brows') ? 'Using Browser' : 'Using Computer') : 'Completed'}
-                steps={visibleSteps.filter(s => s.id.startsWith('agent_step_')).map(s => ({ label: s.label, status: s.status }))}
-                currentStep={visibleSteps.filter(s => s.id.startsWith('agent_step_') && s.status === 'done').length}
-                onExpand={onExpandComputer}
-              />
-            )}
-
-            {/* Document card */}
-            {run.document && (
-              <button onClick={() => onDocClick(run.document!)} style={{
-                display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', textAlign: 'left',
-                padding: '10px 12px', borderRadius: 10, background: 'rgba(30,40,80,0.5)',
-                border: '1px solid rgba(60,80,180,0.30)', cursor: 'pointer', marginTop: 8,
-              }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(99,130,255,0.85)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
-                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" />
-                </svg>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(99,130,255,0.90)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{run.document.title}</div>
-                </div>
-              </button>
-            )}
-
-            {/* Final answer */}
-            {run.status === 'done' && run.finalAnswer && (
-              <div style={{ marginTop: 8, background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.15)', borderRadius: 8, padding: '8px 10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(52,211,153,0.8)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                  <span style={{ fontSize: 9, color: 'rgba(52,211,153,0.70)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Answer</span>
-                </div>
-                <div style={{
-                  fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: 'rgba(255,255,255,0.82)',
-                  lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 200, overflowY: 'auto',
-                }}>{run.finalAnswer}</div>
-              </div>
-            )}
-
-            {/* Error footer */}
-            {run.status === 'error' && run.errorDetail && (
-              <div style={{ marginTop: 8, background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 8, padding: '8px 10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="rgba(239,68,68,0.80)" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="3" x2="9" y2="9" /><line x1="9" y1="3" x2="3" y2="9" /></svg>
-                  <span style={{ fontSize: 9, color: 'rgba(239,68,68,0.70)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Error</span>
-                </div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{run.errorDetail}</div>
-              </div>
-            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -843,6 +856,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
   const abortRef = useRef<AbortController | null>(null);
   const userScrolledRef = useRef(false);
   const stepTimeoutMapRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const userLocationRef = useRef<string | null>(null);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [runLongRunning, setRunLongRunning] = useState(false);
 
@@ -1102,6 +1116,22 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
       }
       // ── Main path: classify tool first, then generate response ──
       else {
+        // Step 0: Get user location if needed and not yet known
+        if (!userLocationRef.current && /weather|near me|nearby|local|around here|my area|in my city/i.test(userMessage)) {
+          try {
+            const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+            });
+            // Reverse geocode with a simple fetch
+            try {
+              const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json`).then(r => r.json());
+              userLocationRef.current = geoRes.address?.city || geoRes.address?.town || geoRes.address?.village || `${pos.coords.latitude.toFixed(2)},${pos.coords.longitude.toFixed(2)}`;
+            } catch {
+              userLocationRef.current = `${pos.coords.latitude.toFixed(2)},${pos.coords.longitude.toFixed(2)}`;
+            }
+          } catch { /* user denied or timeout — proceed without location */ }
+        }
+
         // Step 1: Fast tool classification (qwen3.5:2b, ~10 tokens, <1s)
         let toolClass = 'none';
         let toolParam = '';
@@ -1109,7 +1139,7 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
         try {
           let classResult = '';
           await ollamaService.generateStream(
-            `User message: "${userMessage}"\n\nClassify what tool is needed. Reply with ONLY one line:\nnone\nwebfetch: <search query>\nresearch: <topic>\ncomputer: <goal>\nask: <question>\n\nExamples:\n"yo" → none\n"whats the weather" → webfetch: current weather\n"research competitors" → research: competitor analysis\n"go to github" → computer: navigate to github.com\n"fix it" → ask: What would you like me to fix?\n\nReply:`,
+            `User message: "${userMessage}"${userLocationRef.current ? `\nUser location: ${userLocationRef.current}` : ''}\n\nClassify what tool is needed. Reply with ONLY one line:\nnone\nwebfetch: <search query>\nresearch: <topic>\ncomputer: <goal>\nask: <question>\n\nExamples:\n"yo" → none\n"whats the weather" → webfetch: weather ${userLocationRef.current || 'current location'}\n"research competitors" → research: competitor analysis\n"go to github" → computer: navigate to github.com\n"fix it" → ask: What would you like me to fix?\n\nReply:`,
             'You are a tool classifier. Output ONE line only. No explanation.',
             { model: 'qwen3.5:2b', temperature: 0.1, num_predict: 30, signal: cs, think: false,
               onChunk: (c) => { classResult += c; } },
@@ -1168,54 +1198,77 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
             // Show conversational message first
             if (conversationalMsg) responseText = conversationalMsg;
 
-            // Quick SearXNG fetch + Wayfarer scrape + summarize
-            const searchStepId = uid();
-            addStep(runId, { id: searchStepId, label: 'Searching...', status: 'running' });
+            const query = param || userMessage;
+
+            // Step 1: Querying SearXNG
+            const queryStepId = uid();
+            addStep(runId, { id: queryStepId, label: `Querying SearXNG for "${query}"`, status: 'running' });
             scrollToBottom();
 
-            const query = param || userMessage;
             let context = '';
+            let resultCount = 0;
+            let sourceNames: string[] = [];
+            // SearXNG first (fast, reliable, returns snippets with data)
             try {
-              const wayfarerRes = await fetch(`${INFRASTRUCTURE.wayfarerUrl}/research`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ queries: [{ query, max_results: 3 }] }),
-                signal: abort.signal,
-              }).then(r => r.json());
-              const pages = wayfarerRes.results || [];
-              context = pages.map((r: { title?: string; text?: string }) =>
-                `${r.title || 'Untitled'}: ${(r.text || '').slice(0, 500)}`
+              const searxRes = await fetch(`${INFRASTRUCTURE.searxngUrl}/search?q=${encodeURIComponent(query)}&format=json`, { signal: abort.signal }).then(r => r.json());
+              const topResults = (searxRes.results || []).slice(0, 8);
+              resultCount = topResults.length;
+              context = topResults.map((r: { title?: string; content?: string; url?: string }) =>
+                `${r.title || ''}: ${r.content || ''}`
               ).join('\n\n');
-              updateStep(runId, searchStepId, s => ({ ...s, output: `Fetched ${pages.length} pages` }));
+              // Extract source names from URLs
+              sourceNames = topResults.map((r: { url?: string }) => {
+                try { return new URL(r.url || '').hostname.replace('www.', ''); } catch { return ''; }
+              }).filter(Boolean).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i).slice(0, 4);
+              updateStep(runId, queryStepId, s => ({ ...s, status: 'done', output: `Found ${resultCount} results` }));
             } catch {
-              // Fallback: try SearXNG directly
+              // Fallback: try Wayfarer research
               try {
-                const searxRes = await fetch(`${INFRASTRUCTURE.searxngUrl}/search?q=${encodeURIComponent(query)}&format=json`, { signal: abort.signal }).then(r => r.json());
-                const topResults = (searxRes.results || []).slice(0, 5);
-                context = topResults.map((r: { title?: string; content?: string; url?: string }) =>
-                  `${r.title || ''}: ${r.content || ''} (${r.url || ''})`
+                const wayfarerRes = await fetch(`${INFRASTRUCTURE.wayfarerUrl}/research`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ query, max_results: 3 }),
+                  signal: abort.signal,
+                }).then(r => r.json());
+                const pages = wayfarerRes.results || [];
+                resultCount = pages.length;
+                context = pages.map((r: { title?: string; text?: string }) =>
+                  `${r.title || 'Untitled'}: ${(r.text || '').slice(0, 500)}`
                 ).join('\n\n');
-                updateStep(runId, searchStepId, s => ({ ...s, output: `Found ${topResults.length} results` }));
+                updateStep(runId, queryStepId, s => ({ ...s, status: 'done', output: `Fetched ${pages.length} pages` }));
               } catch {
-                context = 'No search results available.';
+                context = 'No search results available. SearXNG and Wayfarer are both unreachable.';
+                updateStep(runId, queryStepId, s => ({ ...s, status: 'error', output: 'Search unavailable' }));
               }
             }
 
-            // Summarize with small model
+            // Step 2: Processing results
+            const processStepId = uid();
+            const processLabel = sourceNames.length > 0
+              ? `Processing ${resultCount} results from ${sourceNames.join(', ')}`
+              : `Processing ${resultCount} search results`;
+            addStep(runId, { id: processStepId, label: processLabel, status: 'running' });
+            scrollToBottom();
+
+            // Step 3: Summarize with small model
+            const sumStepId = uid();
             let summary = '';
             const { signal: ss, cleanup: sc } = combinedSignal(abort.signal, 20_000);
             try {
+              updateStep(runId, processStepId, s => ({ ...s, status: 'done' }));
+              addStep(runId, { id: sumStepId, label: 'Summarizing findings', status: 'running' });
+              scrollToBottom();
               await ollamaService.generateStream(
                 `Based on these search results, give a brief answer to: "${query}"\n\n${context}`,
-                'You are a concise assistant. Give a direct, factual answer. 2-4 sentences max. No preamble.',
+                'You are a concise assistant. Give a direct, factual answer. 2-4 sentences max. No preamble. Use Celsius for temperatures, metric for distances.',
                 {
                   model: 'qwen3.5:2b', temperature: 0.3, num_predict: 200, signal: ss, think: false,
-                  onChunk: (c) => { summary += c; updateStep(runId, searchStepId, s => ({ ...s, output: summary })); scrollToBottom(); },
+                  onChunk: (c) => { summary += c; updateStep(runId, sumStepId, s => ({ ...s, output: summary })); scrollToBottom(); },
                 },
               );
             } finally { sc(); }
 
-            updateStep(runId, searchStepId, s => ({ ...s, status: 'done' }));
+            updateStep(runId, sumStepId, s => ({ ...s, status: 'done' }));
             // Append summary to response
             if (summary.trim()) responseText = (responseText ? responseText + '\n\n' : '') + summary.trim();
             break;
@@ -1530,12 +1583,8 @@ export function ActionSidebarCompact({ machineId: _machineId, onComputerTask, ag
                       {entry.type === 'task' && (() => {
                         const run = runs.find(r => r.id === entry.runId);
                         if (!run) return null;
-                        const searchStep = run.steps.find(s => s.label === 'Searching...' && s.status === 'running');
                         return (
-                          <>
-                            {searchStep && <SearchIndicator label="Searching the web..." />}
-                            <CollapsibleTaskBlock run={run} onDocClick={setViewingDoc} onExpandComputer={onExpandComputer} />
-                          </>
+                          <ManusTaskBlock run={run} onDocClick={setViewingDoc} onExpandComputer={onExpandComputer} />
                         );
                       })()}
                       {entry.type === 'computer' && (() => {
