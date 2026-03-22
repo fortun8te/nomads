@@ -330,7 +330,7 @@ function deriveStepTitle(thinking: string): string {
 function RoutingIndicator() {
   return (
     <div className="flex gap-3">
-      <img src="/neuro-icon-192.png" alt="" className="shrink-0 mt-0.5" style={{ width: 20, height: 20, minWidth: 20, minHeight: 20, borderRadius: '50%', objectFit: 'cover', opacity: 0.55 }} />
+      <img src="/neuro-icon-40.png" alt="" className="shrink-0 mt-0.5" style={{ width: 20, height: 20, minWidth: 20, minHeight: 20, borderRadius: '50%', opacity: 0.75 }} />
       <div className="flex-1 min-w-0 pt-0.5">
         <div className="flex items-center gap-2">
           <ThinkingMorph size={14} />
@@ -1967,7 +1967,7 @@ export function AgentPanel() {
                     return (
                       <div key={block.id} className="flex gap-3">
                         {/* Neuro agent icon */}
-                        <img src="/neuro-icon-192.png" alt="" className="shrink-0 mt-0.5" style={{ width: 20, height: 20, minWidth: 20, minHeight: 20, borderRadius: '50%', objectFit: 'cover', opacity: 0.55 }} />
+                        <img src="/neuro-icon-40.png" alt="" className="shrink-0 mt-0.5" style={{ width: 20, height: 20, minWidth: 20, minHeight: 20, borderRadius: '50%', opacity: 0.75 }} />
                         <div className="flex-1 min-w-0 pt-0">
                           {/* Identity line: "neuro" —  */}
                           <div className="flex items-center gap-1.5 mb-2">
