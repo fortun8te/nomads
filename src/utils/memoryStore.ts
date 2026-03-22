@@ -153,10 +153,12 @@ function ensureInitialized(): void {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      saveAll(getSeededMemories()); // saveAll sets _cache
+      // Filter out any seeds the user previously deleted
+      const deleted: string[] = JSON.parse(localStorage.getItem('nomad_deleted_memories') || '[]');
+      const seeds = getSeededMemories().filter(s => !deleted.includes(s.id));
+      saveAll(seeds);
     } else {
-      // Pre-warm cache on init so first snapshot call is instant
-      _cache = null; // will be populated lazily on first loadAll()
+      _cache = null;
     }
   } catch { /* ignore */ }
 }
@@ -233,6 +235,11 @@ export function searchMemories(query: string): Memory[] {
 export function deleteMemory(id: string): void {
   const memories = loadAll().filter(m => m.id !== id);
   saveAll(memories);
+  // Track deleted IDs so seeds don't respawn
+  try {
+    const deleted = JSON.parse(localStorage.getItem('nomad_deleted_memories') || '[]');
+    if (!deleted.includes(id)) { deleted.push(id); localStorage.setItem('nomad_deleted_memories', JSON.stringify(deleted)); }
+  } catch { /* ignore */ }
   // Fire-and-forget filesystem deletion
   deleteMemoryFromFS(id).catch(() => { /* non-fatal */ });
 }

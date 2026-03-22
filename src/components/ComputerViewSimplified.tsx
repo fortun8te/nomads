@@ -18,6 +18,24 @@ import { checkInfrastructure, type InfrastructureHealth } from '../config/infras
 import type { AgentState } from './ActionSidebarCompact';
 import { vfs, vfsReady, generateSessionId, getSessionSuffix } from '../utils/sessionFileSystem';
 
+/** Neuro icon inline SVG for the bottom bar */
+function NeuroIcon({ size = 14 }: { size?: number }) {
+  return (
+    <img src="/neuro-icon-40.png" alt="" style={{ width: size, height: size, minWidth: size, minHeight: size, borderRadius: '50%', opacity: 0.75, flexShrink: 0 }} />
+  );
+}
+
+/** Morphing square/circle animation for loading states */
+function LoadingMorph({ size = 10, color = '#3b82f6' }: { size?: number; color?: string }) {
+  return (
+    <motion.div
+      style={{ width: size, height: size, background: color, flexShrink: 0 }}
+      animate={{ borderRadius: ['15%', '50%', '15%'], rotate: [0, 180, 360] }}
+      transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+    />
+  );
+}
+
 const MACHINE_ACCENTS = [
   {
     hex: '#2B79FF',
